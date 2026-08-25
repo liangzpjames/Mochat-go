@@ -99,6 +99,30 @@ export interface TenantDetailData {
   tenantId: number
 }
 
+export interface TenantAIProvider {
+  tenantId: number
+  providerCode: 'deepseek' | 'openai' | 'dashscope' | 'custom' | ''
+  baseUrl: string
+  model: string
+  apiKeyConfigured: boolean
+  apiKeyHint: string
+  credentialProtection: 'usable' | 'unavailable' | 'unconfigured' | string
+  effectiveAt: string
+  expiresAt: string
+  status: 'active' | 'disabled' | ''
+  version: number
+  updatedAt: string
+}
+
+export interface TenantAIProviderData {
+  configured: boolean
+  provider: TenantAIProvider
+}
+
+export interface TenantAIProviderSaveData {
+  provider: TenantAIProvider
+}
+
 export interface PackagePlan {
   id: number
   code: string

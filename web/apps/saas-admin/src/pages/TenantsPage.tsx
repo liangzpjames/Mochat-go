@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Building2, Eye, Plus, RefreshCw, Search, ShieldCheck, UserRoundCog, UserRoundPlus, UserX } from 'lucide-react'
+import { Bot, Building2, Eye, KeyRound, Plus, RefreshCw, Search, ShieldCheck, UserRoundCog, UserRoundPlus, UserX } from 'lucide-react'
 import { toast } from 'sonner'
-import { ApiError, apiRequest, executeGoverned, hasPermission } from '@/lib/api'
+import { ApiError, apiRequest, executeGoverned, hasPermission, jsonRequest } from '@/lib/api'
 import type {
   DashboardAdminGovernanceResult,
   DashboardAdminProvisionResult,
@@ -11,6 +11,8 @@ import type {
   PackagePlan,
   PackagesData,
   TenantDetailData,
+  TenantAIProviderData,
+  TenantAIProviderSaveData,
   TenantSummary,
 } from '@/lib/types'
 import type { GovernedResult } from '@/lib/types'
@@ -43,6 +45,37 @@ interface CreateTenantForm {
   billingCycle: 'custom' | 'monthly' | 'yearly' | 'lifetime'
   expiresAt: string
   idempotencyKey: string
+}
+
+interface TenantAIProviderForm {
+  providerCode: 'deepseek' | 'openai' | 'dashscope' | 'custom'
+  baseUrl: string
+  model: string
+  apiKey: string
+  effectiveAt: string
+  expiresAt: string
+  status: 'active' | 'disabled'
+  version: number
+}
+
+const providerPresets: Record<Exclude<TenantAIProviderForm['providerCode'], 'custom'>, { baseUrl: string; model: string }> = {
+  deepseek: { baseUrl: 'https://api.deepseek.com', model: 'deepseek-chat' },
+  openai: { baseUrl: 'https://api.openai.com/v1', model: 'gpt-4.1-mini' },
+  dashscope: { baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: 'qwen-plus' },
+}
+
+function localDateTime(value: string) {
+  const date = value ? new Date(value) : null
+  if (!date || Number.isNaN(date.getTime())) return ''
+  const offset = date.getTimezoneOffset() * 60_000
+  return new Date(date.getTime() - offset).toISOString().slice(0, 16)
+}
+
+function defaultProviderForm(): TenantAIProviderForm {
+  const now = new Date()
+  const expires = new Date(now)
+  expires.setFullYear(expires.getFullYear() + 1)
+  return { providerCode: 'deepseek', ...providerPresets.deepseek, apiKey: '', effectiveAt: localDateTime(now.toISOString()), expiresAt: localDateTime(expires.toISOString()), status: 'active', version: 0 }
 }
 
 const makeRequestKey = (prefix: string) => {
@@ -89,6 +122,8 @@ function isoEndOfDate(date: string) {
 export default function TenantsPage({ profile, approvalMode }: PageProps) {
   const queryClient = useQueryClient()
   const canManage = hasPermission(profile.permissions, 'platform.tenants.manage')
+  const canReadAIProvider = hasPermission(profile.permissions, 'platform.integrations.read')
+  const canManageAIProvider = hasPermission(profile.permissions, 'platform.integrations.manage')
   const requestKeys = useRef<Record<string, string>>({})
   const [keyword, setKeyword] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
@@ -101,6 +136,8 @@ export default function TenantsPage({ profile, approvalMode }: PageProps) {
   const [replacementAdminId, setReplacementAdminId] = useState('')
   const [activationToken, setActivationToken] = useState('')
   const [activationTokenOpen, setActivationTokenOpen] = useState(false)
+  const [aiProviderOpen, setAIProviderOpen] = useState(false)
+  const [aiProviderForm, setAIProviderForm] = useState<TenantAIProviderForm>(defaultProviderForm)
 
   const overviewQuery = useQuery({
     queryKey: queryKeys.overview,
@@ -119,6 +156,65 @@ export default function TenantsPage({ profile, approvalMode }: PageProps) {
     queryKey: ['dashboard-admin-governance', selectedTenantId],
     queryFn: () => apiRequest<DashboardAdminGovernanceData>(`/dashboard/saasAdmin/tenants/${selectedTenantId}/dashboard-admins`),
     enabled: selectedTenantId > 0,
+  })
+  const aiProviderQuery = useQuery({
+    queryKey: ['tenant-ai-provider', selectedTenantId],
+    queryFn: () => apiRequest<TenantAIProviderData>(`/dashboard/saasAdmin/tenantAIProvider?tenantId=${selectedTenantId}`),
+    enabled: selectedTenantId > 0 && canReadAIProvider,
+  })
+
+  const closeAIProvider = () => {
+    setAIProviderOpen(false)
+    setAIProviderForm((form) => ({ ...form, apiKey: '' }))
+  }
+
+  const openAIProvider = () => {
+    const current = aiProviderQuery.data?.provider
+    if (current && aiProviderQuery.data?.configured) {
+      setAIProviderForm({
+        providerCode: current.providerCode || 'custom',
+        baseUrl: current.baseUrl,
+        model: current.model,
+        apiKey: '',
+        effectiveAt: localDateTime(current.effectiveAt),
+        expiresAt: localDateTime(current.expiresAt),
+        status: current.status || 'disabled',
+        version: current.version,
+      })
+    } else {
+      setAIProviderForm(defaultProviderForm())
+    }
+    setAIProviderOpen(true)
+  }
+
+  const aiProviderMutation = useMutation<TenantAIProviderSaveData, unknown>({
+    mutationFn: async () => {
+      const effectiveAt = new Date(aiProviderForm.effectiveAt)
+      const expiresAt = new Date(aiProviderForm.expiresAt)
+      if (!aiProviderForm.baseUrl.trim() || !aiProviderForm.model.trim()) throw new Error('请填写接口地址和模型名称')
+      if (Number.isNaN(effectiveAt.getTime()) || Number.isNaN(expiresAt.getTime()) || expiresAt <= effectiveAt) throw new Error('有效结束时间必须晚于生效时间')
+      if (!aiProviderQuery.data?.configured && !aiProviderForm.apiKey.trim()) throw new Error('首次配置必须填写 API Key')
+      return apiRequest<TenantAIProviderSaveData>('/dashboard/saasAdmin/tenantAIProvider', jsonRequest('PUT', {
+        tenantId: selectedTenantId,
+        providerCode: aiProviderForm.providerCode,
+        baseUrl: aiProviderForm.baseUrl.trim(),
+        model: aiProviderForm.model.trim(),
+        apiKey: aiProviderForm.apiKey.trim(),
+        effectiveAt: effectiveAt.toISOString(),
+        expiresAt: expiresAt.toISOString(),
+        status: aiProviderForm.status,
+        version: aiProviderForm.version,
+      }))
+    },
+    onSuccess: async (data) => {
+      queryClient.setQueryData<TenantAIProviderData>(['tenant-ai-provider', selectedTenantId], { configured: true, provider: data.provider })
+      closeAIProvider()
+      toast.success('租户 AI 模型配置已保存；保存动作不会触发模型调用')
+    },
+    onError: (error) => {
+      setAIProviderForm((form) => ({ ...form, apiKey: '' }))
+      toast.error(errorMessage(error, 'AI 模型配置保存失败，API Key 已从页面清除'))
+    },
   })
 
   const invalidateTenantData = async () => {
@@ -308,6 +404,7 @@ export default function TenantsPage({ profile, approvalMode }: PageProps) {
     setTargetAdminId('')
     setCurrentAdminId('')
     setReplacementAdminId('')
+    closeAIProvider()
   }
 
   useEffect(() => {
@@ -378,15 +475,49 @@ export default function TenantsPage({ profile, approvalMode }: PageProps) {
         <div className="space-y-3"><p className="text-sm text-amber-800">请使用安全的受控交付渠道传给对应管理员；不要写入工单正文、日志或截图。</p><code className="block break-all rounded-md bg-zinc-950 px-3 py-3 text-xs text-emerald-300">{activationToken}</code><Button type="button" variant="secondary" onClick={() => { setActivationTokenOpen(false); setActivationToken('') }}>我已记录并关闭</Button></div>
       </Dialog>
 
-      <Dialog open={selectedTenantId > 0} onOpenChange={(open) => !open && setSelectedTenantId(0)} title={selectedTenant?.tenantName || '客户详情'} description={selectedTenant ? `租户 ID ${selectedTenant.tenantId}` : '正在加载'} size="lg">
+      <Dialog open={selectedTenantId > 0} onOpenChange={(open) => { if (!open) { closeAIProvider(); setSelectedTenantId(0) } }} title={selectedTenant?.tenantName || '客户详情'} description={selectedTenant ? `租户 ID ${selectedTenant.tenantId}` : '正在加载'} size="lg">
         {detailQuery.isLoading && <LoadingState label="正在加载客户详情" />}
         {detailQuery.isError && <ErrorState message={errorMessage(detailQuery.error, '无法加载客户详情')} onRetry={() => detailQuery.refetch()} />}
         {selectedTenant && <div className="space-y-6">
           <div className="grid gap-3 sm:grid-cols-3"><div className="rounded-md border border-zinc-200 p-3"><span className="text-xs text-zinc-500">当前套餐</span><strong className="mt-1 block text-sm">{selectedTenant.packageName || '未配置'}</strong></div><div className="rounded-md border border-zinc-200 p-3"><span className="text-xs text-zinc-500">租户状态</span><div className="mt-1"><Badge tone={tenantStatusView(selectedTenant.tenantStatus).tone}>{tenantStatusView(selectedTenant.tenantStatus).label}</Badge></div></div><div className="rounded-md border border-zinc-200 p-3"><span className="text-xs text-zinc-500">套餐到期</span><strong className="mt-1 block text-sm">{selectedTenant.expiresAt || '长期有效'}</strong></div></div>
+          {canReadAIProvider && <section className="space-y-4 rounded-lg border border-blue-200 bg-blue-50/40 p-4" aria-label="租户 AI 分析模型">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <SectionHeader title="租户 AI 分析模型" description="每个客户独立配置 Provider、模型、密钥与有效期；页面只显示脱敏状态。" />
+              {canManageAIProvider && <Button type="button" variant="secondary" onClick={() => { aiProviderMutation.reset(); openAIProvider() }} disabled={aiProviderQuery.isLoading}><Bot className="h-4 w-4" />配置 AI 模型</Button>}
+            </div>
+            {aiProviderQuery.isLoading && <LoadingState label="正在加载租户 AI 配置" />}
+            {aiProviderQuery.isError && <ErrorState message={errorMessage(aiProviderQuery.error, '无法加载租户 AI 配置')} onRetry={() => aiProviderQuery.refetch()} />}
+            {aiProviderQuery.data && <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <div className="rounded-md border border-blue-100 bg-white p-3"><span className="text-xs text-zinc-500">Provider / 模型</span><strong className="mt-1 block break-words text-sm">{aiProviderQuery.data.configured ? `${aiProviderQuery.data.provider.providerCode} / ${aiProviderQuery.data.provider.model}` : '尚未配置'}</strong></div>
+              <div className="rounded-md border border-blue-100 bg-white p-3"><span className="text-xs text-zinc-500">密钥保护</span><div className="mt-1 flex items-center gap-2"><Badge tone={aiProviderQuery.data.provider.credentialProtection === 'usable' ? 'success' : 'danger'}>{aiProviderQuery.data.provider.credentialProtection === 'usable' ? '可用' : aiProviderQuery.data.provider.credentialProtection === 'unconfigured' ? '未配置' : '不可用'}</Badge><span className="text-sm text-zinc-700">{aiProviderQuery.data.provider.apiKeyHint || '无密钥提示'}</span></div></div>
+              <div className="rounded-md border border-blue-100 bg-white p-3"><span className="text-xs text-zinc-500">状态</span><div className="mt-1"><Badge tone={aiProviderQuery.data.provider.status === 'active' ? 'success' : 'neutral'}>{aiProviderQuery.data.provider.status === 'active' ? '启用' : '停用'}</Badge></div></div>
+              <div className="rounded-md border border-blue-100 bg-white p-3"><span className="text-xs text-zinc-500">有效期</span><strong className="mt-1 block text-sm">{aiProviderQuery.data.provider.expiresAt ? formatDate(aiProviderQuery.data.provider.expiresAt) : '未设置'}</strong></div>
+            </div>}
+            {!canManageAIProvider && <p className="text-xs text-zinc-500">当前账号只有查看权限，不能修改模型或密钥。</p>}
+          </section>}
           {canManage && <section className="space-y-4 rounded-lg border border-emerald-200 bg-emerald-50/40 p-4"><SectionHeader title="Dashboard 超级管理员治理" description="对象和绑定版本来自服务端只读治理列表；页面不接受手填用户 ID 或版本。" />{governanceQuery.isLoading && <LoadingState label="正在加载 Dashboard 身份" />}{governanceQuery.isError && <ErrorState message={errorMessage(governanceQuery.error, '无法加载治理列表')} onRetry={() => governanceQuery.refetch()} />}{governanceQuery.data && <><div className="grid gap-3 sm:grid-cols-2"><Field label="治理绑定版本"><div className="flex h-9 items-center rounded-md border border-zinc-200 bg-white px-3 text-sm text-zinc-700">v{governanceQuery.data.bindingVersion}</div></Field><Field label="重发/停用/恢复对象"><Select value={targetAdminId} onChange={(event) => setTargetAdminId(event.target.value)}><option value="">请选择 Dashboard 超管</option>{governanceQuery.data.identities.filter((identity) => identity.isSuperAdmin).map((identity) => <option key={identity.id} value={identity.id}>{identity.name || identity.loginIdentifier}（{identity.id}，{identity.userStatus === 1 && identity.identityStatus === 1 && identity.activatedAt ? '启用' : '停用'}）</option>)}</Select></Field><Field label="当前超管"><Select value={currentAdminId} onChange={(event) => setCurrentAdminId(event.target.value)}><option value="">请选择当前超管</option>{governanceQuery.data.identities.filter((identity) => identity.isSuperAdmin).map((identity) => <option key={identity.id} value={identity.id}>{identity.name || identity.loginIdentifier}（{identity.id}）</option>)}</Select></Field><Field label="替换候选"><Select value={replacementAdminId} onChange={(event) => setReplacementAdminId(event.target.value)}><option value="">请选择已激活候选</option>{governanceQuery.data.identities.filter((identity) => identity.id !== Number(currentAdminId) && identity.userStatus === 1 && identity.identityStatus === 1 && Boolean(identity.activatedAt)).map((identity) => <option key={identity.id} value={identity.id}>{identity.name || identity.loginIdentifier}（{identity.id}）</option>)}</Select></Field></div><div className="mb-3 text-xs text-zinc-500">当前：{currentIdentity?.name || '未选择'}；候选：{replacementIdentity?.name || '未选择'}；目标状态：{targetIdentity?.isSuperAdmin ? (targetIdentity.userStatus === 1 && targetIdentity.identityStatus === 1 && targetIdentity.activatedAt ? '启用' : '停用') : '未选择'}</div>{governanceMutationError && <p role="alert" className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{errorMessage(governanceMutationError, '治理操作失败，当前选择已保留。')}</p>}<div className="flex flex-wrap gap-2"><ConfirmAction title="确认重发激活" summary={governanceSummary} loading={resendMutation.isPending} disabled={!targetIdentity || !targetIdentity.isSuperAdmin || targetIdentity.userStatus !== 1 || targetIdentity.identityStatus !== 1 || Boolean(targetIdentity.activatedAt)} onConfirm={() => resendMutation.mutateAsync()}><RefreshCw className="h-4 w-4" />重发激活</ConfirmAction><ConfirmAction title="确认替换超管" summary={`${governanceSummary}；当前 ${currentIdentity?.name || '未选择'} → 新 ${replacementIdentity?.name || '未选择'}`} loading={replaceMutation.isPending} disabled={!currentIdentity?.isSuperAdmin || currentIdentity.userStatus !== 1 || currentIdentity.identityStatus !== 1 || !currentIdentity.activatedAt || !replacementIdentity} onConfirm={() => replaceMutation.mutateAsync()}><ShieldCheck className="h-4 w-4" />替换超管</ConfirmAction><ConfirmAction title="确认停用超管" summary={governanceSummary} variant="danger" loading={statusMutation.isPending} disabled={!targetIdentity?.isSuperAdmin || targetIdentity.userStatus !== 1 || targetIdentity.identityStatus !== 1 || !targetIdentity.activatedAt} onConfirm={() => statusMutation.mutateAsync(false)}><UserX className="h-4 w-4" />停用超管</ConfirmAction><ConfirmAction title="确认恢复超管" summary={governanceSummary} variant="secondary" loading={statusMutation.isPending} disabled={!targetIdentity?.isSuperAdmin || targetIdentity.userStatus !== 2 || targetIdentity.identityStatus !== 2 || !targetIdentity.activatedAt} onConfirm={() => statusMutation.mutateAsync(true)}><UserRoundCog className="h-4 w-4" />恢复超管</ConfirmAction></div></>}</section>}
           <section className="space-y-3"><SectionHeader title="核心用量" /><div className="grid gap-3 sm:grid-cols-2">{coreMetrics.map((metric) => { const ratio = metric.limit > 0 ? metric.current / metric.limit : 0; return <div key={metric.metric} className="rounded-md border border-zinc-200 p-3"><div className="flex items-center justify-between gap-3 text-sm"><span>{metric.label}</span><strong>{metric.current} / {metric.limit}</strong></div><div className="mt-3"><ProgressBar value={ratio * 100} tone={usageTone(ratio)} /></div></div> })}</div></section>
           <section className="space-y-3"><SectionHeader title="最近变更" /><TableShell>{(detailQuery.data?.operations || []).length === 0 ? <EmptyState icon={<Building2 className="h-5 w-5" />} title="暂无变更记录" description="租户变更会自动记录。" /> : <table><thead><tr><th>目标</th><th>说明</th><th>时间</th></tr></thead><tbody>{(detailQuery.data?.operations || []).slice(0, 8).map((item) => <tr key={item.id}><td>{item.targetName || item.targetType}</td><td>{item.remark || item.action}</td><td>{formatDate(item.createdAt)}</td></tr>)}</tbody></table>}</TableShell></section>
         </div>}
+      </Dialog>
+
+      <Dialog open={aiProviderOpen && selectedTenantId > 0} onOpenChange={(open) => { if (!open) closeAIProvider() }} title="配置租户 AI 模型" description={selectedTenant ? `${selectedTenant.tenantName}（租户 ${selectedTenant.tenantId}）` : '租户配置'} size="lg" footer={<><Button type="button" variant="secondary" onClick={closeAIProvider}>取消</Button><Button type="button" loading={aiProviderMutation.isPending} onClick={() => aiProviderMutation.mutate()}>保存 AI 配置</Button></>}>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2" aria-label="租户 AI Provider 表单">
+          <Field label="Provider 厂商"><Select value={aiProviderForm.providerCode} onChange={(event) => {
+            const providerCode = event.target.value as TenantAIProviderForm['providerCode']
+            const preset = providerCode === 'custom' ? null : providerPresets[providerCode]
+            setAIProviderForm((form) => ({ ...form, providerCode, apiKey: '', ...(preset || { baseUrl: '', model: '' }) }))
+          }}><option value="deepseek">DeepSeek</option><option value="openai">OpenAI</option><option value="dashscope">阿里云百炼 / DashScope</option><option value="custom">OpenAI 兼容服务</option></Select></Field>
+          <Field label="运行状态"><Select value={aiProviderForm.status} onChange={(event) => setAIProviderForm((form) => ({ ...form, status: event.target.value as TenantAIProviderForm['status'] }))}><option value="active">启用</option><option value="disabled">停用</option></Select></Field>
+          <Field label="接口地址" hint="必须为可公开访问的 HTTPS 地址；服务端仍会执行 SSRF 防护。" className="sm:col-span-2"><Input type="url" value={aiProviderForm.baseUrl} onChange={(event) => setAIProviderForm((form) => ({ ...form, baseUrl: event.target.value }))} placeholder="https://api.example.com/v1" /></Field>
+          <Field label="模型名称"><Input value={aiProviderForm.model} onChange={(event) => setAIProviderForm((form) => ({ ...form, model: event.target.value }))} placeholder="模型标识" /></Field>
+          <Field label="API Key" hint={aiProviderQuery.data?.configured ? `留空保留现有密钥（${aiProviderQuery.data.provider.apiKeyHint || '已配置'}）` : '首次配置必须填写；保存失败或关闭窗口后立即清空。'}><div className="relative"><KeyRound className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-zinc-400" /><Input type="password" autoComplete="new-password" value={aiProviderForm.apiKey} onChange={(event) => setAIProviderForm((form) => ({ ...form, apiKey: event.target.value }))} className="pl-9" placeholder="留空则保留现有密钥" /></div></Field>
+          <Field label="生效时间"><Input type="datetime-local" value={aiProviderForm.effectiveAt} onChange={(event) => setAIProviderForm((form) => ({ ...form, effectiveAt: event.target.value }))} /></Field>
+          <Field label="失效时间"><Input type="datetime-local" value={aiProviderForm.expiresAt} onChange={(event) => setAIProviderForm((form) => ({ ...form, expiresAt: event.target.value }))} /></Field>
+          {Boolean(aiProviderMutation.error) && <p role="alert" className="sm:col-span-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{errorMessage(aiProviderMutation.error, '保存失败；API Key 已从页面清除。')}</p>}
+          {aiProviderQuery.data?.provider.credentialProtection === 'unavailable' && <p className="sm:col-span-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">现有密钥当前不可解密。请填写新 API Key 后保存；运行时会继续失败关闭，直到凭证保护恢复。</p>}
+          <p className="sm:col-span-2 text-xs leading-5 text-zinc-500">保存只更新加密配置，不会测试连接或触发 AI 分析。模型运行还必须满足租户有效期、企业绑定和手动运行权限。</p>
+        </div>
       </Dialog>
     </div>
   )

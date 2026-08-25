@@ -35,7 +35,7 @@ const mocks = vi.hoisted(() => {
     ApiError: MockApiError,
     apiRequest,
     executeGoverned,
-    hasPermission: vi.fn(() => true),
+    hasPermission: vi.fn((_permissions: string[], _permission: string) => true),
     jsonRequest: vi.fn((method: string, payload?: unknown) => payload === undefined ? { method } : { method, body: JSON.stringify(payload) }),
   }
 })
@@ -83,7 +83,7 @@ const tenant = {
   maxUsageLabel: '账号',
 }
 
-const profile: AccessProfile = { isPlatformSuperAdmin: false, permissions: ['platform.tenants.manage'], phone: '13800000000', roles: [], tenantId: 0, userId: 700, userName: '平台管理员', version: 1 }
+const profile: AccessProfile = { isPlatformSuperAdmin: false, permissions: ['platform.tenants.manage', 'platform.integrations.read', 'platform.integrations.manage'], phone: '13800000000', roles: [], tenantId: 0, userId: 700, userName: '平台管理员', version: 1 }
 const approvalMode: ApprovalPoliciesData = { required: false, policies: [] }
 
 describe('SaaS 客户租户治理页面', () => {
@@ -103,6 +103,8 @@ describe('SaaS 客户租户治理页面', () => {
       if (path.startsWith('/dashboard/saasAdmin/overview')) return { tenants: [tenant], summary: {}, access: {}, canPlatformScope: true, generatedAt: '', platformAdminTenantId: 0, scope: 'platform', tenantPopulation: 1 }
       if (path === '/dashboard/saasAdmin/packages') return { packages: [plan] }
       if (path.startsWith('/dashboard/saasAdmin/tenant?')) return { tenant, metrics: [], operations: [], platformAdminTenantId: 0, summary: {}, tenantId: 41 }
+      if (path === '/dashboard/saasAdmin/tenantAIProvider?tenantId=41') return { configured: true, provider: { tenantId: 41, providerCode: 'deepseek', baseUrl: 'https://api.deepseek.com', model: 'deepseek-chat', apiKeyConfigured: true, apiKeyHint: '••••cafe', credentialProtection: 'ready', effectiveAt: '2026-08-25T00:00:00Z', expiresAt: '2026-09-25T00:00:00Z', status: 'active', version: 3, updatedAt: '2026-08-25T01:00:00Z' } }
+      if (path === '/dashboard/saasAdmin/tenantAIProvider' && init?.method === 'PUT') return { provider: { tenantId: 41, providerCode: 'deepseek', baseUrl: 'https://api.deepseek.com', model: 'deepseek-chat', apiKeyConfigured: true, apiKeyHint: '••••ture', credentialProtection: 'ready', effectiveAt: '2026-08-25T00:00:00Z', expiresAt: '2026-09-25T00:00:00Z', status: 'active', version: 4, updatedAt: '2026-08-25T02:00:00Z' } }
       if (path === '/dashboard/saasAdmin/tenants/41/dashboard-admins') return { tenantId: 41, bindingVersion: governanceVersion, identities: [{ id: 900, name: '待激活超管', loginIdentifier: '13800000002', userStatus: 1, identityStatus: 1, activatedAt: '', isSuperAdmin: true }, { id: 902, name: '已停用超管', loginIdentifier: '13800000004', userStatus: 2, identityStatus: 2, activatedAt: '2026-08-10T00:00:00Z', isSuperAdmin: true }, { id: 901, name: '替换候选', loginIdentifier: '13800000003', userStatus: 1, identityStatus: 1, activatedAt: '2026-08-10T00:00:00Z', isSuperAdmin: false }] }
       if (path === '/dashboard/saasAdmin/tenants/provision') return { tenantId: 42, dashboardUserId: 900, bindingCorpId: 901, activationToken: 'opaque-activation-value', idempotent: false }
       if (path === '/dashboard/saasAdmin/approvalRequest') return { approval: { id: 101, status: 'pending' }, idempotent: false }
@@ -234,6 +236,82 @@ describe('SaaS 客户租户治理页面', () => {
     expect(body.actionType).toBe('dashboard.tenant.provision')
     expect(body.payload).not.toHaveProperty('password')
     expect(document.body.textContent).not.toContain('opaque-activation-value')
+  })
+
+  it('按租户读取并保存脱敏 AI Provider，Key 不进入 Query cache 且成功后清空', async () => {
+    await settle()
+    clickButton('详情')
+    await settle()
+    await settle()
+    expect(document.body.textContent).toContain('租户 AI 分析模型')
+    expect(document.body.textContent).toContain('••••cafe')
+    clickButton('配置 AI 模型')
+    setValue('API Key', 'fixture-new-secret')
+    clickButton('保存 AI 配置')
+    await settle()
+
+    const save = mocks.apiRequest.mock.calls.find(([path, init]) => path === '/dashboard/saasAdmin/tenantAIProvider' && init?.method === 'PUT')
+    expect(save).toBeTruthy()
+    expect(JSON.parse(String(save?.[1]?.body))).toMatchObject({ tenantId: 41, providerCode: 'deepseek', model: 'deepseek-chat', apiKey: 'fixture-new-secret', status: 'active', version: 3 })
+    expect(JSON.stringify(client.getQueryCache().getAll().map((query) => query.state.data))).not.toContain('fixture-new-secret')
+    expect((document.querySelector('input[placeholder="留空则保留现有密钥"]') as HTMLInputElement | null)?.value || '').toBe('')
+  })
+
+  it('API Key 在失败和 Escape 关闭后清空，并支持 390px 响应式表单', async () => {
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 390 })
+    await settle()
+    clickButton('详情')
+    await settle()
+    await settle()
+    clickButton('配置 AI 模型')
+    setValue('API Key', 'fixture-discard-on-escape')
+    act(() => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })))
+    clickButton('配置 AI 模型')
+    expect((document.querySelector('input[placeholder="留空则保留现有密钥"]') as HTMLInputElement).value).toBe('')
+    expect(document.querySelector('[aria-label="租户 AI Provider 表单"]')?.className).toContain('grid-cols-1')
+
+    setValue('API Key', 'fixture-discard-on-failure')
+    mocks.apiRequest.mockImplementationOnce(async () => { throw new mocks.ApiError('version conflict', 409, 'VERSION_CONFLICT') })
+    clickButton('保存 AI 配置')
+    await settle()
+    expect((document.querySelector('input[placeholder="留空则保留现有密钥"]') as HTMLInputElement).value).toBe('')
+    expect(document.body.textContent).toContain('VERSION_CONFLICT')
+  })
+
+  it('切换厂商使用受控预设，拒绝倒置的有效期且不发送请求', async () => {
+    await settle()
+    clickButton('详情')
+    await settle()
+    await settle()
+    clickButton('配置 AI 模型')
+    setValue('Provider 厂商', 'openai')
+    expect((document.querySelector('input[placeholder="https://api.example.com/v1"]') as HTMLInputElement).value).toBe('https://api.openai.com/v1')
+    expect((document.querySelector('input[placeholder="模型标识"]') as HTMLInputElement).value).toBe('gpt-4.1-mini')
+    setValue('API Key', 'fixture-invalid-window')
+    setValue('生效时间', '2026-09-25T00:00')
+    setValue('失效时间', '2026-08-25T00:00')
+    const before = mocks.apiRequest.mock.calls.filter(([path]) => path === '/dashboard/saasAdmin/tenantAIProvider').length
+    clickButton('保存 AI 配置')
+    await settle()
+    const after = mocks.apiRequest.mock.calls.filter(([path]) => path === '/dashboard/saasAdmin/tenantAIProvider').length
+    expect(after).toBe(before)
+    expect(document.body.textContent).toContain('有效结束时间必须晚于生效时间')
+    expect((document.querySelector('input[placeholder="留空则保留现有密钥"]') as HTMLInputElement).value).toBe('')
+  })
+
+  it('只有 integrations.read 才读取配置，只有 integrations.manage 才显示编辑入口', async () => {
+    act(() => root.unmount())
+    client.clear()
+    root = createRoot(container)
+    const readOnlyProfile = { ...profile, permissions: ['platform.tenants.manage', 'platform.integrations.read'] }
+    mocks.hasPermission.mockImplementation((permissions: string[], permission: string) => permissions.includes(permission))
+    act(() => root.render(<QueryClientProvider client={client}><TenantsPage profile={readOnlyProfile} approvalMode={approvalMode} navigate={() => undefined} /></QueryClientProvider>))
+    await settle()
+    clickButton('详情')
+    await settle()
+    await settle()
+    expect(mocks.apiRequest.mock.calls.some(([path]) => path === '/dashboard/saasAdmin/tenantAIProvider?tenantId=41')).toBe(true)
+    expect([...document.querySelectorAll('button')].some((button) => button.textContent?.includes('配置 AI 模型'))).toBe(false)
   })
 })
 
