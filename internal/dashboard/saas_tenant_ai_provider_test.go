@@ -15,16 +15,44 @@ type tenantAIProviderHandlerStore struct {
 	provider SaaSTenantAIProvider
 	found    bool
 	saved    SaaSTenantAIProviderInput
+	readErr  error
+	saveErr  error
 }
 
 func (s *tenantAIProviderHandlerStore) SaaSTenantAIProvider(context.Context, int) (SaaSTenantAIProvider, bool, error) {
-	return s.provider, s.found, nil
+	return s.provider, s.found, s.readErr
 }
 func (s *tenantAIProviderHandlerStore) SaveSaaSTenantAIProvider(_ context.Context, input SaaSTenantAIProviderInput) (SaaSTenantAIProvider, error) {
+	if s.saveErr != nil {
+		return SaaSTenantAIProvider{}, s.saveErr
+	}
 	s.saved = input
 	s.provider = SaaSTenantAIProvider{TenantID: input.TenantID, ProviderCode: input.ProviderCode, BaseURL: input.BaseURL, Model: input.Model, APIKeyConfigured: true, CredentialProtection: "usable", Version: input.Version + 1}
 	s.found = true
 	return s.provider, nil
+}
+
+func TestTenantAIProviderHandlerMapsStoreNotFoundAndConflict(t *testing.T) {
+	base := &fakeSaaSAdminStore{users: map[int]User{1: {ID: 1, TenantID: 1, Status: 1, IsSuperAdmin: 1}}}
+	store := &tenantAIProviderHandlerStore{fakeSaaSAdminStore: base, readErr: NewSaaSAdminNotFound("tenant not found")}
+	handler := NewSaaSAdminHandler(store, HeaderUserIDResolver{}, 1)
+	req := httptest.NewRequest(http.MethodGet, "/dashboard/saasAdmin/tenantAIProvider?tenantId=7", nil)
+	req.Header.Set("X-Mochat-Go-User-ID", "1")
+	rec := httptest.NewRecorder()
+	handler.TenantAIProvider(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("not-found status=%d", rec.Code)
+	}
+	store.readErr = nil
+	store.saveErr = &SaaSAdminOperationError{Status: http.StatusConflict, Message: "conflict"}
+	body, _ := json.Marshal(SaaSTenantAIProviderInput{TenantID: 7, ProviderCode: "openai", BaseURL: "https://api.example.test/v1", Model: "model-v1", APIKey: "fixture-key-1234", EffectiveAt: "2026-08-25T00:00:00Z", ExpiresAt: "2026-08-26T00:00:00Z", Status: "active"})
+	req = httptest.NewRequest(http.MethodPut, "/dashboard/saasAdmin/tenantAIProvider", bytes.NewReader(body))
+	req.Header.Set("X-Mochat-Go-User-ID", "1")
+	rec = httptest.NewRecorder()
+	handler.TenantAIProvider(rec, req)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("conflict status=%d", rec.Code)
+	}
 }
 
 func TestTenantAIProviderHandlerRejectsTenantAdminAndMaskedKey(t *testing.T) {
@@ -36,7 +64,7 @@ func TestTenantAIProviderHandlerRejectsTenantAdminAndMaskedKey(t *testing.T) {
 	rec := httptest.NewRecorder()
 	handler.TenantAIProvider(rec, req)
 	if rec.Code != http.StatusBadRequest || store.saved.APIKey != "" {
-		t.Fatalf("masked key status=%d saved=%q", rec.Code, store.saved.APIKey)
+		t.Fatalf("masked-key status=%d", rec.Code)
 	}
 	req = httptest.NewRequest(http.MethodGet, "/dashboard/saasAdmin/tenantAIProvider?tenantId=7", nil)
 	req.Header.Set("X-Mochat-Go-User-ID", "2")
@@ -65,11 +93,11 @@ func TestTenantAIProviderAuditPayloadRedactsCredentialAndBaseURLPath(t *testing.
 	serialized := saasAdminPayloadJSON(payload)
 	for _, prohibited := range []string{"apiKey", "1234", "private/path"} {
 		if strings.Contains(serialized, prohibited) {
-			t.Fatalf("audit payload leaked %q: %s", prohibited, serialized)
+			t.Fatal("audit payload leaked protected value")
 		}
 	}
 	if !strings.Contains(serialized, "api.example.test") {
-		t.Fatalf("audit payload omitted base URL host: %s", serialized)
+		t.Fatal("audit payload omitted base URL host")
 	}
 }
 
@@ -87,7 +115,7 @@ func TestTenantAIProviderInputRejectsMaskedAPIKey(t *testing.T) {
 	for _, key := range []string{"********", "••••1234", "....1234"} {
 		input := SaaSTenantAIProviderInput{TenantID: 7, ProviderCode: "openai", BaseURL: "https://api.example.test/v1", Model: "model-v1", APIKey: key, EffectiveAt: "2026-08-25T00:00:00Z", ExpiresAt: "2026-08-26T00:00:00Z", Status: "active"}
 		if err := NormalizeAndValidateSaaSTenantAIProviderInput(&input); err == nil {
-			t.Fatalf("masked API key %q was accepted", key)
+			t.Fatal("masked-key case was accepted")
 		}
 	}
 }

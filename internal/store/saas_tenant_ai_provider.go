@@ -75,6 +75,11 @@ func (s *MySQLStore) SaveSaaSTenantAIProvider(ctx context.Context, input dashboa
 			return dashboard.SaaSTenantAIProvider{}, tenantAIProviderConflict()
 		}
 	} else {
+		if strings.TrimSpace(input.APIKey) == "" {
+			if _, decryptErr := s.aiProviderCredentialCipher.Decrypt(current.tenantID, current.provider, current.keyID, current.ciphertext); decryptErr != nil {
+				return dashboard.SaaSTenantAIProvider{}, errors.New("AI provider credential must be replaced")
+			}
+		}
 		if err := dashboard.ValidateSaaSTenantAIProviderUpdate(input, s.tenantAIProviderPublic(current)); err != nil {
 			return dashboard.SaaSTenantAIProvider{}, dashboard.NewSaaSAdminBadRequest(err.Error())
 		}
