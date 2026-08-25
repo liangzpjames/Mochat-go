@@ -1,6 +1,7 @@
 package aiinsight
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -15,6 +16,14 @@ import (
 	settingsports "jiyi/mochat-go/internal/modules/ai-settings/ports"
 	"jiyi/mochat-go/internal/modules/providers"
 )
+
+func TestDailyLoopTopLevelFailureLogNeverContainsDatabaseError(t *testing.T) {
+	var output bytes.Buffer
+	logDailyRunFailure(log.New(&output, "", 0), errors.New("fixture database secret"))
+	if strings.Contains(output.String(), "fixture") || strings.Contains(output.String(), "secret") || !strings.Contains(output.String(), "AI_DAILY_RUN_FAILED") {
+		t.Fatalf("unsafe daily failure log: %s", output.String())
+	}
+}
 
 func TestDailyRunnerRecordsConversationFailuresBeforeReportingUnavailableProvider(t *testing.T) {
 	db, mock, err := sqlmock.New()

@@ -131,7 +131,7 @@ func RunDailyLoop(ctx context.Context, config DailyConfig) {
 		started := time.Now()
 		config.Logger.Printf("AI insight daily analysis started at %s", started.In(location).Format(time.RFC3339))
 		if err := runner.RunOnce(ctx); err != nil {
-			config.Logger.Printf("AI insight daily analysis failed: %v", err)
+			logDailyRunFailure(config.Logger, err)
 			return
 		}
 		config.Logger.Printf("AI insight daily analysis finished in %s", time.Since(started).Round(time.Second))
@@ -154,4 +154,8 @@ func RunDailyLoop(ctx context.Context, config DailyConfig) {
 		}
 		run()
 	}
+}
+
+func logDailyRunFailure(logger *log.Logger, err error) {
+	logger.Printf("AI insight daily analysis failed: %s", safeRunFailureCode(err, "AI_DAILY_RUN_FAILED"))
 }
