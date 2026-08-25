@@ -69,7 +69,7 @@ function SummaryCards({ page, view }: { page: InsightPage<SessionInsightRow>; vi
 
 function DirectoryCoverage({ coverage }: { coverage?: InsightDirectoryCoverage | undefined }) {
   if (!coverage) return null;
-  return <div className="ai-insight-directory-coverage" aria-label="AI 洞察目录覆盖"><span>可用员工 {coverage.availableEmployeeCount} · 已分析 {coverage.analyzedEmployeeCount}</span><span>可用客户 {coverage.availableCustomerCount} · 已分析 {coverage.analyzedCustomerCount}</span><small>只有具备真实归档消息并成功落库的会话才会形成洞察结果</small></div>;
+  return <div className="ai-insight-directory-coverage" aria-label="AI 洞察目录覆盖"><span>可用员工 {coverage.availableEmployeeCount} · 已分析 {coverage.analyzedEmployeeCount}</span><span>可用客户 {coverage.availableCustomerCount} · 已分析 {coverage.analyzedCustomerCount}</span><small>只有具备已归档消息并成功落库的会话才会形成洞察结果</small></div>;
 }
 
 function ResultCell({ row, view }: { row: SessionInsightRow; view: DerivedInsightView }) {
@@ -211,7 +211,7 @@ function DerivedInsightWorkspace({ api, downloadExport, onNavigate, config }: De
     {exportError && <div className="ai-insight-error ai-insight-inline-error" role="alert">{exportError}</div>}
     {detailError && <div className="ai-insight-error ai-insight-inline-error" role="alert">{detailError}</div>}
     {!loading && !error && <SummaryCards page={page} view={config.view} />}
-    <section className="ai-insight-results"><header className="ai-insight-results-header"><div><h2>洞察结果</h2><p>只展示已持久化的真实会话分析结果与来源证据</p></div><div className="ai-insight-derived-page-summary"><span>共 {page.total} 条，当前页 {page.page} / {totalPages}</span><span>每页 20 条</span></div></header>{loading ? <div className="ai-insight-loading">正在加载洞察数据…</div> : error ? <div className="ai-insight-error" role="alert"><span>{error}</span><button type="button" className="ai-insight-secondary" onClick={() => apply(applied, 'replace')}>重试</button></div> : page.items.length === 0 ? <div className="ai-insight-empty">当前目录实体没有符合时间窗的已持久化分析结果</div> : <DerivedTable page={page} view={config.view} onOpen={open} />}<InsightPagination page={page.page} total={page.total} onChange={(next) => apply({ ...applied, page: next }, 'push')} /></section>
+    <section className="ai-insight-results"><header className="ai-insight-results-header"><div><h2>洞察结果</h2><p>只展示已持久化的会话分析结果与来源证据</p></div><div className="ai-insight-derived-page-summary"><span>共 {page.total} 条，当前页 {page.page} / {totalPages}</span><span>每页 20 条</span></div></header>{loading ? <div className="ai-insight-loading">正在加载洞察数据…</div> : error ? <div className="ai-insight-error" role="alert"><span>{error}</span><button type="button" className="ai-insight-secondary" onClick={() => apply(applied, 'replace')}>重试</button></div> : page.items.length === 0 ? <div className="ai-insight-empty">当前目录实体没有符合时间窗的已持久化分析结果</div> : <DerivedTable page={page} view={config.view} onOpen={open} />}<InsightPagination page={page.page} total={page.total} onChange={(next) => apply({ ...applied, page: next }, 'push')} /></section>
     {detailLoading ? <div className="ai-insight-status">正在打开分析详情…</div> : detail ? <InsightDrawer detail={detail} onClose={() => setDetail(undefined)} onNavigate={onNavigate} /> : null}
   </div>;
 }

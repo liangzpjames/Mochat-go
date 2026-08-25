@@ -96,6 +96,9 @@ describe('三个 AI 洞察专用投影页面', () => {
     render(<EmotionInsightPage api={api as unknown as AiInsightWorkspaceApi} />);
     expect(await screen.findByText('可用员工 12 · 已分析 1')).toBeTruthy();
     expect(screen.getByText('可用客户 16 · 已分析 1')).toBeTruthy();
+    expect(screen.getByText('只有具备已归档消息并成功落库的会话才会形成洞察结果')).toBeTruthy();
+    expect(screen.getByText('只展示已持久化的会话分析结果与来源证据')).toBeTruthy();
+    expect(screen.queryByText(/真实归档消息|真实会话分析结果/)).toBeNull();
 
     const customer = screen.getByRole('combobox', { name: '客户' });
     fireEvent.focus(customer);
