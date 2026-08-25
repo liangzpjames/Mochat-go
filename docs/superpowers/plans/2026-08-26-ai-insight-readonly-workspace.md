@@ -18,7 +18,7 @@
 
 ---
 
-### Task 1: 固化无 Resolver 时的模块路由合同
+### Task 1: 固化合同并最小化修复 WorkspaceHandler 装配
 
 **Files:**
 - Create: `internal/modules/ai-insight/module_test.go`
@@ -78,13 +78,13 @@ Run: `go test ./internal/modules/ai-insight -run TestModuleRegistersWorkspaceRou
 
 Expected: FAIL，错误包含 `workspace handler is nil without AI provider resolver`。
 
-- [ ] **Step 3: 提交测试红灯证据后保留测试文件**
+- [ ] **Step 3: 检查测试变更后保留红灯测试文件**
 
 Run: `git diff --check && git diff -- internal/modules/ai-insight/module_test.go`
 
 Expected: diff 格式正确，测试只覆盖模块装配和路由注册。
 
-### Task 2: 最小化修复 WorkspaceHandler 装配
+#### 实现阶段
 
 **Files:**
 - Modify: `internal/modules/ai-insight/module.go:32-42`
@@ -128,7 +128,7 @@ Run: `git add internal/modules/ai-insight/module.go internal/modules/ai-insight/
 
 Expected: 提交仅包含模块实现与回归测试。
 
-### Task 3: 本地全量验证与镜像构建
+### Task 2: 本地全量验证与镜像构建
 
 **Files:**
 - Inspect: `deploy/standalone/docker-compose.yml`
@@ -167,7 +167,7 @@ Run: `git status --short && git log -3 --oneline`
 
 Expected: 工作树干净；设计提交和代码修复提交均存在。
 
-### Task 4: 可回滚服务器部署与浏览器复验
+### Task 3: 可回滚服务器部署与浏览器复验
 
 **Files:**
 - Server inspect: `/opt/mochat-go/deploy/standalone/docker-compose.yml`
