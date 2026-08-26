@@ -94,9 +94,14 @@ func TestWorkMessageArchiveBridgeClientPostsAndParsesMessages(t *testing.T) {
 	if requestPath != "/work-message/archive/messages" || authorization != "Bearer bridge-token" {
 		t.Fatalf("request path/auth = %s %s", requestPath, authorization)
 	}
-	if requestBody["wx_corpid"] != "ww-go" || requestBody["chat_secret"] != "archive-secret" ||
-		requestBody["rsa_public_key"] != "archive-public" || requestBody["rsa_private_key"] != "archive-private" {
+	if requestBody["wx_corpid"] != "ww-go" || int(requestBody["corp_id"].(float64)) != 7 ||
+		int(requestBody["seq"].(float64)) != 41 || int(requestBody["limit"].(float64)) != 100 {
 		t.Fatalf("request body = %#v", requestBody)
+	}
+	for _, forbidden := range []string{"chat_secret", "rsa_public_key", "rsa_private_key"} {
+		if _, ok := requestBody[forbidden]; ok {
+			t.Fatalf("bridge request leaked %s: %#v", forbidden, requestBody)
+		}
 	}
 	if len(messages) != 1 {
 		t.Fatalf("messages = %#v", messages)

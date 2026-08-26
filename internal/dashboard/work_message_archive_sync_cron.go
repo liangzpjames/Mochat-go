@@ -199,13 +199,10 @@ func (c *WorkMessageArchiveBridgeClient) FetchWorkMessageArchive(ctx context.Con
 		limit = WorkMessageArchiveDefaultSyncLimit
 	}
 	request := map[string]any{
-		"corp_id":         corp.CorpID,
-		"wx_corpid":       corp.WXCorpID,
-		"chat_secret":     corp.ChatSecret,
-		"rsa_public_key":  corp.RSAPublicKey,
-		"rsa_private_key": corp.RSAPrivateKey,
-		"seq":             seq,
-		"limit":           limit,
+		"corp_id":   corp.CorpID,
+		"wx_corpid": corp.WXCorpID,
+		"seq":       seq,
+		"limit":     limit,
 	}
 	raw, err := json.Marshal(request)
 	if err != nil {
