@@ -117,6 +117,7 @@ describe('SaaS 客户租户治理页面', () => {
   let tenantProviderVersion: number
   let integrationView: { tenantId: number; corpId: number; current: typeof selfBuiltCurrent | null; candidate: typeof delegatedCandidate | null }
   let integrationViewB: { tenantId: number; corpId: number; current: typeof selfBuiltCurrent | null; candidate: typeof delegatedCandidate | null }
+  let activationMutationObserverProbe: ReturnType<typeof vi.fn>
 
   beforeEach(() => {
     document.body.innerHTML = ''
@@ -128,6 +129,7 @@ describe('SaaS 客户租户治理页面', () => {
     vi.stubGlobal('navigator', { clipboard: { writeText: vi.fn().mockResolvedValue(undefined) } })
     let governanceVersion = 1
     tenantProviderVersion = 3
+    activationMutationObserverProbe = vi.fn()
     integrationView = { tenantId: 41, corpId: 501, current: { ...selfBuiltCurrent }, candidate: { ...delegatedCandidate } }
     integrationViewB = { tenantId: 52, corpId: 502, current: { ...delegatedCandidate, id: 'integration-b-current', slot: 'current', generation: 20, version: 20 }, candidate: null }
     mocks.apiRequest.mockImplementation(async (path: string, init?: RequestInit) => {
@@ -161,7 +163,7 @@ describe('SaaS 客户租户治理页面', () => {
       throw new Error(`unexpected request ${path} ${JSON.stringify(init)}`)
     })
     root = createRoot(container)
-    act(() => root.render(<QueryClientProvider client={client}><TenantsPage profile={profile} approvalMode={approvalMode} navigate={() => undefined} /></QueryClientProvider>))
+    act(() => root.render(<QueryClientProvider client={client}><TenantsPage profile={profile} approvalMode={approvalMode} navigate={() => undefined} activationMutationObserverProbe={activationMutationObserverProbe} /></QueryClientProvider>))
   })
 
   afterEach(() => {
@@ -198,8 +200,12 @@ describe('SaaS 客户租户治理页面', () => {
     await settle()
     expect(navigator.clipboard.writeText).toHaveBeenCalledWith('http://localhost/activate#token=opaque-activation-value')
     clickButton('我已记录并关闭')
+    await settle()
     expect(document.body.textContent).not.toContain('opaque-activation-value')
     expect(JSON.stringify(client.getMutationCache().getAll().map((mutation) => mutation.state.data))).not.toContain('opaque-activation-value')
+    const observerState = activationMutationObserverProbe.mock.calls.at(-1)?.[0] as { create: { status: string; data?: unknown } } | undefined
+    expect(observerState?.create.status).toBe('idle')
+    expect(JSON.stringify(observerState?.create.data) || '').not.toContain('opaque-activation-value')
   })
 
   it('A 租户迟到的重发激活结果在切换 B 后不会打开错误租户交付弹窗', async () => {
@@ -221,6 +227,31 @@ describe('SaaS 客户租户治理页面', () => {
     expect(document.body.textContent).not.toContain('late-a-token')
     expect(document.body.textContent).not.toContain('一次性激活入口')
     expect(JSON.stringify(client.getMutationCache().getAll().map((mutation) => mutation.state.data))).not.toContain('late-a-token')
+    const observerState = activationMutationObserverProbe.mock.calls.at(-1)?.[0] as { resend: { status: string; data?: unknown } } | undefined
+    expect(observerState?.resend.status).toBe('idle')
+    expect(JSON.stringify(observerState?.resend.data) || '').not.toContain('late-a-token')
+  })
+
+  it.each([
+    ['缺失激活路径', { tenantId: 41, dashboardUserId: 900, version: 2, activationToken: 'missing-path-token', activationPath: '', activationExpiresAt: '', idempotent: true }],
+    ['租户不匹配', { tenantId: 52, dashboardUserId: 900, version: 2, activationToken: 'mismatch-token', activationPath: '/activate#token=mismatch-token', activationExpiresAt: '2026-08-28T01:00:00Z', idempotent: false }],
+  ])('%s 的重发响应不会留在 observer 或 mutation cache', async (_caseName, result) => {
+    await settle()
+    clickTenantDetails('测试客户')
+    await settle()
+    await settle()
+    const api = mocks.apiRequest.getMockImplementation()
+    mocks.apiRequest.mockImplementation((path: string, init?: RequestInit) => path === '/dashboard/saasAdmin/tenants/41/activation/resend' ? Promise.resolve(result) : api?.(path, init))
+    clickButton('重发激活')
+    clickButton('确认执行')
+    await settle()
+    await settle()
+    expect(document.body.textContent).not.toContain(result.activationToken)
+    expect(document.body.textContent).not.toContain('一次性激活入口')
+    expect(JSON.stringify(client.getMutationCache().getAll().map((mutation) => mutation.state.data))).not.toContain(result.activationToken)
+    const observerState = activationMutationObserverProbe.mock.calls.at(-1)?.[0] as { resend: { status: string; data?: unknown } } | undefined
+    expect(observerState?.resend.status).toBe('idle')
+    expect(JSON.stringify(observerState?.resend.data) || '').not.toContain(result.activationToken)
   })
 
   it('详情提供重发、替换、停用、恢复四个确认动作且请求不携带租户或 actor', async () => {

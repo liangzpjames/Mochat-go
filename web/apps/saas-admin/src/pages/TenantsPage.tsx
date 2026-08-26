@@ -89,6 +89,8 @@ interface WeComIntegrationForm {
 }
 
 interface ActivationDelivery {
+  operationKind: 'create' | 'resend'
+  operationEpoch: number
   tenantId: number
   dashboardUserId: number
   tenantName: string
@@ -125,6 +127,13 @@ interface ResendOperation {
   accountHint: string
   expectedVersion: number
   requestKey: string
+}
+
+interface TenantsPageProps extends PageProps {
+  activationMutationObserverProbe?: (snapshot: {
+    create: { status: string; data: GovernedResult<DashboardAdminProvisionResult> | undefined }
+    resend: { status: string; data: GovernedResult<DashboardAdminGovernanceResult> | undefined }
+  }) => void
 }
 
 const providerPresets: Record<Exclude<TenantAIProviderForm['providerCode'], 'custom'>, { baseUrl: string }> = {
@@ -294,7 +303,7 @@ function isoEndOfDate(date: string) {
   return Number.isNaN(value.getTime()) ? '' : value.toISOString()
 }
 
-export default function TenantsPage({ profile, approvalMode }: PageProps) {
+export default function TenantsPage({ profile, approvalMode, activationMutationObserverProbe }: TenantsPageProps) {
   const queryClient = useQueryClient()
   const canManage = hasPermission(profile.permissions, 'platform.tenants.manage')
   const canReadAIProvider = hasPermission(profile.permissions, 'platform.integrations.read')
@@ -303,6 +312,10 @@ export default function TenantsPage({ profile, approvalMode }: PageProps) {
   const selectedTenantIDRef = useRef(0)
   const activationOperationEpochRef = useRef(0)
   const weComOperationEpochRef = useRef(0)
+  const createMutationResetRef = useRef<() => void>(() => undefined)
+  const resendMutationResetRef = useRef<() => void>(() => undefined)
+  const observedCreateOperationEpochRef = useRef(0)
+  const observedResendOperationEpochRef = useRef(0)
   const [keyword, setKeyword] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
   const [packageFilter, setPackageFilter] = useState('all')
@@ -545,11 +558,28 @@ export default function TenantsPage({ profile, approvalMode }: PageProps) {
     ])
   }
 
-  const purgeActivationMutation = (mutationKey: string) => {
+  const purgeActivationMutation = (mutationKey: string, operationEpoch: number) => {
     const mutationCache = queryClient.getMutationCache()
     for (const mutation of mutationCache.getAll()) {
-      if (mutation.options.mutationKey?.[0] === mutationKey) mutationCache.remove(mutation)
+      const variables = mutation.state.variables as { operationEpoch?: number } | undefined
+      if (mutation.options.mutationKey?.[0] === mutationKey && variables?.operationEpoch === operationEpoch) mutationCache.remove(mutation)
     }
+  }
+
+  const resetActivationMutation = (kind: 'create' | 'resend', operationEpoch: number) => {
+    if (kind === 'create') {
+      if (observedCreateOperationEpochRef.current === operationEpoch) {
+        createMutationResetRef.current()
+        observedCreateOperationEpochRef.current = 0
+      }
+      purgeActivationMutation('tenant-provision-delivery', operationEpoch)
+      return
+    }
+    if (observedResendOperationEpochRef.current === operationEpoch) {
+      resendMutationResetRef.current()
+      observedResendOperationEpochRef.current = 0
+    }
+    purgeActivationMutation('tenant-activation-resend-delivery', operationEpoch)
   }
 
   const createMutation = useMutation<GovernedResult<DashboardAdminProvisionResult>, unknown, ProvisionOperation>({
@@ -597,18 +627,21 @@ export default function TenantsPage({ profile, approvalMode }: PageProps) {
           setCreateOpen(false)
           toast.success('开户申请已提交审批，待独立复核后执行')
         }
+        resetActivationMutation('create', operation.operationEpoch)
         return
       }
       await invalidateTenantData()
       if (!active()) {
-        purgeActivationMutation('tenant-provision-delivery')
+        resetActivationMutation('create', operation.operationEpoch)
         return
       }
       setCreateOpen(false)
       setCreateForm(emptyCreateForm())
       if (result.data.activationPath && result.data.tenantId > 0 && result.data.dashboardUserId > 0) {
-        setActivationDelivery({ tenantId: result.data.tenantId, dashboardUserId: result.data.dashboardUserId, tenantName: operation.form.tenantName.trim(), accountName: operation.form.adminName.trim(), accountHint: safeLoginHint(operation.form.adminLoginIdentifier), path: result.data.activationPath, expiresAt: result.data.activationExpiresAt || '' })
+        setActivationDelivery({ operationKind: 'create', operationEpoch: operation.operationEpoch, tenantId: result.data.tenantId, dashboardUserId: result.data.dashboardUserId, tenantName: operation.form.tenantName.trim(), accountName: operation.form.adminName.trim(), accountHint: safeLoginHint(operation.form.adminLoginIdentifier), path: result.data.activationPath, expiresAt: result.data.activationExpiresAt || '' })
         setActivationDeliveryOpen(true)
+      } else {
+        resetActivationMutation('create', operation.operationEpoch)
       }
       toast.success(result.data.idempotent ? '开户请求已确认，未重复生成激活入口' : '租户已开通，请通过受控渠道交付一次性激活入口')
     },
@@ -616,6 +649,7 @@ export default function TenantsPage({ profile, approvalMode }: PageProps) {
       if (activationOperationEpochRef.current === operation.operationEpoch) toast.error(errorMessage(error, '开户失败，表单内容已保留'))
     },
   })
+  createMutationResetRef.current = createMutation.reset
 
   const resendMutation = useMutation<GovernedResult<DashboardAdminGovernanceResult>, unknown, ResendOperation>({
     mutationKey: ['tenant-activation-resend-delivery'],
@@ -637,6 +671,7 @@ export default function TenantsPage({ profile, approvalMode }: PageProps) {
       if (result.approvalRequested) {
         await queryClient.invalidateQueries({ queryKey: queryKeys.approvals })
         if (active()) toast.success('重发激活申请已提交审批，待独立复核后执行')
+        resetActivationMutation('resend', operation.operationEpoch)
         return
       }
       const requestKeySlot = `resend:${operation.tenantId}`
@@ -644,17 +679,19 @@ export default function TenantsPage({ profile, approvalMode }: PageProps) {
       await queryClient.invalidateQueries({ queryKey: ['dashboard-admin-governance', operation.tenantId] })
       await invalidateTenantData()
       if (!active()) {
-        purgeActivationMutation('tenant-activation-resend-delivery')
+        resetActivationMutation('resend', operation.operationEpoch)
         return
       }
       if (result.data.tenantId !== operation.tenantId || result.data.dashboardUserId !== operation.dashboardUserId) {
-        purgeActivationMutation('tenant-activation-resend-delivery')
+        resetActivationMutation('resend', operation.operationEpoch)
         toast.error('激活结果与请求租户或账号不匹配，已拒绝展示入口')
         return
       }
       if (result.data.activationPath) {
-        setActivationDelivery({ tenantId: operation.tenantId, dashboardUserId: operation.dashboardUserId, tenantName: operation.tenantName, accountName: operation.accountName, accountHint: operation.accountHint, path: result.data.activationPath, expiresAt: result.data.activationExpiresAt || '' })
+        setActivationDelivery({ operationKind: 'resend', operationEpoch: operation.operationEpoch, tenantId: operation.tenantId, dashboardUserId: operation.dashboardUserId, tenantName: operation.tenantName, accountName: operation.accountName, accountHint: operation.accountHint, path: result.data.activationPath, expiresAt: result.data.activationExpiresAt || '' })
         setActivationDeliveryOpen(true)
+      } else {
+        resetActivationMutation('resend', operation.operationEpoch)
       }
       toast.success(result.data.idempotent ? '重发请求已确认，激活入口不会重复显示' : '已生成新的激活入口，请通过受控渠道交付')
     },
@@ -662,15 +699,21 @@ export default function TenantsPage({ profile, approvalMode }: PageProps) {
       if (activationOperationEpochRef.current === operation.operationEpoch && selectedTenantIDRef.current === operation.tenantId) toast.error(errorMessage(error, '重发激活失败，目标信息已保留'))
     },
   })
+  resendMutationResetRef.current = resendMutation.reset
+
+  useEffect(() => {
+    activationMutationObserverProbe?.({
+      create: { status: createMutation.status, data: createMutation.data },
+      resend: { status: resendMutation.status, data: resendMutation.data },
+    })
+  }, [activationMutationObserverProbe, createMutation.data, createMutation.status, resendMutation.data, resendMutation.status])
 
   const clearActivationDelivery = () => {
+    const delivery = activationDelivery
     activationOperationEpochRef.current += 1
     setActivationDeliveryOpen(false)
     setActivationDelivery(null)
-    createMutation.reset()
-    resendMutation.reset()
-    purgeActivationMutation('tenant-provision-delivery')
-    purgeActivationMutation('tenant-activation-resend-delivery')
+    if (delivery) resetActivationMutation(delivery.operationKind, delivery.operationEpoch)
   }
 
   const replaceMutation = useMutation<GovernedResult<DashboardAdminGovernanceResult>, unknown>({
@@ -837,7 +880,7 @@ export default function TenantsPage({ profile, approvalMode }: PageProps) {
         </TableShell>
       </section>
 
-      <Dialog open={createOpen} onOpenChange={(open) => { if (!open) closeCreate() }} title="开通客户租户" description="创建 SaaS 租户、套餐快照和首个 Dashboard 管理员" footer={<><Button type="button" variant="secondary" onClick={closeCreate}>取消</Button><ConfirmAction title="确认开户" summary={<div className="space-y-1"><p>客户：{createForm.tenantName || '未填写'}</p><p>管理员：{createForm.adminName || '未填写'} / {createForm.adminLoginIdentifier || '未填写'}</p><p>套餐：{createPlan ? `${createPlan.name}（ID ${createPlan.id}，版本 ${createPlan.version}）` : '未选择'}</p><p>系统将在成功响应中仅展示一次激活入口，不会创建或传递初始密码，也不会自动发送邮件或短信。</p></div>} confirmLabel="确认开户" loading={createMutation.isPending} onConfirm={() => createMutation.mutateAsync({ operationEpoch: ++activationOperationEpochRef.current, form: { ...createForm } })}>提交开户</ConfirmAction></>}>
+      <Dialog open={createOpen} onOpenChange={(open) => { if (!open) closeCreate() }} title="开通客户租户" description="创建 SaaS 租户、套餐快照和首个 Dashboard 管理员" footer={<><Button type="button" variant="secondary" onClick={closeCreate}>取消</Button><ConfirmAction title="确认开户" summary={<div className="space-y-1"><p>客户：{createForm.tenantName || '未填写'}</p><p>管理员：{createForm.adminName || '未填写'} / {createForm.adminLoginIdentifier || '未填写'}</p><p>套餐：{createPlan ? `${createPlan.name}（ID ${createPlan.id}，版本 ${createPlan.version}）` : '未选择'}</p><p>系统将在成功响应中仅展示一次激活入口，不会创建或传递初始密码，也不会自动发送邮件或短信。</p></div>} confirmLabel="确认开户" loading={createMutation.isPending} onConfirm={() => { const operationEpoch = ++activationOperationEpochRef.current; observedCreateOperationEpochRef.current = operationEpoch; return createMutation.mutateAsync({ operationEpoch, form: { ...createForm } }) }}>提交开户</ConfirmAction></>}>
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="客户名称" className="sm:col-span-2"><Input value={createForm.tenantName} onChange={(event) => setCreateForm((form) => ({ ...form, tenantName: event.target.value }))} placeholder="客户公司名称" autoFocus /></Field>
           <Field label="管理员姓名"><Input value={createForm.adminName} onChange={(event) => setCreateForm((form) => ({ ...form, adminName: event.target.value }))} placeholder="超级管理员" /></Field>
@@ -901,7 +944,7 @@ export default function TenantsPage({ profile, approvalMode }: PageProps) {
             </div>}
             {!canManageAIProvider && <p className="text-xs text-zinc-500">当前账号只有查看权限，不能修改模型或密钥。</p>}
           </section>}
-          {canManage && <section className="space-y-4 rounded-lg border border-emerald-200 bg-emerald-50/40 p-4"><SectionHeader title="Dashboard 超级管理员治理" description="对象和绑定版本来自服务端只读治理列表；页面不接受手填用户 ID 或版本。" />{governanceQuery.isLoading && <LoadingState label="正在加载 Dashboard 身份" />}{governanceQuery.isError && <ErrorState message={errorMessage(governanceQuery.error, '无法加载治理列表')} onRetry={() => governanceQuery.refetch()} />}{governanceQuery.data && <><div className="grid gap-3 sm:grid-cols-2"><Field label="治理绑定版本"><div className="flex h-9 items-center rounded-md border border-zinc-200 bg-white px-3 text-sm text-zinc-700">v{governanceQuery.data.bindingVersion}</div></Field><Field label="重发/停用/恢复对象"><Select value={targetAdminId} onChange={(event) => setTargetAdminId(event.target.value)}><option value="">请选择 Dashboard 超管</option>{governanceQuery.data.identities.filter((identity) => identity.isSuperAdmin).map((identity) => <option key={identity.id} value={identity.id}>{identity.name || identity.loginIdentifier}（{identity.id}，{identity.userStatus === 1 && identity.identityStatus === 1 && identity.activatedAt ? '启用' : '停用'}）</option>)}</Select></Field><Field label="当前超管"><Select value={currentAdminId} onChange={(event) => setCurrentAdminId(event.target.value)}><option value="">请选择当前超管</option>{governanceQuery.data.identities.filter((identity) => identity.isSuperAdmin).map((identity) => <option key={identity.id} value={identity.id}>{identity.name || identity.loginIdentifier}（{identity.id}）</option>)}</Select></Field><Field label="替换候选"><Select value={replacementAdminId} onChange={(event) => setReplacementAdminId(event.target.value)}><option value="">请选择已激活候选</option>{governanceQuery.data.identities.filter((identity) => identity.id !== Number(currentAdminId) && identity.userStatus === 1 && identity.identityStatus === 1 && Boolean(identity.activatedAt)).map((identity) => <option key={identity.id} value={identity.id}>{identity.name || identity.loginIdentifier}（{identity.id}）</option>)}</Select></Field></div><div className="mb-3 text-xs text-zinc-500">当前：{currentIdentity?.name || '未选择'}；候选：{replacementIdentity?.name || '未选择'}；目标状态：{targetIdentity?.isSuperAdmin ? (targetIdentity.userStatus === 1 && targetIdentity.identityStatus === 1 && targetIdentity.activatedAt ? '启用' : '停用') : '未选择'}</div>{governanceMutationError && <p role="alert" className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{errorMessage(governanceMutationError, '治理操作失败，当前选择已保留。')}</p>}<div className="flex flex-wrap gap-2"><ConfirmAction title="确认重发激活" summary={governanceSummary} loading={resendMutation.isPending} disabled={!targetIdentity || !targetIdentity.isSuperAdmin || targetIdentity.userStatus !== 1 || targetIdentity.identityStatus !== 1 || Boolean(targetIdentity.activatedAt)} onConfirm={() => { const tenantId = selectedTenantIDRef.current; const expectedVersion = governanceQuery.data?.bindingVersion || 0; const identity = targetIdentity; const dashboardUserId = identity?.id || 0; if (!tenantId || !expectedVersion || !dashboardUserId || !selectedTenant || !identity) throw new Error('治理列表尚未加载完成'); const requestKeySlot = `resend:${tenantId}`; const requestKey = requestKeys.current[requestKeySlot] || (requestKeys.current[requestKeySlot] = makeRequestKey('dashboard-resend')); return resendMutation.mutateAsync({ tenantId, dashboardUserId, expectedVersion, requestKey, tenantName: selectedTenant.tenantName, accountName: identity.name || 'Dashboard 管理员', accountHint: safeLoginHint(identity.loginIdentifier), operationEpoch: ++activationOperationEpochRef.current }) }}><RefreshCw className="h-4 w-4" />重发激活</ConfirmAction><ConfirmAction title="确认替换超管" summary={`${governanceSummary}；当前 ${currentIdentity?.name || '未选择'} → 新 ${replacementIdentity?.name || '未选择'}`} loading={replaceMutation.isPending} disabled={!currentIdentity?.isSuperAdmin || currentIdentity.userStatus !== 1 || currentIdentity.identityStatus !== 1 || !currentIdentity.activatedAt || !replacementIdentity} onConfirm={() => replaceMutation.mutateAsync()}><ShieldCheck className="h-4 w-4" />替换超管</ConfirmAction><ConfirmAction title="确认停用超管" summary={governanceSummary} variant="danger" loading={statusMutation.isPending} disabled={!targetIdentity?.isSuperAdmin || targetIdentity.userStatus !== 1 || targetIdentity.identityStatus !== 1 || !targetIdentity.activatedAt} onConfirm={() => statusMutation.mutateAsync(false)}><UserX className="h-4 w-4" />停用超管</ConfirmAction><ConfirmAction title="确认恢复超管" summary={governanceSummary} variant="secondary" loading={statusMutation.isPending} disabled={!targetIdentity?.isSuperAdmin || targetIdentity.userStatus !== 2 || targetIdentity.identityStatus !== 2 || !targetIdentity.activatedAt} onConfirm={() => statusMutation.mutateAsync(true)}><UserRoundCog className="h-4 w-4" />恢复超管</ConfirmAction></div></>}</section>}
+          {canManage && <section className="space-y-4 rounded-lg border border-emerald-200 bg-emerald-50/40 p-4"><SectionHeader title="Dashboard 超级管理员治理" description="对象和绑定版本来自服务端只读治理列表；页面不接受手填用户 ID 或版本。" />{governanceQuery.isLoading && <LoadingState label="正在加载 Dashboard 身份" />}{governanceQuery.isError && <ErrorState message={errorMessage(governanceQuery.error, '无法加载治理列表')} onRetry={() => governanceQuery.refetch()} />}{governanceQuery.data && <><div className="grid gap-3 sm:grid-cols-2"><Field label="治理绑定版本"><div className="flex h-9 items-center rounded-md border border-zinc-200 bg-white px-3 text-sm text-zinc-700">v{governanceQuery.data.bindingVersion}</div></Field><Field label="重发/停用/恢复对象"><Select value={targetAdminId} onChange={(event) => setTargetAdminId(event.target.value)}><option value="">请选择 Dashboard 超管</option>{governanceQuery.data.identities.filter((identity) => identity.isSuperAdmin).map((identity) => <option key={identity.id} value={identity.id}>{identity.name || identity.loginIdentifier}（{identity.id}，{identity.userStatus === 1 && identity.identityStatus === 1 && identity.activatedAt ? '启用' : '停用'}）</option>)}</Select></Field><Field label="当前超管"><Select value={currentAdminId} onChange={(event) => setCurrentAdminId(event.target.value)}><option value="">请选择当前超管</option>{governanceQuery.data.identities.filter((identity) => identity.isSuperAdmin).map((identity) => <option key={identity.id} value={identity.id}>{identity.name || identity.loginIdentifier}（{identity.id}）</option>)}</Select></Field><Field label="替换候选"><Select value={replacementAdminId} onChange={(event) => setReplacementAdminId(event.target.value)}><option value="">请选择已激活候选</option>{governanceQuery.data.identities.filter((identity) => identity.id !== Number(currentAdminId) && identity.userStatus === 1 && identity.identityStatus === 1 && Boolean(identity.activatedAt)).map((identity) => <option key={identity.id} value={identity.id}>{identity.name || identity.loginIdentifier}（{identity.id}）</option>)}</Select></Field></div><div className="mb-3 text-xs text-zinc-500">当前：{currentIdentity?.name || '未选择'}；候选：{replacementIdentity?.name || '未选择'}；目标状态：{targetIdentity?.isSuperAdmin ? (targetIdentity.userStatus === 1 && targetIdentity.identityStatus === 1 && targetIdentity.activatedAt ? '启用' : '停用') : '未选择'}</div>{governanceMutationError && <p role="alert" className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{errorMessage(governanceMutationError, '治理操作失败，当前选择已保留。')}</p>}<div className="flex flex-wrap gap-2"><ConfirmAction title="确认重发激活" summary={governanceSummary} loading={resendMutation.isPending} disabled={!targetIdentity || !targetIdentity.isSuperAdmin || targetIdentity.userStatus !== 1 || targetIdentity.identityStatus !== 1 || Boolean(targetIdentity.activatedAt)} onConfirm={() => { const tenantId = selectedTenantIDRef.current; const expectedVersion = governanceQuery.data?.bindingVersion || 0; const identity = targetIdentity; const dashboardUserId = identity?.id || 0; if (!tenantId || !expectedVersion || !dashboardUserId || !selectedTenant || !identity) throw new Error('治理列表尚未加载完成'); const requestKeySlot = `resend:${tenantId}`; const requestKey = requestKeys.current[requestKeySlot] || (requestKeys.current[requestKeySlot] = makeRequestKey('dashboard-resend')); const operationEpoch = ++activationOperationEpochRef.current; observedResendOperationEpochRef.current = operationEpoch; return resendMutation.mutateAsync({ tenantId, dashboardUserId, expectedVersion, requestKey, tenantName: selectedTenant.tenantName, accountName: identity.name || 'Dashboard 管理员', accountHint: safeLoginHint(identity.loginIdentifier), operationEpoch }) }}><RefreshCw className="h-4 w-4" />重发激活</ConfirmAction><ConfirmAction title="确认替换超管" summary={`${governanceSummary}；当前 ${currentIdentity?.name || '未选择'} → 新 ${replacementIdentity?.name || '未选择'}`} loading={replaceMutation.isPending} disabled={!currentIdentity?.isSuperAdmin || currentIdentity.userStatus !== 1 || currentIdentity.identityStatus !== 1 || !currentIdentity.activatedAt || !replacementIdentity} onConfirm={() => replaceMutation.mutateAsync()}><ShieldCheck className="h-4 w-4" />替换超管</ConfirmAction><ConfirmAction title="确认停用超管" summary={governanceSummary} variant="danger" loading={statusMutation.isPending} disabled={!targetIdentity?.isSuperAdmin || targetIdentity.userStatus !== 1 || targetIdentity.identityStatus !== 1 || !targetIdentity.activatedAt} onConfirm={() => statusMutation.mutateAsync(false)}><UserX className="h-4 w-4" />停用超管</ConfirmAction><ConfirmAction title="确认恢复超管" summary={governanceSummary} variant="secondary" loading={statusMutation.isPending} disabled={!targetIdentity?.isSuperAdmin || targetIdentity.userStatus !== 2 || targetIdentity.identityStatus !== 2 || !targetIdentity.activatedAt} onConfirm={() => statusMutation.mutateAsync(true)}><UserRoundCog className="h-4 w-4" />恢复超管</ConfirmAction></div></>}</section>}
           <section className="space-y-3"><SectionHeader title="核心用量" /><div className="grid gap-3 sm:grid-cols-2">{coreMetrics.map((metric) => { const ratio = metric.limit > 0 ? metric.current / metric.limit : 0; return <div key={metric.metric} className="rounded-md border border-zinc-200 p-3"><div className="flex items-center justify-between gap-3 text-sm"><span>{metric.label}</span><strong>{metric.current} / {metric.limit}</strong></div><div className="mt-3"><ProgressBar value={ratio * 100} tone={usageTone(ratio)} /></div></div> })}</div></section>
           <section className="space-y-3"><SectionHeader title="最近变更" /><TableShell>{(detailQuery.data?.operations || []).length === 0 ? <EmptyState icon={<Building2 className="h-5 w-5" />} title="暂无变更记录" description="租户变更会自动记录。" /> : <table><thead><tr><th>目标</th><th>说明</th><th>时间</th></tr></thead><tbody>{(detailQuery.data?.operations || []).slice(0, 8).map((item) => <tr key={item.id}><td>{item.targetName || item.targetType}</td><td>{item.remark || item.action}</td><td>{formatDate(item.createdAt)}</td></tr>)}</tbody></table>}</TableShell></section>
         </div>}
