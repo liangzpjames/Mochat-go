@@ -18,11 +18,12 @@ import (
 )
 
 type ArchiveMediaContentFilter struct {
-	ID                  string
-	TenantID            int
-	CorpID              int
-	RestrictEmployeeIDs bool
-	AllowedEmployeeIDs  []int
+	ID                       string
+	TenantID                 int
+	CorpID                   int
+	AllowedConversationTypes []int
+	RestrictEmployeeIDs      bool
+	AllowedEmployeeIDs       []int
 }
 
 type ArchiveMediaContentObject struct {
@@ -41,17 +42,18 @@ type ArchiveMediaContentStore interface {
 }
 
 type ArchiveMediaContentHandler struct {
-	store     ArchiveMediaContentStore
-	root      string
-	hashSlots chan struct{}
-	hashFile  func(io.Reader) ([sha256.Size]byte, error)
+	store             ArchiveMediaContentStore
+	root              string
+	hashSlots         chan struct{}
+	snapshotCopy      func(io.Writer, io.Reader) (int64, error)
+	snapshotValidated func(string, os.FileInfo)
 }
 
 const archiveMediaHashConcurrency = 4
 
 func NewArchiveMediaContentHandler(store ArchiveMediaContentStore, storageRoot string) *ArchiveMediaContentHandler {
 	return &ArchiveMediaContentHandler{
-		store: store, root: strings.TrimSpace(storageRoot), hashSlots: make(chan struct{}, archiveMediaHashConcurrency), hashFile: archiveMediaSHA256,
+		store: store, root: strings.TrimSpace(storageRoot), hashSlots: make(chan struct{}, archiveMediaHashConcurrency), snapshotCopy: io.Copy,
 	}
 }
 
@@ -78,6 +80,11 @@ func (handler *ArchiveMediaContentHandler) ServeHTTP(w http.ResponseWriter, requ
 		return
 	}
 	filter := ArchiveMediaContentFilter{ID: id, TenantID: principal.TenantID, CorpID: principal.CorpID}
+	filter.AllowedConversationTypes = archiveMediaConversationTypes(access.PermissionCodes)
+	if len(filter.AllowedConversationTypes) == 0 {
+		http.NotFound(w, request)
+		return
+	}
 	if access.Scope != DataScopeTenant {
 		filter.RestrictEmployeeIDs = true
 		filter.AllowedEmployeeIDs = uniquePositiveInts(access.AllowedEmployeeIDs)
@@ -118,20 +125,28 @@ func (handler *ArchiveMediaContentHandler) ServeHTTP(w http.ResponseWriter, requ
 		http.NotFound(w, request)
 		return
 	}
-	file, err := confinedRoot.Open(id)
+	source, err := confinedRoot.Open(id)
 	if err != nil {
 		http.NotFound(w, request)
 		return
 	}
-	defer file.Close()
-	info, err := file.Stat()
+	defer source.Close()
+	info, err := source.Stat()
 	if err != nil || !info.Mode().IsRegular() || archiveMediaIsReparsePoint(info) || !os.SameFile(expectedInfo, info) || info.Size() != object.Size {
 		http.NotFound(w, request)
 		return
 	}
-	if !handler.archiveMediaFileHashMatches(request.Context(), file, info, object.SHA256) {
+	snapshot, snapshotName, snapshotInfo, ok := handler.validatedArchiveMediaSnapshot(request.Context(), confinedRoot, source, info, object.Size, object.SHA256)
+	if !ok {
 		http.NotFound(w, request)
 		return
+	}
+	defer func() {
+		_ = snapshot.Close()
+		_ = confinedRoot.Remove(snapshotName)
+	}()
+	if handler.snapshotValidated != nil {
+		handler.snapshotValidated(snapshotName, snapshotInfo)
 	}
 	mimeType, inline := archiveMediaMIME(object.MediaType, object.MIMEType)
 	disposition := "attachment"
@@ -144,41 +159,88 @@ func (handler *ArchiveMediaContentHandler) ServeHTTP(w http.ResponseWriter, requ
 	}
 	w.Header().Set("Content-Type", mimeType)
 	w.Header().Set("Accept-Ranges", "bytes")
-	serveArchiveMediaRange(w, request, file, info.Size())
+	serveArchiveMediaRange(w, request, snapshot, snapshotInfo.Size())
 }
 
-func (handler *ArchiveMediaContentHandler) archiveMediaFileHashMatches(ctx context.Context, file *os.File, info os.FileInfo, expected string) bool {
+func archiveMediaConversationTypes(permissionCodes []string) []int {
+	allowed := map[int]bool{}
+	for _, code := range permissionCodes {
+		switch code {
+		case "dashboard.chat.v2_all":
+			return []int{0, 1, 2}
+		case "dashboard.chat.v2_staff":
+			allowed[0] = true
+		case "dashboard.chat.v2_customer":
+			allowed[1] = true
+		case "dashboard.chat.v2_group":
+			allowed[2] = true
+		}
+	}
+	result := make([]int, 0, len(allowed))
+	for _, value := range []int{0, 1, 2} {
+		if allowed[value] {
+			result = append(result, value)
+		}
+	}
+	return result
+}
+
+func (handler *ArchiveMediaContentHandler) validatedArchiveMediaSnapshot(ctx context.Context, root *os.Root, source *os.File, sourceInfo os.FileInfo, expectedSize int64, expected string) (*os.File, string, os.FileInfo, bool) {
 	expected = strings.ToLower(strings.TrimSpace(expected))
 	decoded, err := hex.DecodeString(expected)
 	if err != nil || len(decoded) != sha256.Size {
-		return false
+		return nil, "", nil, false
 	}
-	if handler.hashSlots == nil {
-		return false
+	if handler == nil || handler.hashSlots == nil || root == nil || source == nil || sourceInfo == nil || expectedSize <= 0 {
+		return nil, "", nil, false
 	}
 	select {
 	case handler.hashSlots <- struct{}{}:
 		defer func() { <-handler.hashSlots }()
 	case <-ctx.Done():
-		return false
+		return nil, "", nil, false
 	}
-	return handler.hashOpenedArchiveMedia(file, info, decoded)
-}
-
-func (handler *ArchiveMediaContentHandler) hashOpenedArchiveMedia(file *os.File, info os.FileInfo, expected []byte) bool {
-	if _, err := file.Seek(0, io.SeekStart); err != nil {
-		return false
+	if _, err := source.Seek(0, io.SeekStart); err != nil {
+		return nil, "", nil, false
 	}
-	hashFile := handler.hashFile
-	if hashFile == nil {
-		hashFile = archiveMediaSHA256
-	}
-	actual, err := hashFile(file)
+	snapshotName := ".serve-" + uuid.NewString() + ".tmp"
+	snapshot, err := root.OpenFile(snapshotName, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
-		return false
+		return nil, "", nil, false
 	}
-	after, err := file.Stat()
-	return err == nil && os.SameFile(info, after) && info.Size() == after.Size() && info.ModTime().Equal(after.ModTime()) && string(actual[:]) == string(expected)
+	cleanup := func() {
+		_ = snapshot.Close()
+		_ = root.Remove(snapshotName)
+	}
+	hash := sha256.New()
+	copySnapshot := handler.snapshotCopy
+	if copySnapshot == nil {
+		copySnapshot = io.Copy
+	}
+	written, err := copySnapshot(io.MultiWriter(snapshot, hash), source)
+	if err != nil || written != expectedSize || written != sourceInfo.Size() || !strings.EqualFold(hex.EncodeToString(hash.Sum(nil)), expected) {
+		cleanup()
+		return nil, "", nil, false
+	}
+	afterSource, err := source.Stat()
+	if err != nil || !os.SameFile(sourceInfo, afterSource) || afterSource.Size() != sourceInfo.Size() {
+		cleanup()
+		return nil, "", nil, false
+	}
+	if err := snapshot.Chmod(0o600); err != nil {
+		cleanup()
+		return nil, "", nil, false
+	}
+	snapshotInfo, err := snapshot.Stat()
+	if err != nil || !snapshotInfo.Mode().IsRegular() || snapshotInfo.Size() != expectedSize {
+		cleanup()
+		return nil, "", nil, false
+	}
+	if _, err := snapshot.Seek(0, io.SeekStart); err != nil {
+		cleanup()
+		return nil, "", nil, false
+	}
+	return snapshot, snapshotName, snapshotInfo, true
 }
 
 func archiveMediaSHA256(reader io.Reader) ([sha256.Size]byte, error) {

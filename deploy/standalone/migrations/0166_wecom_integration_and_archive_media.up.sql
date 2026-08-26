@@ -104,8 +104,8 @@ WHERE (b.`status` <> 2 OR c.`wx_corpid` LIKE 'fake_tenant_%' OR COALESCE(b.`veri
     WHERE existing.`tenant_id` = b.`tenant_id` AND existing.`corp_id` = b.`corp_id` AND existing.`slot` = 'current'
   );
 
--- A later authenticated media endpoint uses the existing global-message
--- permission and retains normal employee data-scope checks.
+-- A later authenticated media endpoint follows the conversation domain that
+-- projected the media and retains normal employee data-scope checks.
 INSERT INTO `mochat_go_dashboard_permission_resources`
   (`permission_id`,`resource_type`,`http_method`,`path_pattern`,`scope_required`,`status`,`version`)
 SELECT p.`id`, 'api', seed.`http_method`, '/dashboard/archive/media/{id}/content', 1, 1, 1
@@ -114,7 +114,12 @@ INNER JOIN (
   SELECT 'GET' AS `http_method`
   UNION ALL SELECT 'HEAD'
 ) seed ON 1 = 1
-WHERE p.`code` = 'dashboard.chat.v2_all'
+WHERE p.`code` IN (
+  'dashboard.chat.v2_all',
+  'dashboard.chat.v2_staff',
+  'dashboard.chat.v2_customer',
+  'dashboard.chat.v2_group'
+)
   AND NOT EXISTS (
     SELECT 1 FROM `mochat_go_dashboard_permission_resources` existing
     WHERE existing.`permission_id` = p.`id`

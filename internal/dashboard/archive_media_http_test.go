@@ -9,8 +9,14 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
+	"runtime"
+	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"jiyi/mochat-go/internal/dashboardprincipal"
 )
@@ -18,16 +24,32 @@ import (
 const archiveMediaTestID = "8ff7bf2d-5604-43bc-a600-3ec91d575085"
 
 type fakeArchiveMediaContentStore struct {
-	object ArchiveMediaContentObject
-	found  bool
-	filter ArchiveMediaContentFilter
-	calls  int
+	mu                     sync.Mutex
+	object                 ArchiveMediaContentObject
+	found                  bool
+	filter                 ArchiveMediaContentFilter
+	calls                  int
+	objectConversationType *int
 }
 
 func (store *fakeArchiveMediaContentStore) ArchiveMediaContent(_ context.Context, filter ArchiveMediaContentFilter) (ArchiveMediaContentObject, bool, error) {
+	store.mu.Lock()
+	defer store.mu.Unlock()
 	store.calls++
 	store.filter = filter
+	if store.objectConversationType != nil && !containsArchiveMediaConversationType(filter.AllowedConversationTypes, *store.objectConversationType) {
+		return ArchiveMediaContentObject{}, false, nil
+	}
 	return store.object, store.found, nil
+}
+
+func containsArchiveMediaConversationType(values []int, target int) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
 }
 
 func TestArchiveMediaContentServesFullHeadAndSingleRanges(t *testing.T) {
@@ -39,9 +61,9 @@ func TestArchiveMediaContentServesFullHeadAndSingleRanges(t *testing.T) {
 	}}
 	handler := NewArchiveMediaContentHandler(store, root)
 	hashCalls := 0
-	handler.hashFile = func(reader io.Reader) ([sha256.Size]byte, error) {
+	handler.snapshotCopy = func(writer io.Writer, reader io.Reader) (int64, error) {
 		hashCalls++
-		return archiveMediaSHA256(reader)
+		return io.Copy(writer, reader)
 	}
 	tests := []struct {
 		name, method, header, body, length, contentRange string
@@ -79,11 +101,143 @@ func TestArchiveMediaContentServesFullHeadAndSingleRanges(t *testing.T) {
 	if downloadResponse.Code != http.StatusOK || !strings.HasPrefix(downloadResponse.Header().Get("Content-Disposition"), "attachment;") {
 		t.Fatalf("download status/disposition=%d/%q", downloadResponse.Code, downloadResponse.Header().Get("Content-Disposition"))
 	}
-	if store.filter.TenantID != 11 || store.filter.CorpID != 27 || !store.filter.RestrictEmployeeIDs || len(store.filter.AllowedEmployeeIDs) != 2 {
+	if store.filter.TenantID != 11 || store.filter.CorpID != 27 || !store.filter.RestrictEmployeeIDs || len(store.filter.AllowedEmployeeIDs) != 2 || !reflect.DeepEqual(store.filter.AllowedConversationTypes, []int{0, 1, 2}) {
 		t.Fatalf("scope filter=%+v", store.filter)
 	}
 	if hashCalls != 7 {
 		t.Fatalf("full/head/range integrity checks=%d want=7", hashCalls)
+	}
+}
+
+func TestArchiveMediaContentScopesEveryConversationPermissionForGETAndHEAD(t *testing.T) {
+	root := t.TempDir()
+	path := writeArchiveMediaTestFile(t, root, []byte("payload"))
+	permissions := []struct {
+		code    string
+		allowed []int
+	}{
+		{code: "dashboard.chat.v2_all", allowed: []int{0, 1, 2}},
+		{code: "dashboard.chat.v2_staff", allowed: []int{0}},
+		{code: "dashboard.chat.v2_customer", allowed: []int{1}},
+		{code: "dashboard.chat.v2_group", allowed: []int{2}},
+	}
+	for _, method := range []string{http.MethodGet, http.MethodHead} {
+		for _, permission := range permissions {
+			for conversationType := 0; conversationType <= 2; conversationType++ {
+				name := method + "/" + permission.code + "/" + strconv.Itoa(conversationType)
+				t.Run(name, func(t *testing.T) {
+					objectType := conversationType
+					store := &fakeArchiveMediaContentStore{found: true, objectConversationType: &objectType, object: ArchiveMediaContentObject{
+						ID: archiveMediaTestID, MediaType: "file", Name: "payload.bin", MIMEType: "application/octet-stream",
+						Size: 7, Status: "ready", StoragePath: path, SHA256: archiveMediaTestSHA256([]byte("payload")),
+					}}
+					request := archiveMediaRequest(method, "")
+					access, _ := DashboardAccessFromContext(request.Context())
+					access.PermissionCode = permission.code
+					access.PermissionCodes = []string{permission.code}
+					request = request.WithContext(WithDashboardAccessContext(request.Context(), access))
+					response := httptest.NewRecorder()
+					NewArchiveMediaContentHandler(store, root).ServeHTTP(response, request)
+					want := http.StatusNotFound
+					if containsArchiveMediaConversationType(permission.allowed, conversationType) {
+						want = http.StatusOK
+					}
+					if response.Code != want {
+						t.Fatalf("status=%d want=%d filter=%+v", response.Code, want, store.filter)
+					}
+					if !reflect.DeepEqual(store.filter.AllowedConversationTypes, permission.allowed) {
+						t.Fatalf("allowed conversation types=%v want=%v", store.filter.AllowedConversationTypes, permission.allowed)
+					}
+				})
+			}
+		}
+	}
+}
+
+func TestArchiveMediaContentServesOnlyTheValidatedSnapshot(t *testing.T) {
+	root := t.TempDir()
+	path := writeArchiveMediaTestFile(t, root, []byte("trusted"))
+	store := &fakeArchiveMediaContentStore{found: true, object: ArchiveMediaContentObject{
+		ID: archiveMediaTestID, MediaType: "file", Name: "payload.bin", MIMEType: "application/octet-stream",
+		Size: 7, Status: "ready", StoragePath: path, SHA256: archiveMediaTestSHA256([]byte("trusted")),
+	}}
+	handler := NewArchiveMediaContentHandler(store, root)
+	handler.snapshotValidated = func(snapshotName string, snapshot os.FileInfo) {
+		if strings.Contains(snapshotName, archiveMediaTestID) {
+			t.Fatalf("snapshot filename leaked object locator: %q", snapshotName)
+		}
+		if runtime.GOOS != "windows" && snapshot.Mode().Perm() != 0o600 {
+			t.Fatalf("snapshot permissions=%#o want=0600", snapshot.Mode().Perm())
+		}
+		if err := os.WriteFile(path, []byte("EVIL!!!"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, archiveMediaRequest(http.MethodGet, ""))
+	if response.Code != http.StatusOK || response.Body.String() != "trusted" {
+		t.Fatalf("status/body=%d/%q, want verified snapshot", response.Code, response.Body.String())
+	}
+	entries, err := os.ReadDir(filepath.Join(root, "archive-media"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].Name() != archiveMediaTestID {
+		t.Fatalf("temporary snapshot was not cleaned: %v", entries)
+	}
+}
+
+func TestArchiveMediaSnapshotConcurrencyCoversCopyAndHash(t *testing.T) {
+	root := t.TempDir()
+	path := writeArchiveMediaTestFile(t, root, []byte("payload"))
+	store := &fakeArchiveMediaContentStore{found: true, object: ArchiveMediaContentObject{
+		ID: archiveMediaTestID, MediaType: "file", Name: "payload.bin", MIMEType: "application/octet-stream",
+		Size: 7, Status: "ready", StoragePath: path, SHA256: archiveMediaTestSHA256([]byte("payload")),
+	}}
+	handler := NewArchiveMediaContentHandler(store, root)
+	started, release := make(chan struct{}, 8), make(chan struct{})
+	var active, maximum atomic.Int32
+	handler.snapshotCopy = func(writer io.Writer, reader io.Reader) (int64, error) {
+		current := active.Add(1)
+		defer active.Add(-1)
+		for {
+			observed := maximum.Load()
+			if current <= observed || maximum.CompareAndSwap(observed, current) {
+				break
+			}
+		}
+		started <- struct{}{}
+		<-release
+		return io.Copy(writer, reader)
+	}
+	var wait sync.WaitGroup
+	for index := 0; index < 8; index++ {
+		wait.Add(1)
+		go func() {
+			defer wait.Done()
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, archiveMediaRequest(http.MethodGet, ""))
+			if response.Code != http.StatusOK {
+				t.Errorf("status=%d", response.Code)
+			}
+		}()
+	}
+	for index := 0; index < archiveMediaHashConcurrency; index++ {
+		select {
+		case <-started:
+		case <-time.After(time.Second):
+			t.Fatal("copy/hash slot did not start")
+		}
+	}
+	select {
+	case <-started:
+		t.Fatal("more than four snapshot copies entered the integrity boundary")
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(release)
+	wait.Wait()
+	if maximum.Load() != archiveMediaHashConcurrency {
+		t.Fatalf("maximum concurrent snapshot copies=%d want=%d", maximum.Load(), archiveMediaHashConcurrency)
 	}
 }
 
@@ -99,7 +253,7 @@ func TestArchiveMediaContentFailsClosedBeforeLookup(t *testing.T) {
 	store := &fakeArchiveMediaContentStore{}
 	handler := NewArchiveMediaContentHandler(store, t.TempDir())
 	principal := dashboardprincipal.DashboardPrincipal{UserID: 5, TenantID: 11, CorpID: 27, CorpStatus: dashboardprincipal.CorpBindingStatusActive, AuthVersion: 1}
-	access := DashboardAccessContext{UserID: 5, TenantID: 11, CorpID: 27, Scope: DataScopeDepartment, ScopeRequired: true, AllowedEmployeeIDs: []int{31}}
+	access := DashboardAccessContext{UserID: 5, TenantID: 11, CorpID: 27, PermissionCodes: []string{"dashboard.chat.v2_all"}, Scope: DataScopeDepartment, ScopeRequired: true, AllowedEmployeeIDs: []int{31}}
 	tests := []struct {
 		name string
 		p    *dashboardprincipal.DashboardPrincipal
@@ -302,6 +456,6 @@ func archiveMediaRequest(method, rangeHeader string) *http.Request {
 	}
 	principal := dashboardprincipal.DashboardPrincipal{UserID: 5, TenantID: 11, CorpID: 27, CorpStatus: dashboardprincipal.CorpBindingStatusActive, AuthVersion: 1}
 	ctx := dashboardprincipal.WithPrincipal(req.Context(), principal)
-	ctx = WithDashboardAccessContext(ctx, DashboardAccessContext{UserID: 5, TenantID: 11, CorpID: 27, WorkEmployeeID: 31, Scope: DataScopeDepartment, ScopeRequired: true, AllowedEmployeeIDs: []int{31, 32}})
+	ctx = WithDashboardAccessContext(ctx, DashboardAccessContext{UserID: 5, TenantID: 11, CorpID: 27, WorkEmployeeID: 31, PermissionCode: "dashboard.chat.v2_all", PermissionCodes: []string{"dashboard.chat.v2_all"}, Scope: DataScopeDepartment, ScopeRequired: true, AllowedEmployeeIDs: []int{31, 32}})
 	return req.WithContext(ctx)
 }

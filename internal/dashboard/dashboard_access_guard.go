@@ -92,6 +92,12 @@ func (guard *DashboardAccessGuard) Authorize(w http.ResponseWriter, request *htt
 	if principal.CorpStatus == dashboardprincipal.CorpBindingStatusPending {
 		return guard.authorizePendingBinding(w, request, principal, contract)
 	}
+	if method != http.MethodGet && method != http.MethodHead && dashboardPathPatternMatches("/dashboard/archive/media/{id}/content", path) {
+		// The principal boundary still applies, but unsupported methods do not
+		// need a fabricated RBAC resource merely to reach the handler's 405.
+		guard.attachIdentityContext(request, principal)
+		return true
+	}
 
 	if contract == "GET /dashboard/access/profile" {
 		guard.attachIdentityContext(request, principal)

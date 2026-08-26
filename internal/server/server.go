@@ -5293,8 +5293,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.workMessageExportTasks.ServeHTTP(w, r)
 	case r.URL.Path == "/dashboard/workMessage/exportDownload" && r.Method == http.MethodGet && s.workMessageExportDownload != nil:
 		s.workMessageExportDownload.ServeHTTP(w, r)
-	case strings.HasPrefix(r.URL.Path, "/dashboard/archive/media/") && strings.HasSuffix(r.URL.Path, "/content") &&
-		(r.Method == http.MethodGet || r.Method == http.MethodHead) && s.archiveMediaContent != nil:
+	case strings.HasPrefix(r.URL.Path, "/dashboard/archive/media/") && strings.HasSuffix(r.URL.Path, "/content") && s.archiveMediaContent != nil:
 		s.archiveMediaContent.ServeHTTP(w, r)
 	case r.URL.Path == "/dashboard/risk/rules" && r.Method == http.MethodGet && s.riskBehaviorRules != nil:
 		s.riskBehaviorRules.ServeHTTP(w, r)

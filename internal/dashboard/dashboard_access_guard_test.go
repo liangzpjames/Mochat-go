@@ -72,6 +72,29 @@ func TestDashboardAccessGuardProfileRequiresAuthenticationAndTenantGate(t *testi
 	}
 }
 
+func TestDashboardAccessGuardAuthenticatesUnsupportedArchiveMediaMethodWithoutPermissionLookup(t *testing.T) {
+	guard, store := newDashboardAccessGuardFixture(false)
+	path := "/dashboard/archive/media/8ff7bf2d-5604-43bc-a600-3ec91d575085/content"
+	request := dashboardAccessGuardRequest(guard, http.MethodPost, path, nil)
+	response := httptest.NewRecorder()
+	if !guard.Authorize(response, request) {
+		t.Fatalf("authenticated unsupported method rejected: status=%d body=%s", response.Code, response.Body.String())
+	}
+	if store.resourceCalls != 0 || store.grantCalls != 0 {
+		t.Fatalf("unsupported method queried permission resources=%d grants=%d", store.resourceCalls, store.grantCalls)
+	}
+	access, ok := DashboardAccessFromContext(request.Context())
+	if !ok || access.UserID != 7 || access.TenantID != 9 || access.CorpID != 12 {
+		t.Fatalf("identity context=%+v ok=%v", access, ok)
+	}
+
+	unauthenticated := httptest.NewRequest(http.MethodPost, path, nil)
+	response = httptest.NewRecorder()
+	if guard.Authorize(response, unauthenticated) || response.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated method status=%d body=%s", response.Code, response.Body.String())
+	}
+}
+
 func TestDashboardAccessGuardManualAIInsightRunIsSuperadminDenyOnly(t *testing.T) {
 	for _, test := range []struct {
 		name       string

@@ -56,6 +56,10 @@ func Test0166WeComIntegrationAndArchiveMediaMigrationContract(t *testing.T) {
 		"UNIQUE KEY `uk_archive_media_source_identity` (`tenant_id`,`corp_id`,`msgid`,`sdk_file_id_hash`)",
 		"KEY `idx_archive_media_claim_lease`",
 		"KEY `idx_archive_media_scope_msgid` (`tenant_id`,`corp_id`,`msgid`)",
+		"'dashboard.chat.v2_all'",
+		"'dashboard.chat.v2_staff'",
+		"'dashboard.chat.v2_customer'",
+		"'dashboard.chat.v2_group'",
 	} {
 		if !strings.Contains(up, required) {
 			t.Errorf("0166 up migration missing %q", required)
@@ -85,6 +89,10 @@ func Test0166WeComIntegrationAndArchiveMediaMigrationContract(t *testing.T) {
 	for _, required := range []string{
 		"DROP TABLE IF EXISTS `mochat_go_archive_media_objects`",
 		"DROP TABLE IF EXISTS `mochat_go_wecom_integrations`",
+		"'dashboard.chat.v2_all'",
+		"'dashboard.chat.v2_staff'",
+		"'dashboard.chat.v2_customer'",
+		"'dashboard.chat.v2_group'",
 	} {
 		if !strings.Contains(down, required) {
 			t.Errorf("0166 down migration missing %q", required)

@@ -174,18 +174,23 @@ func (s *MySQLStore) ArchiveMediaContent(ctx context.Context, filter dashboard.A
 	if s == nil || s.db == nil || filter.TenantID <= 0 || filter.CorpID <= 0 || strings.TrimSpace(filter.ID) == "" {
 		return dashboard.ArchiveMediaContentObject{}, false, nil
 	}
+	conversationTypes := uniqueArchiveMediaConversationTypes(filter.AllowedConversationTypes)
+	if len(conversationTypes) == 0 {
+		return dashboard.ArchiveMediaContentObject{}, false, nil
+	}
 	if filter.RestrictEmployeeIDs && len(uniquePositiveInts(filter.AllowedEmployeeIDs)) == 0 {
 		return dashboard.ArchiveMediaContentObject{}, false, nil
 	}
 	messageUnion := make([]string, 0, dashboard.WorkMessageArchiveMessageTableCount)
 	for tableIndex := 1; tableIndex <= dashboard.WorkMessageArchiveMessageTableCount; tableIndex++ {
-		messageUnion = append(messageUnion, fmt.Sprintf("SELECT corp_id,msgid,work_employee_id FROM mc_work_message_%d WHERE deleted_at IS NULL", tableIndex))
+		messageUnion = append(messageUnion, fmt.Sprintf("SELECT corp_id,msgid,work_employee_id,to_user_type FROM mc_work_message_%d WHERE deleted_at IS NULL", tableIndex))
 	}
-	where := "1=1"
+	where := []string{"message.to_user_type IN (" + placeholders(len(conversationTypes)) + ")"}
 	args := []any{filter.ID, filter.TenantID, filter.CorpID}
+	args = append(args, intsToAny(conversationTypes)...)
 	if filter.RestrictEmployeeIDs {
 		ids := uniquePositiveInts(filter.AllowedEmployeeIDs)
-		where = "message.work_employee_id IN (" + placeholders(len(ids)) + ")"
+		where = append(where, "message.work_employee_id IN ("+placeholders(len(ids))+")")
 		args = append(args, intsToAny(ids)...)
 	}
 	var object dashboard.ArchiveMediaContentObject
@@ -198,7 +203,7 @@ func (s *MySQLStore) ArchiveMediaContent(ctx context.Context, filter dashboard.A
 		WHERE media.id=? AND media.tenant_id=? AND media.corp_id=? AND media.status='ready'
 		  AND EXISTS (
 		    SELECT 1 FROM (`+strings.Join(messageUnion, " UNION ALL ")+`) message
-		    WHERE message.corp_id=media.corp_id AND message.msgid=media.msgid AND `+where+`
+		    WHERE message.corp_id=media.corp_id AND message.msgid=media.msgid AND `+strings.Join(where, " AND ")+`
 		  )
 		LIMIT 1
 	`, args...).Scan(&object.ID, &object.MediaType, &object.Name, &object.MIMEType, &object.Size, &object.Status, &object.StoragePath, &object.SHA256)
@@ -209,4 +214,21 @@ func (s *MySQLStore) ArchiveMediaContent(ctx context.Context, filter dashboard.A
 		return dashboard.ArchiveMediaContentObject{}, false, err
 	}
 	return object, true, nil
+}
+
+func uniqueArchiveMediaConversationTypes(values []int) []int {
+	seen := map[int]bool{}
+	for _, value := range values {
+		if value >= 0 && value <= 2 {
+			seen[value] = true
+		}
+	}
+	result := make([]int, 0, len(seen))
+	for _, value := range values {
+		if seen[value] {
+			result = append(result, value)
+			seen[value] = false
+		}
+	}
+	return result
 }

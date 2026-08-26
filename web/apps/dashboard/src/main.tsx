@@ -39,6 +39,7 @@ import { BusinessWorkbenchPage } from './features/business-workbench/business-wo
 import { businessRouteCatalog } from './features/business-workbench/catalog';
 import { createDashboardOverviewApi } from './features/dashboard-overview/dashboard-overview-api';
 import { createConversationGlobalApi } from './features/conversation-global/conversation-global-api';
+import { ArchiveMediaClientProvider, createArchiveMediaClient } from './features/conversation-global/archive-media-client';
 import { createSensitiveWordApi } from './features/sensitive-word/sensitive-word-api';
 import { createRiskBehaviorApi } from './features/phase33/risk-behavior-api';
 import { createLeadApi } from './features/scrm/lead-api';
@@ -110,6 +111,7 @@ const contactTagApi = createContactTagApi(apiClient);
 const businessWorkbenchApi = createBusinessWorkbenchApi(apiClient);
 const dashboardOverviewApi = createDashboardOverviewApi(apiClient);
 const conversationGlobalApi = createConversationGlobalApi(apiClient);
+const archiveMediaClient = createArchiveMediaClient(apiClient, window.location.origin);
 const sensitiveWordApi = createSensitiveWordApi(apiClient);
 const riskBehaviorApi = createRiskBehaviorApi(apiClient);
 const leadApi = createLeadApi(apiClient);
@@ -222,13 +224,15 @@ const router = createDashboardRouter({
     '/workContactTag/index': page(<ContactTagPage api={contactTagApi} />),
   },
   renderAccess: (_access, children) => (
-    <DashboardSessionActionsProvider
-      onLogout={performLogout}
-      userId={authStore.getSession()?.userId ?? null}
-      userName={authStore.getSession()?.userName ?? null}
-    >
-      {children}
-    </DashboardSessionActionsProvider>
+    <ArchiveMediaClientProvider client={archiveMediaClient}>
+      <DashboardSessionActionsProvider
+        onLogout={performLogout}
+        userId={authStore.getSession()?.userId ?? null}
+        userName={authStore.getSession()?.userName ?? null}
+      >
+        {children}
+      </DashboardSessionActionsProvider>
+    </ArchiveMediaClientProvider>
   ),
   setSession: (session) => authStore.setSession(session),
 });

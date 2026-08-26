@@ -11,6 +11,7 @@ import type {
   ConversationGlobalApi,
   ConversationPage,
 } from './conversation-global-api';
+import { ArchiveMediaClientProvider, type ArchiveMediaClient } from './archive-media-client';
 import { ConversationGlobalPage } from './conversation-global-page';
 
 const access: AccessContext = {
@@ -71,6 +72,7 @@ function renderPage(
   api: ConversationGlobalApi,
   entry = '/chat/v2-all',
   fixedConversationType?: 'employee' | 'customer' | 'room',
+  archiveMediaClient?: ArchiveMediaClient,
 ) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -79,10 +81,15 @@ function renderPage(
     <MemoryRouter initialEntries={[entry]}>
       <QueryClientProvider client={queryClient}>
         <DashboardAccessProvider value={access}>
-          <ConversationGlobalPage
+          {archiveMediaClient === undefined ? <ConversationGlobalPage
             api={api}
             {...(fixedConversationType === undefined ? {} : { fixedConversationType })}
-          />
+          /> : <ArchiveMediaClientProvider client={archiveMediaClient}>
+            <ConversationGlobalPage
+              api={api}
+              {...(fixedConversationType === undefined ? {} : { fixedConversationType })}
+            />
+          </ArchiveMediaClientProvider>}
           <LocationProbe />
         </DashboardAccessProvider>
       </QueryClientProvider>
@@ -290,13 +297,15 @@ describe('ConversationGlobalPage', () => {
   });
 
   it('renders authenticated media in the global detail drawer', async () => {
+    Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: vi.fn(() => 'blob:global-media') });
+    Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: vi.fn() });
     renderPage({
       search: vi.fn(() => Promise.resolve({ ...page, page: 1 })),
       detail: vi.fn(() => Promise.resolve({
         ...detail,
         messages: [{ ...detail.messages[0]!, type: 2, content: { media: { id: '8ff7bf2d-5604-43bc-a600-3ec91d575085', type: 'image', name: '验收图片.png', mimeType: 'image/png', size: 8, status: 'ready', url: '/dashboard/archive/media/8ff7bf2d-5604-43bc-a600-3ec91d575085/content' } } }],
       })),
-    });
+    }, '/chat/v2-all', undefined, { download: vi.fn().mockResolvedValue({ blob: new Blob(['image']), filename: '验收图片.png' }) });
     await screen.findByText('星河科技');
     fireEvent.click(screen.getByRole('button', { name: '查看会话' }));
     expect(await screen.findByRole('img', { name: '验收图片.png' })).not.toBeNull();

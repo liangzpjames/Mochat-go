@@ -3,7 +3,12 @@
 DELETE resource
 FROM `mochat_go_dashboard_permission_resources` resource
 INNER JOIN `mochat_go_dashboard_permissions` permission ON permission.`id` = resource.`permission_id`
-WHERE permission.`code` = 'dashboard.chat.v2_all'
+WHERE permission.`code` IN (
+  'dashboard.chat.v2_all',
+  'dashboard.chat.v2_staff',
+  'dashboard.chat.v2_customer',
+  'dashboard.chat.v2_group'
+)
   AND resource.`resource_type` = 'api'
   AND resource.`http_method` IN ('GET','HEAD')
   AND resource.`path_pattern` = '/dashboard/archive/media/{id}/content';

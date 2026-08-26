@@ -63,17 +63,35 @@ func TestArchiveMediaContentScopesTenantCorpSourceAndEmployees(t *testing.T) {
 	}
 	defer db.Close()
 	store := NewMySQLStore(db)
-	query := "(?s)FROM mochat_go_archive_media_objects media.*INNER JOIN mochat_go_archive_message_sources source.*source.source_id=media.source_identity.*media.id=\\?.*media.tenant_id=\\?.*media.corp_id=\\?.*message.work_employee_id IN \\(\\?,\\?\\)"
+	query := "(?s)FROM mochat_go_archive_media_objects media.*INNER JOIN mochat_go_archive_message_sources source.*source.source_id=media.source_identity.*media.id=\\?.*media.tenant_id=\\?.*media.corp_id=\\?.*message.to_user_type IN \\(\\?,\\?\\).*message.work_employee_id IN \\(\\?,\\?\\)"
 	mock.ExpectQuery(query).
-		WithArgs("8ff7bf2d-5604-43bc-a600-3ec91d575085", 11, 27, 32, 31).
+		WithArgs("8ff7bf2d-5604-43bc-a600-3ec91d575085", 11, 27, 1, 2, 32, 31).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "media_type", "media_name", "mime_type", "bytes_received", "status", "storage_path", "sha256"}).
 			AddRow("8ff7bf2d-5604-43bc-a600-3ec91d575085", "image", "safe.png", "image/png", 8, "ready", "archive-media/8ff7bf2d-5604-43bc-a600-3ec91d575085", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"))
 	object, found, err := store.ArchiveMediaContent(context.Background(), dashboard.ArchiveMediaContentFilter{
 		ID: "8ff7bf2d-5604-43bc-a600-3ec91d575085", TenantID: 11, CorpID: 27,
-		RestrictEmployeeIDs: true, AllowedEmployeeIDs: []int{32, 31, 31, -1},
+		AllowedConversationTypes: []int{1, 2, 2, -1}, RestrictEmployeeIDs: true, AllowedEmployeeIDs: []int{32, 31, 31, -1},
 	})
 	if err != nil || !found || object.ID == "" || object.Status != "ready" {
 		t.Fatalf("object=%+v found=%v err=%v", object, found, err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestArchiveMediaContentEmptyConversationScopeFailsWithoutQuery(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	store := NewMySQLStore(db)
+	_, found, err := store.ArchiveMediaContent(context.Background(), dashboard.ArchiveMediaContentFilter{
+		ID: "8ff7bf2d-5604-43bc-a600-3ec91d575085", TenantID: 11, CorpID: 27,
+	})
+	if err != nil || found {
+		t.Fatalf("found=%v err=%v", found, err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)
@@ -88,7 +106,7 @@ func TestArchiveMediaContentEmptyEmployeeScopeFailsWithoutQuery(t *testing.T) {
 	defer db.Close()
 	store := NewMySQLStore(db)
 	_, found, err := store.ArchiveMediaContent(context.Background(), dashboard.ArchiveMediaContentFilter{
-		ID: "8ff7bf2d-5604-43bc-a600-3ec91d575085", TenantID: 11, CorpID: 27, RestrictEmployeeIDs: true,
+		ID: "8ff7bf2d-5604-43bc-a600-3ec91d575085", TenantID: 11, CorpID: 27, AllowedConversationTypes: []int{0}, RestrictEmployeeIDs: true,
 	})
 	if err != nil || found {
 		t.Fatalf("found=%v err=%v", found, err)
