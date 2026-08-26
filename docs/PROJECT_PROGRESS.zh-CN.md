@@ -1,10 +1,31 @@
 # MoChat Go 开发总进度
 
-> 更新时间：2026-08-21
-> 当前分支：`feat/conversation-operations-pages`（HEAD `4922649`，关键词库布局与交互收口已提交；当前工作树仍保留其他专项未提交改动，本次未执行 reset/clean）
-> 主线同步：本轮优化已推送至 `origin/main=4922649`；当前分支与远端主线同步，其他专项未提交改动仍保留在工作树
-> 当前阶段：Phase 7 因真实企微会话存档外部配置阻塞而暂停；转入 Dashboard 与 Sidebar/Operation 移动端逐页功能、交互和布局优化
-> 监督模式：本文件是唯一总进度台账；由用户在本会话触发检查，本会话不承担业务开发
+> 更新时间：2026-08-26
+> 当前分支：`fix/ai-insight-readonly-20260826`（本次服务器部署源码 `cacdc740a14a`；后续验收文档另行提交，用户已有 `.superpowers/sdd/progress.md` 改动保持未触碰，本地产物目录未提交）
+> 主线同步：本地 `main` 与权威远端 `origin/main` 均为 `c696aa66400b5cb7185f18a4152ea6c0ac593834`；本次部署分支尚未合入主线
+> 当前阶段：Phase 7 专用 callback、SDK bridge 和定时同步已部署；真实企微配置、真实消息拉取、Sidebar 应用授权与三端完整角色验收仍受外部条件阻塞
+> 证据入口：[2026-08-26 会话存档部署与三端验收报告](deployment/2026-08-26-wecom-archive-live-deployment-acceptance.zh-CN.md)
+
+## 会话存档生产接入与三端实测（2026-08-26）
+
+本次在服务器 `139.196.34.133` 完成主应用与 Finance SDK bridge 的可回滚部署。所有 Linux/amd64 镜像均在本地构建，服务器只校验 SHA-256、`docker load` 和精确重建 app/bridge；MySQL、Redis、命名卷和生产数据库未删除或重建。部署前完整回滚点位于 `/opt/mochat-go/backups/wecom-archive-e1546ad6ad90-predeploy-20260826T1838CST`。
+
+已完成事实：
+
+- 主应用最终代码 `cacdc740a14a`，专用地址 `http://139.196.34.133/wecom/archive/callback?cid=4`；合成 GET 不再落入 Dashboard SPA，非法签名返回 `400 text/plain`，非法方法和子路径失败关闭。
+- bridge `d0c9409df11a` 健康运行，管理口仅服务器本机可用且需要 Bearer 鉴权；主应用通过 Docker 内网访问。
+- app/bridge 重启后均 healthy，`/healthz`、`/readyz` 和关键静态入口为 200，165 个迁移全部已应用，MySQL/Redis 容器 ID 在 app-only 发布前后不变。
+- 企业配置页已增加会话存档“接收事件服务器 URL”的只读展示和复制反馈，不回显会话存档 Secret 或 RSA 私钥。
+- 本地 Go 全量测试通过；Dashboard lint/typecheck/build 通过，全量 `142` 个测试文件、`918` 项测试通过。
+
+真实验收边界：
+
+- 当前企业 CorpID 尚未验证、会话存档未配置，定时任务如实报告 `corps=0`；尚未收到真实企微 challenge、`msgaudit_notify` 或真实 `GetChatData/DecryptData` 消息。
+- 当前 Dashboard 账号仅有“唯一企业资料”权限，数据概览、AI 设置和 AI 洞察会被 RBAC 重定向；SaaS Admin 没有现成登录态，均不能冒充验收通过。
+- Sidebar 12 条路由的登录/失败状态可达，但用当前 AgentID 发起授权返回“应用不存在”；企业资料中的应用配置尚未闭合到 Sidebar 应用记录和员工 OAuth/JSSDK。
+- 应用内浏览器本轮未实际得到 390×844 viewport，因此生产移动视觉项保持跳过；代码门禁不替代真实企微客户端验收。
+
+下一步必须由真实企微配置驱动：完成 CorpID 验证、会话存档试用/RSA 公钥/允许 IP/测试范围，生成真实消息；同时修复 Sidebar 应用记录链路并准备 SaaS Admin 与 Dashboard 完整角色登录态。只有真实 callback、SDK 拉取、数据库落库和三端回读证据闭合后，Phase 7 才能标记为生产通过。
 
 ## 超时预警与客户流失菜单实施范围纠偏（2026-08-21）
 

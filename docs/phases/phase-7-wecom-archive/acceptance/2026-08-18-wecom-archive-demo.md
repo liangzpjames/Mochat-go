@@ -35,3 +35,15 @@
 本次 Demo 不改现有 MoChat 数据链路，因此不能把 Phase 7 或 `wecom_archive` Provider 标为生产 `ready`。正式阶段仍需完成 0138 durable sync 接入、版本化 RSA keyring、媒体 `GetMediaData`、Dashboard external 数据回读、权限与恢复验收。
 
 操作入口见 [Demo 使用说明](../../../runbooks/2026-08-18-wecom-archive-demo.zh-CN.md)。
+
+## 2026-08-26 集成部署追加记录
+
+原隔离 Demo 已保留为回滚对象；新版本 `mochat/wecom-archive-demo:d0c9409df11a` 作为受鉴权内网 bridge 接入主应用，主应用最终部署版本为 `cacdc740a14a`。两个镜像均在本地构建，服务器未编译。
+
+本轮新增并验证主应用专用地址：
+
+`http://139.196.34.133/wecom/archive/callback?cid=4`
+
+合成非法签名 GET 返回 `400 text/plain`，不再返回 Dashboard HTML；POST 非法 XML 返回 400，子路径和 PUT 返回 404。app/bridge 重启后均 healthy，bridge 管理口未鉴权 401、服务器本机鉴权 200，MySQL/Redis 未重建。
+
+企业配置页已显示上述地址并提供复制反馈。当前企业仍为 CorpID 待验证、会话存档未配置，定时同步如实为 `corps=0`；真实企微 challenge、事件、SDK 消息拉取和数据库/Dashboard 回读继续标记为 `WAITING_EXTERNAL_CONFIG`。完整证据见 [2026-08-26 部署与三端验收报告](../../../deployment/2026-08-26-wecom-archive-live-deployment-acceptance.zh-CN.md)。
