@@ -100,8 +100,8 @@ func TestMediaAttemptCleanupPreservesOnlyDatabaseReferencedCheckpoint(t *testing
 	store := &fakeArchiveMediaStore{
 		object: ArchiveMediaObject{ID: id, Status: ArchiveMediaFailed, CheckpointAttempt: 1, Attempt: 2},
 		references: []ArchiveMediaAttemptReference{
-			{ID: id, Status: ArchiveMediaFailed, CheckpointAttempt: 1},
-			{ID: fetchingID, Status: ArchiveMediaFetching, CheckpointAttempt: 3, ActiveAttempt: 4},
+			{ID: id, Status: ArchiveMediaFailed, CheckpointAttempt: 1, SnapshotAttempt: 2},
+			{ID: fetchingID, Status: ArchiveMediaFetching, CheckpointAttempt: 3, ActiveAttempt: 4, SnapshotAttempt: 4},
 		},
 	}
 	service := NewMediaSyncService(store, &fakeArchiveMediaClient{}, root)
@@ -127,6 +127,87 @@ func TestMediaAttemptCleanupPreservesOnlyDatabaseReferencedCheckpoint(t *testing
 		if _, err := os.Stat(path); err != nil {
 			t.Fatalf("cross-object or unsafe path was removed: %s: %v", path, err)
 		}
+	}
+}
+
+func TestMediaAttemptCleanupNeverDeletesAttemptNewerThanSnapshot(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "archive-media")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	id := "93085d9d-e9f3-41a4-aee5-7e0ba97e0fac"
+	oldPath := archiveMediaAttemptPath(dir, id, 1)
+	newPath := archiveMediaAttemptPath(dir, id, 2)
+	if err := os.WriteFile(oldPath, []byte("old"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store := &fakeArchiveMediaStore{
+		object:         ArchiveMediaObject{ID: id, Status: ArchiveMediaFailed, Attempt: 1},
+		references:     []ArchiveMediaAttemptReference{{ID: id, Status: ArchiveMediaFailed, SnapshotAttempt: 1}},
+		referencesRead: make(chan struct{}), releaseReferences: make(chan struct{}),
+	}
+	service := NewMediaSyncService(store, &fakeArchiveMediaClient{}, root)
+	result := make(chan error, 1)
+	go func() {
+		_, err := service.CleanupStaleAttempts(context.Background())
+		result <- err
+	}()
+	<-store.referencesRead
+	if err := os.WriteFile(newPath, []byte("new claim"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	close(store.releaseReferences)
+	if err := <-result; err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(oldPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("old attempt remains: %v", err)
+	}
+	if _, err := os.Stat(newPath); err != nil {
+		t.Fatalf("post-snapshot attempt removed: %v", err)
+	}
+	store.references = []ArchiveMediaAttemptReference{{ID: id, Status: ArchiveMediaFailed, SnapshotAttempt: 2}}
+	store.referencesRead, store.releaseReferences = nil, nil
+	if removed, err := service.CleanupStaleAttempts(context.Background()); err != nil || removed != 1 {
+		t.Fatalf("next cleanup removed=%d err=%v", removed, err)
+	}
+}
+
+func TestOldRecordFailedCleanupCannotDeleteConcurrentNewClaimAttempt(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "archive-media")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	object := ArchiveMediaObject{
+		ID: "c9c28d2b-f250-49b7-8340-57ae3616cb8e", Scope: Scope{TenantID: 11, CorpID: 27},
+		WXCorpID: "ww", SDKFileID: "internal", Attempt: 1, LeaseToken: "lease-1", Status: ArchiveMediaFetching,
+	}
+	oldPath := archiveMediaAttemptPath(dir, object.ID, 1)
+	newPath := archiveMediaAttemptPath(dir, object.ID, 2)
+	if err := os.WriteFile(oldPath, []byte("old"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store := &fakeArchiveMediaStore{object: object, failureCommitted: make(chan struct{}), releaseFailure: make(chan struct{})}
+	service := NewMediaSyncService(store, &fakeArchiveMediaClient{}, root)
+	result := make(chan error, 1)
+	go func() {
+		result <- service.recordFailed(context.Background(), object, "archive.media_fetch_failed", errors.New("safe"))
+	}()
+	<-store.failureCommitted
+	if err := os.WriteFile(newPath, []byte("new claim"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	close(store.releaseFailure)
+	if err := <-result; err == nil {
+		t.Fatal("recordFailed unexpectedly returned nil")
+	}
+	if _, err := os.Stat(oldPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("old failed attempt remains: %v", err)
+	}
+	if _, err := os.Stat(newPath); err != nil {
+		t.Fatalf("concurrent new claim attempt removed: %v", err)
 	}
 }
 
@@ -352,15 +433,19 @@ func TestMediaSyncRecoversRenameCompletedBeforeLedgerCompletion(t *testing.T) {
 }
 
 type fakeArchiveMediaStore struct {
-	object      ArchiveMediaObject
-	claimed     bool
-	checkpoints []ArchiveMediaCheckpoint
-	completed   ArchiveMediaCompletion
-	failed      ArchiveMediaFailure
-	missing     ArchiveMediaFailure
-	corrupt     ArchiveMediaFailure
-	completeErr error
-	references  []ArchiveMediaAttemptReference
+	object            ArchiveMediaObject
+	claimed           bool
+	checkpoints       []ArchiveMediaCheckpoint
+	completed         ArchiveMediaCompletion
+	failed            ArchiveMediaFailure
+	missing           ArchiveMediaFailure
+	corrupt           ArchiveMediaFailure
+	completeErr       error
+	references        []ArchiveMediaAttemptReference
+	referencesRead    chan struct{}
+	releaseReferences chan struct{}
+	failureCommitted  chan struct{}
+	releaseFailure    chan struct{}
 }
 
 func (s *fakeArchiveMediaStore) ClaimArchiveMedia(context.Context, time.Time) (ArchiveMediaObject, bool, error) {
@@ -394,6 +479,10 @@ func (s *fakeArchiveMediaStore) CompleteArchiveMedia(_ context.Context, value Ar
 func (s *fakeArchiveMediaStore) FailArchiveMedia(_ context.Context, value ArchiveMediaFailure, _ time.Time) error {
 	s.failed = value
 	s.object.Status = ArchiveMediaFailed
+	if s.failureCommitted != nil {
+		close(s.failureCommitted)
+		<-s.releaseFailure
+	}
 	return nil
 }
 func (s *fakeArchiveMediaStore) MarkArchiveMediaMissing(_ context.Context, value ArchiveMediaFailure, _ time.Time) error {
@@ -408,10 +497,15 @@ func (s *fakeArchiveMediaStore) MarkArchiveMediaCorrupt(_ context.Context, value
 }
 func (s *fakeArchiveMediaStore) ArchiveMediaAttemptReferences(context.Context) ([]ArchiveMediaAttemptReference, error) {
 	if s.references != nil {
-		return append([]ArchiveMediaAttemptReference(nil), s.references...), nil
+		result := append([]ArchiveMediaAttemptReference(nil), s.references...)
+		if s.referencesRead != nil {
+			close(s.referencesRead)
+			<-s.releaseReferences
+		}
+		return result, nil
 	}
 	return []ArchiveMediaAttemptReference{{
-		ID: s.object.ID, Status: s.object.Status, CheckpointAttempt: s.object.CheckpointAttempt, ActiveAttempt: s.object.Attempt,
+		ID: s.object.ID, Status: s.object.Status, CheckpointAttempt: s.object.CheckpointAttempt, ActiveAttempt: s.object.Attempt, SnapshotAttempt: s.object.Attempt,
 	}}, nil
 }
 
@@ -510,7 +604,7 @@ func (s *takeoverMediaStore) ArchiveMediaAttemptReferences(context.Context) ([]A
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return []ArchiveMediaAttemptReference{{
-		ID: s.object.ID, Status: s.object.Status, CheckpointAttempt: s.object.CheckpointAttempt, ActiveAttempt: s.activeAttempt,
+		ID: s.object.ID, Status: s.object.Status, CheckpointAttempt: s.object.CheckpointAttempt, ActiveAttempt: s.activeAttempt, SnapshotAttempt: s.activeAttempt,
 	}}, nil
 }
 

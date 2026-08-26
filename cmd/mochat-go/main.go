@@ -3027,16 +3027,7 @@ func main() {
 			RunOnStart: cfg.WorkMessageArchiveSyncCronRunOnStart,
 			Logger:     log.Default(),
 		}, func(ctx context.Context) error {
-			if _, err := mediaRunner.CleanupStaleAttempts(ctx); err != nil {
-				return err
-			}
-			for index := 0; index < cfg.WorkMessageArchiveSyncLimit; index++ {
-				worked, err := mediaRunner.RunOne(ctx)
-				if err != nil || !worked {
-					return err
-				}
-			}
-			return nil
+			return runDurableArchiveMediaBatch(ctx, mediaRunner, cfg.WorkMessageArchiveSyncLimit, log.Default())
 		}))
 		log.Printf("go durable work message archive enabled: interval=%s run_on_start=%v limit=%d storage_root=%s",
 			cfg.WorkMessageArchiveSyncCronInterval, cfg.WorkMessageArchiveSyncCronRunOnStart, cfg.WorkMessageArchiveSyncLimit, cfg.FileStorageRoot)
@@ -3552,4 +3543,25 @@ func main() {
 	if err := http.ListenAndServe(cfg.ListenAddr, serveHandler); err != nil {
 		log.Fatalf("serve: %v", err)
 	}
+}
+
+type durableArchiveMediaBatchRunner interface {
+	CleanupStaleAttempts(context.Context) (int, error)
+	RunOne(context.Context) (bool, error)
+}
+
+func runDurableArchiveMediaBatch(ctx context.Context, runner durableArchiveMediaBatchRunner, limit int, logger *log.Logger) error {
+	if logger == nil {
+		logger = log.Default()
+	}
+	if _, err := runner.CleanupStaleAttempts(ctx); err != nil {
+		logger.Print("go durable archive media attempt cleanup failed")
+	}
+	for index := 0; index < limit; index++ {
+		worked, err := runner.RunOne(ctx)
+		if err != nil || !worked {
+			return err
+		}
+	}
+	return nil
 }

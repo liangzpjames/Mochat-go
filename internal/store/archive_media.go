@@ -180,7 +180,7 @@ func (s *MySQLStore) ArchiveMediaAttemptReferences(ctx context.Context) ([]archi
 		return nil, errors.New("archive media store unavailable")
 	}
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id,status,checkpoint_attempt,
+		SELECT id,status,checkpoint_attempt,attempt AS snapshot_attempt,
 		       CASE WHEN status='fetching' THEN attempt ELSE 0 END AS active_attempt
 		FROM mochat_go_archive_media_objects
 	`)
@@ -191,7 +191,7 @@ func (s *MySQLStore) ArchiveMediaAttemptReferences(ctx context.Context) ([]archi
 	result := make([]archiveprovider.ArchiveMediaAttemptReference, 0)
 	for rows.Next() {
 		var item archiveprovider.ArchiveMediaAttemptReference
-		if err := rows.Scan(&item.ID, &item.Status, &item.CheckpointAttempt, &item.ActiveAttempt); err != nil {
+		if err := rows.Scan(&item.ID, &item.Status, &item.CheckpointAttempt, &item.SnapshotAttempt, &item.ActiveAttempt); err != nil {
 			return nil, err
 		}
 		result = append(result, item)

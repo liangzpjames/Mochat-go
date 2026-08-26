@@ -92,6 +92,7 @@ type ArchiveMediaAttemptReference struct {
 	Status            ArchiveMediaStatus
 	CheckpointAttempt int
 	ActiveAttempt     int
+	SnapshotAttempt   int
 }
 
 type ArchiveMediaAttemptStore interface {
@@ -157,7 +158,7 @@ func (s *MediaSyncService) RunOne(ctx context.Context) (bool, error) {
 		if err := s.store.CompleteArchiveMedia(ctx, completion, s.now()); err != nil {
 			return true, err
 		}
-		s.cleanupUUIDAttemptsBestEffort(object.ID, 0, 0)
+		s.cleanupUUIDAttemptsBestEffort(object.ID, object.Attempt, 0, 0)
 		return true, nil
 	} else if !errors.Is(statErr, os.ErrNotExist) {
 		return true, s.recordFailed(ctx, object, "archive.media_storage_unavailable", statErr)
@@ -293,7 +294,7 @@ func (s *MediaSyncService) commitFinishedPart(ctx context.Context, object Archiv
 	if err := s.store.CompleteArchiveMedia(ctx, completion, s.now()); err != nil {
 		return err
 	}
-	s.cleanupUUIDAttemptsBestEffort(object.ID, 0, 0)
+	s.cleanupUUIDAttemptsBestEffort(object.ID, object.Attempt, 0, 0)
 	return nil
 }
 
@@ -344,7 +345,7 @@ func (s *MediaSyncService) CleanupStaleAttempts(ctx context.Context) (int, error
 			continue
 		}
 		reference, exists := byID[strings.ToLower(parsed.String())]
-		if !exists || archiveMediaAttemptReferenced(reference, attempt) {
+		if !exists || reference.SnapshotAttempt <= 0 || attempt > reference.SnapshotAttempt || archiveMediaAttemptReferenced(reference, attempt) {
 			continue
 		}
 		if removeErr := os.Remove(filepath.Join(dir, entry.Name())); removeErr != nil {
@@ -369,7 +370,7 @@ func archiveMediaAttemptReferenced(reference ArchiveMediaAttemptReference, attem
 	}
 }
 
-func (s *MediaSyncService) cleanupUUIDAttemptsBestEffort(id string, keepCheckpoint, keepActive int) {
+func (s *MediaSyncService) cleanupUUIDAttemptsBestEffort(id string, maxAttempt, keepCheckpoint, keepActive int) {
 	dir := filepath.Join(s.root, "archive-media")
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -381,7 +382,7 @@ func (s *MediaSyncService) cleanupUUIDAttemptsBestEffort(id string, keepCheckpoi
 			continue
 		}
 		attempt, parseErr := strconv.Atoi(match[2])
-		if parseErr != nil || attempt == keepCheckpoint || attempt == keepActive {
+		if parseErr != nil || maxAttempt <= 0 || attempt > maxAttempt || attempt == keepCheckpoint || attempt == keepActive {
 			continue
 		}
 		_ = os.Remove(filepath.Join(dir, entry.Name()))
@@ -482,7 +483,7 @@ func (s *MediaSyncService) classifyFetchFailure(ctx context.Context, object Arch
 			if err := s.store.MarkArchiveMediaMissing(ctx, failure, s.now()); err != nil {
 				return err
 			}
-			s.cleanupUUIDAttemptsBestEffort(object.ID, 0, 0)
+			s.cleanupUUIDAttemptsBestEffort(object.ID, object.Attempt, 0, 0)
 			return errors.New("archive.media_missing")
 		case "ARCHIVE_MEDIA_CORRUPT":
 			return s.recordCorrupt(ctx, object, "archive.media_corrupt", partPath, cause)
@@ -495,7 +496,7 @@ func (s *MediaSyncService) recordFailed(ctx context.Context, object ArchiveMedia
 	if err := s.store.FailArchiveMedia(ctx, mediaFailure(object, code), s.now()); err != nil {
 		return err
 	}
-	s.cleanupUUIDAttemptsBestEffort(object.ID, object.CheckpointAttempt, 0)
+	s.cleanupUUIDAttemptsBestEffort(object.ID, object.Attempt, object.CheckpointAttempt, 0)
 	return fmt.Errorf("%s: %w", code, sanitizeMediaCause(cause))
 }
 
@@ -503,7 +504,7 @@ func (s *MediaSyncService) recordCorrupt(ctx context.Context, object ArchiveMedi
 	if err := s.store.MarkArchiveMediaCorrupt(ctx, mediaFailure(object, code), s.now()); err != nil {
 		return err
 	}
-	s.cleanupUUIDAttemptsBestEffort(object.ID, 0, 0)
+	s.cleanupUUIDAttemptsBestEffort(object.ID, object.Attempt, 0, 0)
 	return fmt.Errorf("%s: %w", code, sanitizeMediaCause(cause))
 }
 
