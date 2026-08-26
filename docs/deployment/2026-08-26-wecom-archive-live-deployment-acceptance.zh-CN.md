@@ -69,7 +69,8 @@
 | 通讯录完整成员资料 | `department/list`、`user/get` 均返回 `48009 api forbidden for contact assistant`，姓名、手机号、头像等未取得，未写入主库或构造占位数据 |
 | callback POST | 非法 XML 返回 400，证明进入回调处理器 |
 | callback 子路径 / PUT | 均为 404 |
-| 定时同步 | 每 15 秒正常执行，当前 `corps=0`、`failed=0` |
+| 定时同步 | 验收期间每 15 秒执行且始终为 `corps=0`、`fetched=0`；按用户要求于 2026-08-26 23:21（CST）设置 `MOCHAT_GO_ENABLE_WORK_MESSAGE_ARCHIVE_SYNC_CRON=0` 并只重建 app，观察 35 秒未再出现 cron 日志 |
+| 停用后健康 | app `/healthz`、`/readyz` 与 Demo `/healthz` 均为 200；MySQL、Redis、Demo 容器未重建，Demo 保留被动回调能力且不主动拉取 |
 
 可填写到企业微信后台的专用地址为：
 
@@ -127,6 +128,8 @@ docker compose --env-file .env.local -f docker-compose.yml up -d --no-build --no
 3. 停止当前 bridge，把保留的部署前 bridge 容器恢复原名并启动；不要删除 `/opt/wecom-archive-demo/data`、数据库或命名卷。
 4. 仅当迁移兼容性检查明确要求且用户授权时才恢复数据库备份；本次没有新增数据库迁移，通常不需要数据库回滚。
 5. 回滚后重新检查容器健康、`/healthz`、`/readyz`、关键页面和日志。
+
+若只需恢复主动归档定时拉取，使用 `/opt/mochat-go/backups/disable-archive-cron-20260826T232159CST/env.local.before` 恢复 `.env.local`，然后仅执行 app 的 `--no-build --no-deps --force-recreate`；该回滚不需要操作 MySQL、Redis、Demo 或任何数据卷。
 
 禁止使用 `docker compose down -v`、`docker volume prune`、`docker system prune`、`git reset --hard` 或清空生产数据库。
 
