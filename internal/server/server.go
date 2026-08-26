@@ -4473,7 +4473,19 @@ func isSaaSAdminDashboardProvisioningRoute(method, path string) bool {
 		}
 		rest := strings.TrimPrefix(path, prefix)
 		idText, suffix, ok := strings.Cut(rest, "/")
-		if !ok || suffix != "dashboard-admins" {
+		if !ok || (suffix != "dashboard-admins" && suffix != "wecom-integration" && suffix != "wecom-integration/audits") {
+			return false
+		}
+		tenantID, err := strconv.Atoi(idText)
+		return err == nil && tenantID > 0 && strconv.Itoa(tenantID) == idText
+	}
+	if method == http.MethodPut {
+		if !strings.HasPrefix(path, prefix) {
+			return false
+		}
+		rest := strings.TrimPrefix(path, prefix)
+		idText, suffix, ok := strings.Cut(rest, "/")
+		if !ok || suffix != "wecom-integration/candidate" {
 			return false
 		}
 		tenantID, err := strconv.Atoi(idText)
@@ -4490,7 +4502,7 @@ func isSaaSAdminDashboardProvisioningRoute(method, path string) bool {
 	}
 	rest := strings.TrimPrefix(path, prefix)
 	idText, suffix, ok := strings.Cut(rest, "/")
-	if !ok || (suffix != "activation/resend" && suffix != "super-admin/replace" && suffix != "super-admin/status") {
+	if !ok || (suffix != "activation/resend" && suffix != "super-admin/replace" && suffix != "super-admin/status" && suffix != "wecom-integration/candidate/verify" && suffix != "wecom-integration/switch" && suffix != "wecom-integration/rollback") {
 		return false
 	}
 	tenantID, err := strconv.Atoi(idText)
@@ -7961,6 +7973,12 @@ func (s *Server) migratedRoutes() []string {
 			"POST /dashboard/saasAdmin/tenants/{tenantId}/super-admin/replace",
 			"POST /dashboard/saasAdmin/tenants/{tenantId}/super-admin/status",
 			"GET /dashboard/saasAdmin/tenants/{tenantId}/dashboard-admins",
+			"GET /dashboard/saasAdmin/tenants/{tenantId}/wecom-integration",
+			"PUT /dashboard/saasAdmin/tenants/{tenantId}/wecom-integration/candidate",
+			"POST /dashboard/saasAdmin/tenants/{tenantId}/wecom-integration/candidate/verify",
+			"POST /dashboard/saasAdmin/tenants/{tenantId}/wecom-integration/switch",
+			"POST /dashboard/saasAdmin/tenants/{tenantId}/wecom-integration/rollback",
+			"GET /dashboard/saasAdmin/tenants/{tenantId}/wecom-integration/audits",
 		)
 	}
 	if s.saasAdminTenantProvision != nil {

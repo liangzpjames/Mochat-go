@@ -27,8 +27,16 @@ const (
 )
 
 type HTTPHandler struct {
-	service      *Service
-	approvalGate ApprovalGate
+	service          *Service
+	approvalGate     ApprovalGate
+	weComIntegration *WeComIntegrationService
+}
+
+func (handler *HTTPHandler) WithWeComIntegration(service *WeComIntegrationService) *HTTPHandler {
+	if handler != nil {
+		handler.weComIntegration = service
+	}
+	return handler
 }
 
 func actorFromSaaSPrincipal(principal saasauth.Principal) Actor {
@@ -67,6 +75,10 @@ func (handler *HTTPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeDashboardAdminError(w, http.StatusServiceUnavailable, codeUnavailable)
 		return
 	}
+	if tenantID, action, ok := dashboardAdminWeComIntegrationPath(r.URL.Path); ok && handler.weComIntegration != nil {
+		handler.weComIntegrationHTTP(w, r, tenantID, action)
+		return
+	}
 	if r.Method == http.MethodGet {
 		if tenantID, ok := dashboardAdminTenantActionPath(r.URL.Path, "dashboard-admins"); ok {
 			handler.dashboardAdminGovernance(w, r, tenantID)
@@ -92,6 +104,91 @@ func (handler *HTTPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	handler.provision(w, r)
+}
+
+func dashboardAdminWeComIntegrationPath(path string) (int, string, bool) {
+	const prefix = "/dashboard/saasAdmin/tenants/"
+	if !strings.HasPrefix(path, prefix) {
+		return 0, "", false
+	}
+	rest := strings.TrimPrefix(path, prefix)
+	idText, suffix, ok := strings.Cut(rest, "/")
+	if !ok {
+		return 0, "", false
+	}
+	tenantID, err := strconv.Atoi(idText)
+	if err != nil || tenantID <= 0 || strconv.Itoa(tenantID) != idText {
+		return 0, "", false
+	}
+	if suffix == "wecom-integration" || suffix == "wecom-integration/candidate" || suffix == "wecom-integration/candidate/verify" || suffix == "wecom-integration/switch" || suffix == "wecom-integration/rollback" || suffix == "wecom-integration/audits" {
+		return tenantID, suffix, true
+	}
+	return 0, "", false
+}
+
+func (handler *HTTPHandler) weComIntegrationHTTP(w http.ResponseWriter, r *http.Request, tenantID int, action string) {
+	principal, err := saasauth.PrincipalFromContext(r.Context())
+	if err != nil {
+		writeDashboardAdminError(w, http.StatusUnauthorized, codeSessionInvalid)
+		return
+	}
+	actor := actorFromSaaSPrincipal(principal)
+	switch {
+	case action == "wecom-integration" && r.Method == http.MethodGet:
+		result, err := handler.weComIntegration.Get(r.Context(), actor, tenantID)
+		if err != nil {
+			writeDashboardAdminServiceError(w, err)
+			return
+		}
+		writeDashboardAdminJSON(w, http.StatusOK, result)
+	case action == "wecom-integration/candidate" && r.Method == http.MethodPut:
+		var input WeComIntegrationCandidateInput
+		if decodeDashboardAdminJSON(r, &input) != nil {
+			writeDashboardAdminError(w, http.StatusBadRequest, codeInvalidRequest)
+			return
+		}
+		result, err := handler.weComIntegration.SaveCandidate(r.Context(), actor, tenantID, input)
+		if err != nil {
+			writeDashboardAdminServiceError(w, err)
+			return
+		}
+		writeDashboardAdminJSON(w, http.StatusOK, result)
+	case action == "wecom-integration/audits" && r.Method == http.MethodGet:
+		result, err := handler.weComIntegration.Audits(r.Context(), actor, tenantID)
+		if err != nil {
+			writeDashboardAdminServiceError(w, err)
+			return
+		}
+		writeDashboardAdminJSON(w, http.StatusOK, result)
+	case r.Method == http.MethodPost && (action == "wecom-integration/candidate/verify" || action == "wecom-integration/switch" || action == "wecom-integration/rollback"):
+		var input WeComIntegrationVersionInput
+		if decodeDashboardAdminJSON(r, &input) != nil {
+			writeDashboardAdminError(w, http.StatusBadRequest, codeInvalidRequest)
+			return
+		}
+		if action == "wecom-integration/candidate/verify" {
+			result, err := handler.weComIntegration.VerifyCandidate(r.Context(), actor, tenantID, input.Version)
+			if err != nil {
+				writeDashboardAdminServiceError(w, err)
+				return
+			}
+			writeDashboardAdminJSON(w, http.StatusOK, result)
+			return
+		}
+		var result WeComIntegrationView
+		if action == "wecom-integration/switch" {
+			result, err = handler.weComIntegration.Switch(r.Context(), actor, tenantID, input.Version)
+		} else {
+			result, err = handler.weComIntegration.Rollback(r.Context(), actor, tenantID, input.Version)
+		}
+		if err != nil {
+			writeDashboardAdminServiceError(w, err)
+			return
+		}
+		writeDashboardAdminJSON(w, http.StatusOK, result)
+	default:
+		http.NotFound(w, r)
+	}
 }
 
 func (handler *HTTPHandler) dashboardAdminGovernance(w http.ResponseWriter, r *http.Request, tenantID int) {
@@ -330,6 +427,18 @@ func writeDashboardAdminServiceError(w http.ResponseWriter, err error) {
 		status, code = http.StatusForbidden, codeGovernanceOnly
 	case errors.Is(err, ErrStoreUnavailable):
 		status, code = http.StatusServiceUnavailable, codeUnavailable
+	case errors.Is(err, ErrWeComOnlineVerificationUnavailable):
+		status, code = http.StatusServiceUnavailable, "WECOM_ONLINE_VERIFICATION_UNAVAILABLE"
+	case errors.Is(err, ErrWeComCorpMismatch):
+		status, code = http.StatusConflict, "WECOM_CORP_MISMATCH"
+	case errors.Is(err, ErrWeComMissingCapabilities):
+		status, code = http.StatusConflict, "WECOM_MISSING_CAPABILITIES"
+	case errors.Is(err, ErrWeComCredentialDecrypt):
+		status, code = http.StatusConflict, "WECOM_CREDENTIAL_DECRYPT_FAILED"
+	case errors.Is(err, ErrWeComActiveMediaLease):
+		status, code = http.StatusConflict, "WECOM_ACTIVE_MEDIA_LEASE"
+	case errors.Is(err, ErrWeComCandidateNotVerified):
+		status, code = http.StatusConflict, "WECOM_CANDIDATE_NOT_VERIFIED"
 	}
 	writeDashboardAdminError(w, status, code)
 }

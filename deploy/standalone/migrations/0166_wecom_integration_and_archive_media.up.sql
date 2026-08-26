@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS `mochat_go_wecom_integrations` (
   `missing_capabilities_json` json NOT NULL,
   `generation` bigint(20) unsigned NOT NULL DEFAULT 1,
   `version` bigint(20) unsigned NOT NULL DEFAULT 1,
+  `verification_level` varchar(32) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
   `verified_at` datetime(6) NULL DEFAULT NULL,
   `activated_at` datetime(6) NULL DEFAULT NULL,
   `suspended_at` datetime(6) NULL DEFAULT NULL,
@@ -115,13 +116,3 @@ WHERE p.`code` = 'dashboard.chat.v2_all'
       AND existing.`http_method` = seed.`http_method`
       AND existing.`path_pattern` = '/dashboard/archive/media/{id}/content'
   );
-
-INSERT IGNORE INTO `mochat_go_saas_admin_role_permissions` (`role_id`,`permission_code`,`created_at`)
-SELECT r.`id`, seed.`permission_code`, NOW()
-FROM `mochat_go_saas_admin_roles` r
-INNER JOIN (
-  SELECT 'platform_operations' AS `role_code`, 'platform.wecom_integrations.read' AS `permission_code`
-  UNION ALL SELECT 'platform_operations', 'platform.wecom_integrations.manage'
-  UNION ALL SELECT 'platform_auditor', 'platform.wecom_integrations.read'
-  UNION ALL SELECT 'platform_readonly', 'platform.wecom_integrations.read'
-) seed ON seed.`role_code` = r.`code`;

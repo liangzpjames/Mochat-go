@@ -2542,7 +2542,7 @@ func main() {
 		saasAdmin.WithDashboardAdminApprovalExecutor(func(ctx context.Context, actorUserID int, approvalID int64, approvalVersion int, actionType string, payload json.RawMessage) (map[string]any, error) {
 			return dashboardAdminService.ExecuteApproval(ctx, dashboardadmin.NewSaaSApprovalExecutionActor(actorUserID), actionType, payload, approvalID, approvalVersion)
 		})
-		dashboardAdminHTTP := dashboardadmin.NewHTTPHandler(dashboardAdminService).WithApprovalGate(func(ctx context.Context, actionType string) (dashboardadmin.ApprovalGateResult, error) {
+		dashboardAdminHTTP := dashboardadmin.NewHTTPHandler(dashboardAdminService).WithWeComIntegration(dashboardadmin.NewWeComIntegrationService(getMySQLStore(), nil)).WithApprovalGate(func(ctx context.Context, actionType string) (dashboardadmin.ApprovalGateResult, error) {
 			policy, required, err := saasAdmin.DirectSaaSAdminApprovalRequired(ctx, actionType)
 			if err != nil {
 				return dashboardadmin.ApprovalGateResult{}, err

@@ -39,6 +39,7 @@ func Test0166WeComIntegrationAndArchiveMediaMigrationContract(t *testing.T) {
 		"`status` enum('unconfigured','pending_verification','active','suspended','revoked','failed')",
 		"`generation` bigint(20) unsigned",
 		"`version` bigint(20) unsigned",
+		"`verification_level` varchar(32)",
 		"UNIQUE KEY `uk_wecom_integration_scope_slot` (`tenant_id`,`corp_id`,`slot`)",
 		"FOREIGN KEY (`tenant_id`,`corp_id`) REFERENCES `mc_corp` (`tenant_id`,`id`)",
 		"CREATE TABLE IF NOT EXISTS `mochat_go_archive_media_objects`",
@@ -87,9 +88,11 @@ func Test0166WeComIntegrationAndArchiveMediaMigrationContract(t *testing.T) {
 		"DROP TABLE `mc_corp`",
 		"DROP TABLE `mc_tenant`",
 		"DROP TABLE `mochat_go_tenant_corp_bindings`",
+		"platform.wecom_integrations.read",
+		"platform.wecom_integrations.manage",
 	} {
-		if strings.Contains(down, forbidden) {
-			t.Errorf("0166 down migration must not delete existing table %q", forbidden)
+		if strings.Contains(up, forbidden) || strings.Contains(down, forbidden) {
+			t.Errorf("0166 migration must not contain %q", forbidden)
 		}
 	}
 }

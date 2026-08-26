@@ -53,6 +53,7 @@ const (
 
 var saasAdminAccessRoleCodePattern = regexp.MustCompile(`^[a-z][a-z0-9_]{2,47}$`)
 var saasAdminTenantGovernanceRoutePattern = regexp.MustCompile(`^tenants/(?:\{tenantId\}|[1-9][0-9]*)/(?:activation/resend|super-admin/replace|super-admin/status|dashboard-admins)$`)
+var saasAdminWeComIntegrationRoutePattern = regexp.MustCompile(`^tenants/(?:\{tenantId\}|[1-9][0-9]*)/wecom-integration(?:/candidate|/candidate/verify|/switch|/rollback|/audits)?$`)
 
 type SaaSAdminPermissionDefinition struct {
 	Code        string
@@ -225,6 +226,12 @@ func SaaSAdminRequiredPermission(r *http.Request) string {
 	}
 	if name == "tenants/provision" || saasAdminTenantGovernanceRoutePattern.MatchString(name) {
 		return SaaSAdminPermissionTenantsManage
+	}
+	if saasAdminWeComIntegrationRoutePattern.MatchString(name) {
+		if r.Method == http.MethodGet || r.Method == http.MethodHead {
+			return SaaSAdminPermissionIntegrationsRead
+		}
+		return SaaSAdminPermissionIntegrationsManage
 	}
 	if name == "accessProfile" {
 		return SaaSAdminPermissionOverviewRead
