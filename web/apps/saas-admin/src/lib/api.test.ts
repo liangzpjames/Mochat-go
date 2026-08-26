@@ -8,6 +8,7 @@ import {
   completeSaaSMFA,
   fetchWeComIntegration,
   fetchWeComIntegrationAudits,
+  loginSaaS,
   loginURL,
   logoutSaaS,
   readStoredToken,
@@ -84,6 +85,24 @@ describe('SaaS Admin token storage', () => {
     })
     expect(fetchMock).toHaveBeenCalledTimes(3)
     expect(new ApiError('test', 400, 'INVALID_REQUEST', 400).machineCode).toBe('INVALID_REQUEST')
+  })
+
+  it('returns the password-change continuation from the HTTP 428 challenge', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      code: 428,
+      errorCode: 'PASSWORD_CHANGE_REQUIRED',
+      msg: 'password change required',
+      data: { passwordChangeToken: 'password-change-token', mustRotatePassword: true },
+    }), {
+      status: 428,
+      headers: { 'Content-Type': 'application/json' },
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(loginSaaS('platform-admin', 'initial-password')).resolves.toEqual({
+      passwordChangeToken: 'password-change-token',
+      mustRotatePassword: true,
+    })
   })
 
   it('uses tenant-scoped WeCom integration endpoints and optimistic versions', async () => {

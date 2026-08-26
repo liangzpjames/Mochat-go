@@ -63,6 +63,9 @@ async function saasAuthRequest<T>(path: string, init: RequestInit): Promise<T> {
     throw new ApiError(`服务响应格式错误（HTTP ${response.status}）`, response.status, 'INVALID_RESPONSE')
   }
   const httpCode = Number(body.code || response.status)
+  if (response.status === 428 && body.errorCode === 'PASSWORD_CHANGE_REQUIRED' && body.data) {
+    return body.data
+  }
   if (!response.ok || httpCode >= 400) {
     throw new ApiError(body.msg || body.message || '认证失败', response.status, body.errorCode || 'AUTH_REQUEST_FAILED', httpCode)
   }
