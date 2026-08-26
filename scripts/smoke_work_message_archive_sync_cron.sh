@@ -11,14 +11,30 @@ BRIDGE_ADDR="${MOCHAT_WORK_MESSAGE_ARCHIVE_BRIDGE_ADDR:-127.0.0.1:18117}"
 MYSQL_PORT="${MOCHAT_MYSQL_PORT:-13350}"
 REDIS_PORT="${MOCHAT_REDIS_PORT:-26470}"
 WORK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/mochat-go-work-message-archive-sync-cron.XXXXXX")"
+PROBE_DIR="$PWD/.tmp-work-message-archive-credential-probe-$$"
+SAAS_MFA_KEY_FILE="$WORK_DIR/saas-admin-mfa.key"
+DASHBOARD_MFA_KEY_FILE="$WORK_DIR/dashboard-mfa.key"
 GO_BIN="$WORK_DIR/mochat-go"
 GO_LOG="$WORK_DIR/go.log"
 BRIDGE_LOG="$WORK_DIR/bridge.log"
 GO_PID=""
 BRIDGE_PID=""
+WECOM_CREDENTIAL_KEY="7171717171717171717171717171717171717171717171717171717171717171"
+WECOM_CREDENTIAL_KEY_ID="archive-smoke-q1"
+
+printf '%s' '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef' >"$SAAS_MFA_KEY_FILE"
+printf '%s' 'abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789' >"$DASHBOARD_MFA_KEY_FILE"
 
 compose() {
-  MOCHAT_MYSQL_PORT="$MYSQL_PORT" MOCHAT_REDIS_PORT="$REDIS_PORT" docker compose -p "$PROJECT_NAME" -f "$COMPOSE_FILE" "$@"
+  MOCHAT_MYSQL_PORT="$MYSQL_PORT" \
+    MOCHAT_REDIS_PORT="$REDIS_PORT" \
+    MOCHAT_SAAS_ADMIN_MFA_ENCRYPTION_KEY_FILE="$SAAS_MFA_KEY_FILE" \
+    MOCHAT_DASHBOARD_MFA_ENCRYPTION_KEY_FILE="$DASHBOARD_MFA_KEY_FILE" \
+    MOCHAT_SAAS_ADMIN_JWT_SECRET="archive-smoke-saas-jwt" \
+    MOCHAT_DASHBOARD_JWT_SECRET="archive-smoke-dashboard-jwt" \
+    MOCHAT_SAAS_ADMIN_MFA_ENCRYPTION_KEY_ID="archive-smoke-saas" \
+    MOCHAT_DASHBOARD_MFA_ENCRYPTION_KEY_ID="archive-smoke-dashboard" \
+    docker compose -p "$PROJECT_NAME" -f "$COMPOSE_FILE" "$@"
 }
 
 cleanup() {
@@ -30,7 +46,7 @@ cleanup() {
     kill "$BRIDGE_PID" 2>/dev/null || true
     wait "$BRIDGE_PID" 2>/dev/null || true
   fi
-  rm -rf "$WORK_DIR"
+  rm -rf "$PROBE_DIR" "$WORK_DIR"
   if [ "${KEEP_STACK:-0}" != "1" ]; then
     compose down -v --remove-orphans >/dev/null 2>&1 || true
   fi
@@ -165,7 +181,9 @@ class Handler(BaseHTTPRequestHandler):
         raw = self.rfile.read(int(self.headers.get("Content-Length", "0") or "0"))
         body = json.loads(raw.decode("utf-8"))
         assert body["wx_corpid"] == "ww-archive-sync", body
-        assert body["chat_secret"] == "archive-secret", body
+        assert int(body["corp_id"]) == 901, body
+        for forbidden in ("chat_secret", "rsa_public_key", "rsa_private_key"):
+            assert forbidden not in body, body
         seq = int(body.get("seq") or 0)
         limit = int(body.get("limit") or 100)
         messages = [item for item in MESSAGES if int(item["seq"]) > seq][:limit]
@@ -276,11 +294,64 @@ VALUES (910301, 901, 910301, '报价', 1, NOW(), NOW(), NULL)
 ON DUPLICATE KEY UPDATE corp_id = VALUES(corp_id), group_id = VALUES(group_id), name = VALUES(name), status = VALUES(status), updated_at = NOW(), deleted_at = NULL;
 SQL
 
+sed -n '1,14p' deploy/standalone/migrations/0143_group_conversation_workspace.up.sql \
+  | compose exec -T mysql mariadb -umochat -pmochat_pass mochat
+compose exec -T mysql mariadb -umochat -pmochat_pass mochat <deploy/standalone/migrations/0146_risk_warning_scan_states.up.sql
+
+mkdir -p "$PROBE_DIR"
+cat >"$PROBE_DIR/main.go" <<'GO'
+package main
+
+import (
+	"fmt"
+	"os"
+
+	"jiyi/mochat-go/internal/wecomcredentials"
+)
+
+func main() {
+	manager, err := wecomcredentials.NewManager(wecomcredentials.Config{
+		EncryptionKey: os.Getenv("MOCHAT_GO_WECOM_CREDENTIAL_ENCRYPTION_KEY"),
+		EncryptionKeyID: os.Getenv("MOCHAT_GO_WECOM_CREDENTIAL_ENCRYPTION_KEY_ID"),
+		RequireEncryption: true,
+	})
+	if err != nil {
+		panic(err)
+	}
+	ciphertext, _, err := manager.EncryptCorp(901, "ww-archive-sync", wecomcredentials.CorpCredential{
+		ChatSecret: "archive-secret", ArchiveRSAPublicKey: "archive-public", ArchiveRSAPrivateKey: "archive-private",
+	})
+	if err != nil {
+		panic(err)
+	}
+	fmt.Print(ciphertext)
+}
+GO
+CREDENTIAL_CIPHERTEXT="$(MOCHAT_GO_WECOM_CREDENTIAL_ENCRYPTION_KEY="$WECOM_CREDENTIAL_KEY" MOCHAT_GO_WECOM_CREDENTIAL_ENCRYPTION_KEY_ID="$WECOM_CREDENTIAL_KEY_ID" env -u GOROOT go run "$PROBE_DIR/main.go")"
+printf "UPDATE mc_corp SET employee_secret='', contact_secret='', token='', encoding_aes_key='', chat_secret='', wecom_credentials_ciphertext='%s', wecom_credentials_key_id='%s' WHERE id=901;\n" "$CREDENTIAL_CIPHERTEXT" "$WECOM_CREDENTIAL_KEY_ID" \
+  | compose exec -T mysql mariadb -umochat -pmochat_pass mochat
+
 env -u GOROOT go build -o "$GO_BIN" ./cmd/mochat-go
 
 env -u GOROOT \
   MOCHAT_GO_STANDALONE=1 \
   MOCHAT_GO_ADDR="$GO_ADDR" \
+  MOCHAT_GO_ENABLE_ALL_MIGRATED_ROUTES=0 \
+  MOCHAT_GO_MIGRATE_AUTH=1 \
+  MOCHAT_SIMPLE_JWT_SECRET="archive-smoke-legacy-jwt" \
+  MOCHAT_SAAS_ADMIN_JWT_SECRET="archive-smoke-saas-jwt" \
+  MOCHAT_SAAS_ADMIN_JWT_ISSUER="mochat-go/archive-smoke-saas" \
+  MOCHAT_SAAS_ADMIN_JWT_AUDIENCE="mochat-archive-smoke-saas" \
+  MOCHAT_DASHBOARD_JWT_SECRET="archive-smoke-dashboard-jwt" \
+  MOCHAT_DASHBOARD_JWT_ISSUER="mochat-go/archive-smoke-dashboard" \
+  MOCHAT_DASHBOARD_JWT_AUDIENCE="mochat-archive-smoke-dashboard" \
+  MOCHAT_SAAS_ADMIN_MFA_ENCRYPTION_KEY_FILE="$SAAS_MFA_KEY_FILE" \
+  MOCHAT_DASHBOARD_MFA_ENCRYPTION_KEY_FILE="$DASHBOARD_MFA_KEY_FILE" \
+  MOCHAT_SAAS_ADMIN_MFA_ENCRYPTION_KEY_ID="archive-smoke-saas" \
+  MOCHAT_DASHBOARD_MFA_ENCRYPTION_KEY_ID="archive-smoke-dashboard" \
+  MOCHAT_GO_WECOM_CREDENTIAL_ENCRYPTION_KEY="$WECOM_CREDENTIAL_KEY" \
+  MOCHAT_GO_WECOM_CREDENTIAL_ENCRYPTION_KEY_ID="$WECOM_CREDENTIAL_KEY_ID" \
+  MOCHAT_GO_WECOM_CREDENTIAL_REQUIRE_ENCRYPTION=1 \
   MOCHAT_MYSQL_DSN="mochat:mochat_pass@tcp(127.0.0.1:$MYSQL_PORT)/mochat?parseTime=true&loc=Local" \
   MOCHAT_REDIS_ADDR="127.0.0.1:$REDIS_PORT" \
   MOCHAT_GO_ENABLE_WORK_MESSAGE_ARCHIVE_SYNC_CRON=1 \
