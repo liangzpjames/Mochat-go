@@ -98,6 +98,14 @@ const selfBuiltCurrent = {
   id: 'integration-current', mode: 'self_built', slot: 'current', status: 'active', verifiedWxCorpId: 'ww-fixture-corp', agentId: '1000002', providerAppId: '', credentialConfigured: true, credentialHint: '••••self', scope: ['archive.read', 'contacts.read'], scopeDigest: 'digest-current', missingCapabilities: [], generation: 8, version: 8, verificationLevel: 'local_contract', verifiedAt: '2026-08-27T00:00:00Z', lastErrorCode: '', updatedAt: '2026-08-27T00:00:00Z',
 }
 
+const tenantB = {
+  ...tenant,
+  tenantId: 52,
+  tenantName: '第二测试客户',
+  packageCode: 'basic',
+  packageName: '基础版',
+}
+
 const delegatedCandidate = {
   id: 'integration-candidate', mode: 'third_party_delegated', slot: 'candidate', status: 'active', verifiedWxCorpId: 'ww-fixture-corp', agentId: '', providerAppId: 'provider-fixture', credentialConfigured: true, credentialHint: '••••code', scope: ['archive.read'], scopeDigest: 'digest-candidate', missingCapabilities: [], generation: 8, version: 9, verificationLevel: 'local_contract', verifiedAt: '2026-08-27T01:00:00Z', lastErrorCode: '', updatedAt: '2026-08-27T01:00:00Z',
 }
@@ -108,6 +116,7 @@ describe('SaaS 客户租户治理页面', () => {
   let client: QueryClient
   let tenantProviderVersion: number
   let integrationView: { tenantId: number; corpId: number; current: typeof selfBuiltCurrent | null; candidate: typeof delegatedCandidate | null }
+  let integrationViewB: { tenantId: number; corpId: number; current: typeof selfBuiltCurrent | null; candidate: typeof delegatedCandidate | null }
 
   beforeEach(() => {
     document.body.innerHTML = ''
@@ -120,13 +129,18 @@ describe('SaaS 客户租户治理页面', () => {
     let governanceVersion = 1
     tenantProviderVersion = 3
     integrationView = { tenantId: 41, corpId: 501, current: { ...selfBuiltCurrent }, candidate: { ...delegatedCandidate } }
+    integrationViewB = { tenantId: 52, corpId: 502, current: { ...delegatedCandidate, id: 'integration-b-current', slot: 'current', generation: 20, version: 20 }, candidate: null }
     mocks.apiRequest.mockImplementation(async (path: string, init?: RequestInit) => {
-      if (path.startsWith('/dashboard/saasAdmin/overview')) return { tenants: [tenant], summary: {}, access: {}, canPlatformScope: true, generatedAt: '', platformAdminTenantId: 0, scope: 'platform', tenantPopulation: 1 }
+      if (path.startsWith('/dashboard/saasAdmin/overview')) return { tenants: [tenant, tenantB], summary: {}, access: {}, canPlatformScope: true, generatedAt: '', platformAdminTenantId: 0, scope: 'platform', tenantPopulation: 2 }
       if (path === '/dashboard/saasAdmin/packages') return { packages: [plan] }
-      if (path.startsWith('/dashboard/saasAdmin/tenant?')) return { tenant, metrics: [], operations: [], platformAdminTenantId: 0, summary: {}, tenantId: 41 }
+      if (path.startsWith('/dashboard/saasAdmin/tenant?')) {
+        const requestedTenant = path.includes('tenantId=52') ? tenantB : tenant
+        return { tenant: requestedTenant, metrics: [], operations: [], platformAdminTenantId: 0, summary: {}, tenantId: requestedTenant.tenantId }
+      }
       if (path === '/dashboard/saasAdmin/tenantAIProvider?tenantId=41') return { configured: true, provider: { tenantId: 41, providerCode: 'deepseek', baseUrl: 'https://api.deepseek.com', model: 'deepseek-chat', apiKeyConfigured: true, apiKeyHint: '••••cafe', credentialProtection: 'usable', effectiveAt: '2026-08-25T00:00:00Z', expiresAt: '2026-09-25T00:00:00Z', status: 'active', version: tenantProviderVersion, updatedAt: '2026-08-25T01:00:00Z' } }
       if (path === '/dashboard/saasAdmin/tenantAIProvider' && init?.method === 'PUT') { tenantProviderVersion += 1; return { provider: { tenantId: 41, providerCode: 'deepseek', baseUrl: 'https://api.deepseek.com', model: 'deepseek-chat', apiKeyConfigured: true, apiKeyHint: '••••ture', credentialProtection: 'usable', effectiveAt: '2026-08-25T00:00:00Z', expiresAt: '2026-09-25T00:00:00Z', status: 'active', version: tenantProviderVersion, updatedAt: '2026-08-25T02:00:00Z' } } }
       if (path === '/dashboard/saasAdmin/tenants/41/dashboard-admins') return { tenantId: 41, bindingVersion: governanceVersion, identities: [{ id: 900, name: '待激活超管', loginIdentifier: '13800000002', userStatus: 1, identityStatus: 1, activatedAt: '', isSuperAdmin: true }, { id: 902, name: '已停用超管', loginIdentifier: '13800000004', userStatus: 2, identityStatus: 2, activatedAt: '2026-08-10T00:00:00Z', isSuperAdmin: true }, { id: 901, name: '替换候选', loginIdentifier: '13800000003', userStatus: 1, identityStatus: 1, activatedAt: '2026-08-10T00:00:00Z', isSuperAdmin: false }] }
+      if (path === '/dashboard/saasAdmin/tenants/52/dashboard-admins') return { tenantId: 52, bindingVersion: 4, identities: [{ id: 950, name: '第二客户超管', loginIdentifier: '13900000005', userStatus: 1, identityStatus: 1, activatedAt: '2026-08-20T00:00:00Z', isSuperAdmin: true }] }
       if (path === '/dashboard/saasAdmin/tenants/41/wecom-integration' && !init?.method) return integrationView
       if (path === '/dashboard/saasAdmin/tenants/41/wecom-integration/audits') return [{ id: 71, action: 'wecom.integration.switch', targetId: 'integration-current', before: '{}', after: '{}', actorUserId: 700, createdAt: '2026-08-27T02:00:00Z' }]
       if (path === '/dashboard/saasAdmin/tenants/41/wecom-integration/candidate' && init?.method === 'PUT') {
@@ -137,6 +151,9 @@ describe('SaaS 客户租户治理页面', () => {
       if (path === '/dashboard/saasAdmin/tenants/41/wecom-integration/candidate/verify') return { ...delegatedCandidate, version: 10 }
       if (path === '/dashboard/saasAdmin/tenants/41/wecom-integration/switch') return { ...integrationView, current: { ...delegatedCandidate, slot: 'current', version: 10, generation: 10 }, candidate: { ...selfBuiltCurrent, slot: 'candidate', version: 10, generation: 10 } }
       if (path === '/dashboard/saasAdmin/tenants/41/wecom-integration/rollback') return integrationView
+      if (path === '/dashboard/saasAdmin/tenantAIProvider?tenantId=52') return { configured: false, provider: { tenantId: 52, providerCode: 'custom', baseUrl: '', model: '', apiKeyConfigured: false, apiKeyHint: '', credentialProtection: 'usable', effectiveAt: '', expiresAt: '', status: 'disabled', version: 0, updatedAt: '' } }
+      if (path === '/dashboard/saasAdmin/tenants/52/wecom-integration' && !init?.method) return integrationViewB
+      if (path === '/dashboard/saasAdmin/tenants/52/wecom-integration/audits') return []
       if (path === '/dashboard/saasAdmin/tenants/provision') return { tenantId: 42, dashboardUserId: 900, bindingCorpId: 901, activationToken: 'opaque-activation-value', activationPath: '/activate#token=opaque-activation-value', activationExpiresAt: '2026-08-28T00:00:00Z', idempotent: false }
       if (path === '/dashboard/saasAdmin/approvalRequest') return { approval: { id: 101, status: 'pending' }, idempotent: false }
       if (path.includes('/activation/resend')) { governanceVersion = 2; return { tenantId: 41, dashboardUserId: 900, version: 2, activationToken: 'opaque-resend-value', activationPath: '/activate#token=opaque-resend-value', activationExpiresAt: '2026-08-28T01:00:00Z', idempotent: false } }
@@ -174,6 +191,8 @@ describe('SaaS 客户租户治理页面', () => {
     expect(payload).not.toHaveProperty('password')
     expect(document.body.textContent).toContain('一次性激活入口')
     expect(document.body.textContent).toContain('http://localhost/activate#token=opaque-activation-value')
+    expect(document.body.textContent).toContain('接收租户：新客户（租户 42）')
+    expect(document.body.textContent).toContain('接收账号：管理员（138****0001，用户 900）')
     expect(document.body.textContent).not.toContain('邮件已发送')
     clickButton('复制激活入口')
     await settle()
@@ -181,6 +200,27 @@ describe('SaaS 客户租户治理页面', () => {
     clickButton('我已记录并关闭')
     expect(document.body.textContent).not.toContain('opaque-activation-value')
     expect(JSON.stringify(client.getMutationCache().getAll().map((mutation) => mutation.state.data))).not.toContain('opaque-activation-value')
+  })
+
+  it('A 租户迟到的重发激活结果在切换 B 后不会打开错误租户交付弹窗', async () => {
+    const pending = deferred<{ tenantId: number; dashboardUserId: number; version: number; activationPath: string; activationExpiresAt: string; idempotent: boolean }>()
+    await settle()
+    clickTenantDetails('测试客户')
+    await settle()
+    await settle()
+    const api = mocks.apiRequest.getMockImplementation()
+    mocks.apiRequest.mockImplementation((path: string, init?: RequestInit) => path === '/dashboard/saasAdmin/tenants/41/activation/resend' ? pending.promise : api?.(path, init))
+    clickButton('重发激活')
+    clickButton('确认执行')
+    clickTenantDetails('第二测试客户')
+    await settle()
+    pending.resolve({ tenantId: 41, dashboardUserId: 900, version: 2, activationPath: '/activate#token=late-a-token', activationExpiresAt: '2026-08-28T01:00:00Z', idempotent: false })
+    await settle()
+    await settle()
+    expect(document.body.textContent).toContain('第二测试客户')
+    expect(document.body.textContent).not.toContain('late-a-token')
+    expect(document.body.textContent).not.toContain('一次性激活入口')
+    expect(JSON.stringify(client.getMutationCache().getAll().map((mutation) => mutation.state.data))).not.toContain('late-a-token')
   })
 
   it('详情提供重发、替换、停用、恢复四个确认动作且请求不携带租户或 actor', async () => {
@@ -503,6 +543,53 @@ describe('SaaS 客户租户治理页面', () => {
     expect(JSON.parse(String(retry?.[1]?.body)).version).toBe(12)
   })
 
+  it('A 租户迟到的企微切换成功只更新 A cache，不覆盖或关闭已打开的 B', async () => {
+    const pending = deferred<typeof integrationView>()
+    await settle()
+    clickTenantDetails('测试客户')
+    await settle()
+    await settle()
+    const api = mocks.apiRequest.getMockImplementation()
+    mocks.apiRequest.mockImplementation((path: string, init?: RequestInit) => path === '/dashboard/saasAdmin/tenants/41/wecom-integration/switch' ? pending.promise : api?.(path, init))
+    clickButton('切换为候选')
+    clickButton('确认执行')
+    clickTenantDetails('第二测试客户')
+    await settle()
+    await settle()
+    const lateAView = { ...integrationView, current: { ...selfBuiltCurrent, version: 99, generation: 99 }, candidate: { ...delegatedCandidate, version: 99, generation: 99 } }
+    pending.resolve(lateAView)
+    await settle()
+    await settle()
+    expect((client.getQueryData(['tenant-wecom-integration', 41]) as typeof integrationView).current?.version).toBe(99)
+    expect((client.getQueryData(['tenant-wecom-integration', 52]) as typeof integrationViewB).current?.id).toBe('integration-b-current')
+    const section = document.querySelector('section[aria-label="企微对接模式"]')
+    expect(section?.textContent).toContain('当前：第三方代开发应用')
+    expect(document.body.textContent).toContain('第二测试客户')
+  })
+
+  it('A 租户迟到的企微 409 不刷新 B，也不把 A 错误写入 B 表单或状态区', async () => {
+    const pending = deferred<typeof integrationView>()
+    await settle()
+    clickTenantDetails('测试客户')
+    await settle()
+    await settle()
+    const api = mocks.apiRequest.getMockImplementation()
+    mocks.apiRequest.mockImplementation((path: string, init?: RequestInit) => path === '/dashboard/saasAdmin/tenants/41/wecom-integration/switch' ? pending.promise : api?.(path, init))
+    clickButton('切换为候选')
+    clickButton('确认执行')
+    clickTenantDetails('第二测试客户')
+    await settle()
+    await settle()
+    pending.reject(new mocks.ApiError('late A version conflict', 409, 'VERSION_CONFLICT'))
+    await settle()
+    await settle()
+    const section = document.querySelector('section[aria-label="企微对接模式"]')
+    expect(section?.textContent).toContain('当前：第三方代开发应用')
+    expect(section?.textContent).not.toContain('VERSION_CONFLICT')
+    expect((client.getQueryData(['tenant-wecom-integration', 52]) as typeof integrationViewB).current?.id).toBe('integration-b-current')
+    expect(mocks.apiRequest.mock.calls.filter(([path]) => path === '/dashboard/saasAdmin/tenants/52/wecom-integration').length).toBe(1)
+  })
+
   it('只有 integrations.read 才查询企微配置，read-only 只显示状态不显示变更操作', async () => {
     act(() => root.unmount())
     client.clear()
@@ -552,6 +639,13 @@ function clickButton(label: string) {
   act(() => button.dispatchEvent(new MouseEvent('click', { bubbles: true })))
 }
 
+function clickTenantDetails(tenantName: string) {
+  const row = [...document.querySelectorAll('tbody tr')].find((item) => item.textContent?.includes(tenantName))
+  const button = [...(row?.querySelectorAll('button') || [])].find((item) => item.textContent?.includes('详情'))
+  if (!button) throw new Error(`tenant details ${tenantName} not found`)
+  act(() => button.dispatchEvent(new MouseEvent('click', { bubbles: true })))
+}
+
 function setValue(labelOrPlaceholder: string, value: string) {
   const field = [...document.querySelectorAll('input, select')].find((item) => item.getAttribute('placeholder') === labelOrPlaceholder || item.closest('label')?.textContent?.includes(labelOrPlaceholder)) as HTMLInputElement | HTMLSelectElement | undefined
   if (!field) throw new Error(`field ${labelOrPlaceholder} not found`)
@@ -567,4 +661,14 @@ async function settle() {
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 0))
   })
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  let reject!: (reason?: unknown) => void
+  const promise = new Promise<T>((promiseResolve, promiseReject) => {
+    resolve = promiseResolve
+    reject = promiseReject
+  })
+  return { promise, resolve, reject }
 }

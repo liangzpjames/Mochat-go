@@ -89,8 +89,42 @@ interface WeComIntegrationForm {
 }
 
 interface ActivationDelivery {
+  tenantId: number
+  dashboardUserId: number
+  tenantName: string
+  accountName: string
+  accountHint: string
   path: string
   expiresAt: string
+}
+
+interface WeComOperationContext {
+  tenantId: number
+  operationEpoch: number
+}
+
+interface WeComSaveOperation extends WeComOperationContext {
+  payload: Parameters<typeof saveWeComIntegrationCandidate>[1]
+}
+
+interface WeComVersionOperation extends WeComOperationContext {
+  version: number
+}
+
+interface ProvisionOperation {
+  operationEpoch: number
+  form: CreateTenantForm
+}
+
+interface ResendOperation {
+  operationEpoch: number
+  tenantId: number
+  dashboardUserId: number
+  tenantName: string
+  accountName: string
+  accountHint: string
+  expectedVersion: number
+  requestKey: string
 }
 
 const providerPresets: Record<Exclude<TenantAIProviderForm['providerCode'], 'custom'>, { baseUrl: string }> = {
@@ -168,6 +202,13 @@ function weComStatusTone(status?: string) {
 
 function isLocallyVerified(candidate?: WeComIntegrationRecord | null) {
   return candidate?.status === 'active' && candidate.verificationLevel === 'local_contract' && candidate.missingCapabilities.length === 0
+}
+
+function safeLoginHint(login: string) {
+  const value = login.trim()
+  if (/^1\d{10}$/.test(value)) return `${value.slice(0, 3)}****${value.slice(-4)}`
+  if (value.length <= 2) return '*'.repeat(value.length)
+  return `${value.slice(0, 1)}***${value.slice(-1)}`
 }
 
 function WeComIntegrationSummary({ label, record }: { label: '当前' | '候选'; record?: WeComIntegrationRecord | null }) {
@@ -259,6 +300,9 @@ export default function TenantsPage({ profile, approvalMode }: PageProps) {
   const canReadAIProvider = hasPermission(profile.permissions, 'platform.integrations.read')
   const canManageAIProvider = hasPermission(profile.permissions, 'platform.integrations.manage')
   const requestKeys = useRef<Record<string, string>>({})
+  const selectedTenantIDRef = useRef(0)
+  const activationOperationEpochRef = useRef(0)
+  const weComOperationEpochRef = useRef(0)
   const [keyword, setKeyword] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
   const [packageFilter, setPackageFilter] = useState('all')
@@ -371,111 +415,127 @@ export default function TenantsPage({ profile, approvalMode }: PageProps) {
   })
 
   const closeWeComEditor = () => {
+    weComOperationEpochRef.current += 1
     setWeComEditorOpen(false)
     setWeComForm((form) => ({ ...form, employeeSecret: '', contactSecret: '', agentSecret: '', chatSecret: '', permanentCode: '' }))
   }
 
   const openWeComEditor = () => {
+    weComOperationEpochRef.current += 1
     setWeComError('')
     setWeComForm(emptyWeComIntegrationForm(weComIntegrationQuery.data?.candidate))
     setWeComEditorOpen(true)
   }
 
-  const handleWeComError = async (error: unknown, fallback: string) => {
-    setWeComForm((form) => ({ ...form, employeeSecret: '', contactSecret: '', agentSecret: '', chatSecret: '', permanentCode: '' }))
+  const isCurrentWeComOperation = (operation: WeComOperationContext) => selectedTenantIDRef.current === operation.tenantId && weComOperationEpochRef.current === operation.operationEpoch
+
+  const invalidateWeComAudit = (tenantId: number) => queryClient.invalidateQueries({ queryKey: ['tenant-wecom-integration-audits', tenantId] })
+
+  const handleWeComError = async (error: unknown, operation: WeComOperationContext, fallback: string) => {
     if (error instanceof ApiError && error.status === 409) {
-      const refreshed = await weComIntegrationQuery.refetch()
-      await weComAuditQuery.refetch()
-      if (!refreshed.isError && refreshed.data) setWeComForm(emptyWeComIntegrationForm(refreshed.data.candidate))
-      const message = refreshed.isError
+      let refreshed: WeComIntegrationView | undefined
+      try {
+        refreshed = await queryClient.fetchQuery({ queryKey: ['tenant-wecom-integration', operation.tenantId], queryFn: () => fetchWeComIntegration(operation.tenantId) })
+      } catch {
+        refreshed = undefined
+      }
+      await invalidateWeComAudit(operation.tenantId)
+      if (!isCurrentWeComOperation(operation)) return
+      setWeComForm(refreshed ? emptyWeComIntegrationForm(refreshed.candidate) : (form) => ({ ...form, employeeSecret: '', contactSecret: '', agentSecret: '', chatSecret: '', permanentCode: '' }))
+      const message = !refreshed
         ? `${error.machineCode}：企微配置版本冲突，最新状态刷新失败，请检查网络后重试。`
         : `${error.machineCode}：企微配置已由其他管理员更新；页面已刷新至最新企微配置，请重新确认。`
       setWeComError(message)
       toast.error(message)
       return
     }
+    if (!isCurrentWeComOperation(operation)) return
+    setWeComForm((form) => ({ ...form, employeeSecret: '', contactSecret: '', agentSecret: '', chatSecret: '', permanentCode: '' }))
     const message = errorMessage(error, fallback)
     setWeComError(message)
     toast.error(message)
   }
 
-  const saveWeComMutation = useMutation<WeComIntegrationRecord, unknown>({
-    mutationFn: async () => {
+  const saveWeComMutation = useMutation<WeComIntegrationRecord, unknown, WeComSaveOperation>({
+    mutationFn: (operation) => saveWeComIntegrationCandidate(operation.tenantId, operation.payload),
+    onSuccess: async (candidate, operation) => {
+      queryClient.setQueryData<WeComIntegrationView>(['tenant-wecom-integration', operation.tenantId], (current) => current ? { ...current, candidate } : current)
+      await invalidateWeComAudit(operation.tenantId)
+      if (!isCurrentWeComOperation(operation)) return
+      setWeComError('')
+      closeWeComEditor()
+      toast.success('企微候选配置已安全保存，请完成本地合同验证')
+    },
+    onError: (error, operation) => handleWeComError(error, operation, '企微候选配置保存失败，敏感输入已清空'),
+  })
+
+  const verifyWeComMutation = useMutation<WeComIntegrationRecord, unknown, WeComVersionOperation>({
+    mutationFn: (operation) => verifyWeComIntegrationCandidate(operation.tenantId, operation.version),
+    onSuccess: async (candidate, operation) => {
+      queryClient.setQueryData<WeComIntegrationView>(['tenant-wecom-integration', operation.tenantId], (current) => current ? { ...current, candidate } : current)
+      await invalidateWeComAudit(operation.tenantId)
+      if (!isCurrentWeComOperation(operation)) return
+      setWeComError('')
+      toast.success('候选已通过本地合同验证；此结果不代表真实企微线上可用')
+    },
+    onError: (error, operation) => handleWeComError(error, operation, '候选验证失败，当前模式保持不变'),
+  })
+
+  const switchWeComMutation = useMutation<WeComIntegrationView, unknown, WeComVersionOperation>({
+    mutationFn: (operation) => switchWeComIntegration(operation.tenantId, operation.version),
+    onSuccess: async (view, operation) => {
+      queryClient.setQueryData(['tenant-wecom-integration', operation.tenantId], view)
+      await invalidateWeComAudit(operation.tenantId)
+      if (!isCurrentWeComOperation(operation)) return
+      setWeComError('')
+      toast.success('企微模式已切换，generation 已推进')
+    },
+    onError: (error, operation) => handleWeComError(error, operation, '企微模式切换被阻止，当前配置未改变'),
+  })
+
+  const rollbackWeComMutation = useMutation<WeComIntegrationView, unknown, WeComVersionOperation>({
+    mutationFn: (operation) => rollbackWeComIntegration(operation.tenantId, operation.version),
+    onSuccess: async (view, operation) => {
+      queryClient.setQueryData(['tenant-wecom-integration', operation.tenantId], view)
+      await invalidateWeComAudit(operation.tenantId)
+      if (!isCurrentWeComOperation(operation)) return
+      setWeComError('')
+      toast.success('企微模式已回滚，generation 已推进')
+    },
+    onError: (error, operation) => handleWeComError(error, operation, '企微模式回滚被阻止，当前配置未改变'),
+  })
+
+  const beginWeComVersionOperation = (): WeComVersionOperation => {
+    const tenantId = selectedTenantIDRef.current
+    const version = weComIntegrationQuery.data?.candidate?.version || 0
+    if (!tenantId || !version) throw new Error('没有可操作的企微候选配置')
+    return { tenantId, version, operationEpoch: ++weComOperationEpochRef.current }
+  }
+
+  const submitWeComCandidate = () => {
+    try {
+      const tenantId = selectedTenantIDRef.current
+      if (!tenantId) throw new Error('租户详情已经关闭，请重新打开后保存')
       const scope = weComForm.scope.split(/[\n,，]/).map((item) => item.trim()).filter(Boolean)
       if (scope.length === 0) throw new Error('请至少填写一项能力范围')
       const base = { mode: weComForm.mode, scope, version: weComForm.version }
-      if (weComForm.mode === 'self_built') {
-        if (!weComForm.agentId.trim()) throw new Error('自建应用必须填写 AgentID')
-        return saveWeComIntegrationCandidate(selectedTenantId, {
-          ...base,
-          agentId: weComForm.agentId.trim(),
-          employeeSecret: weComForm.employeeSecret.trim(),
-          contactSecret: weComForm.contactSecret.trim(),
-          agentSecret: weComForm.agentSecret.trim(),
-          chatSecret: weComForm.chatSecret.trim(),
-        })
-      }
-      if (!weComForm.providerAppId.trim()) throw new Error('第三方代开发应用必须填写 Provider App ID')
-      return saveWeComIntegrationCandidate(selectedTenantId, {
-        ...base,
-        providerAppId: weComForm.providerAppId.trim(),
-        permanentCode: weComForm.permanentCode.trim(),
-      })
-    },
-    onSuccess: async (candidate) => {
-      queryClient.setQueryData<WeComIntegrationView>(['tenant-wecom-integration', selectedTenantId], (current) => current ? { ...current, candidate } : current)
-      setWeComError('')
-      closeWeComEditor()
-      await weComAuditQuery.refetch()
-      toast.success('企微候选配置已安全保存，请完成本地合同验证')
-    },
-    onError: (error) => handleWeComError(error, '企微候选配置保存失败，敏感输入已清空'),
-  })
-
-  const verifyWeComMutation = useMutation<WeComIntegrationRecord, unknown>({
-    mutationFn: () => {
-      const version = weComIntegrationQuery.data?.candidate?.version || 0
-      if (!version) throw new Error('没有可验证的候选配置')
-      return verifyWeComIntegrationCandidate(selectedTenantId, version)
-    },
-    onSuccess: async (candidate) => {
-      queryClient.setQueryData<WeComIntegrationView>(['tenant-wecom-integration', selectedTenantId], (current) => current ? { ...current, candidate } : current)
-      setWeComError('')
-      await weComAuditQuery.refetch()
-      toast.success('候选已通过本地合同验证；此结果不代表真实企微线上可用')
-    },
-    onError: (error) => handleWeComError(error, '候选验证失败，当前模式保持不变'),
-  })
-
-  const switchWeComMutation = useMutation<WeComIntegrationView, unknown>({
-    mutationFn: () => {
-      const version = weComIntegrationQuery.data?.candidate?.version || 0
-      if (!version) throw new Error('没有可切换的候选配置')
-      return switchWeComIntegration(selectedTenantId, version)
-    },
-    onSuccess: async (view) => {
-      queryClient.setQueryData(['tenant-wecom-integration', selectedTenantId], view)
-      setWeComError('')
-      await weComAuditQuery.refetch()
-      toast.success('企微模式已切换，generation 已推进')
-    },
-    onError: (error) => handleWeComError(error, '企微模式切换被阻止，当前配置未改变'),
-  })
-
-  const rollbackWeComMutation = useMutation<WeComIntegrationView, unknown>({
-    mutationFn: () => {
-      const version = weComIntegrationQuery.data?.candidate?.version || 0
-      if (!version) throw new Error('没有可回滚的上一模式')
-      return rollbackWeComIntegration(selectedTenantId, version)
-    },
-    onSuccess: async (view) => {
-      queryClient.setQueryData(['tenant-wecom-integration', selectedTenantId], view)
-      setWeComError('')
-      await weComAuditQuery.refetch()
-      toast.success('企微模式已回滚，generation 已推进')
-    },
-    onError: (error) => handleWeComError(error, '企微模式回滚被阻止，当前配置未改变'),
-  })
+      const payload = weComForm.mode === 'self_built'
+        ? (() => {
+            if (!weComForm.agentId.trim()) throw new Error('自建应用必须填写 AgentID')
+            return { ...base, agentId: weComForm.agentId.trim(), employeeSecret: weComForm.employeeSecret.trim(), contactSecret: weComForm.contactSecret.trim(), agentSecret: weComForm.agentSecret.trim(), chatSecret: weComForm.chatSecret.trim() }
+          })()
+        : (() => {
+            if (!weComForm.providerAppId.trim()) throw new Error('第三方代开发应用必须填写 Provider App ID')
+            return { ...base, providerAppId: weComForm.providerAppId.trim(), permanentCode: weComForm.permanentCode.trim() }
+          })()
+      saveWeComMutation.mutate({ tenantId, payload, operationEpoch: ++weComOperationEpochRef.current })
+    } catch (error) {
+      setWeComForm((form) => ({ ...form, employeeSecret: '', contactSecret: '', agentSecret: '', chatSecret: '', permanentCode: '' }))
+      const message = errorMessage(error, '企微候选配置无效')
+      setWeComError(message)
+      toast.error(message)
+    }
+  }
 
   const invalidateTenantData = async () => {
     await Promise.all([
@@ -485,29 +545,37 @@ export default function TenantsPage({ profile, approvalMode }: PageProps) {
     ])
   }
 
-  const createMutation = useMutation<GovernedResult<DashboardAdminProvisionResult>, unknown>({
+  const purgeActivationMutation = (mutationKey: string) => {
+    const mutationCache = queryClient.getMutationCache()
+    for (const mutation of mutationCache.getAll()) {
+      if (mutation.options.mutationKey?.[0] === mutationKey) mutationCache.remove(mutation)
+    }
+  }
+
+  const createMutation = useMutation<GovernedResult<DashboardAdminProvisionResult>, unknown, ProvisionOperation>({
     mutationKey: ['tenant-provision-delivery'],
-    mutationFn: async () => {
-      const plan = (packagesQuery.data?.packages || []).find((item) => String(item.id) === createForm.packageId && item.status === 1)
+    mutationFn: async (operation) => {
+      const form = operation.form
+      const plan = (packagesQuery.data?.packages || []).find((item) => String(item.id) === form.packageId && item.status === 1)
       if (!plan) throw new Error('请选择已启用套餐')
-      if (!createForm.tenantName.trim() || !createForm.adminName.trim()) throw new Error('请填写客户名称和管理员姓名')
-      if (!/^1\d{10}$/.test(createForm.adminLoginIdentifier.trim())) throw new Error('管理员手机号格式不正确')
-      const expiresAt = isoEndOfDate(createForm.expiresAt)
+      if (!form.tenantName.trim() || !form.adminName.trim()) throw new Error('请填写客户名称和管理员姓名')
+      if (!/^1\d{10}$/.test(form.adminLoginIdentifier.trim())) throw new Error('管理员手机号格式不正确')
+      const expiresAt = isoEndOfDate(form.expiresAt)
       if (!expiresAt) throw new Error('请填写有效到期日期')
       const payload = {
-          tenantName: createForm.tenantName.trim(),
+          tenantName: form.tenantName.trim(),
           packageId: plan.id,
           limits: packageLimitsSnapshot(plan),
           subscription: {
             packageCode: plan.code,
-            status: createForm.subscriptionStatus,
-            billingCycle: createForm.billingCycle,
+            status: form.subscriptionStatus,
+            billingCycle: form.billingCycle,
             startsAt: new Date().toISOString(),
             expiresAt,
           },
-          adminLoginIdentifier: createForm.adminLoginIdentifier.trim(),
-          adminName: createForm.adminName.trim(),
-          idempotencyKey: createForm.idempotencyKey,
+          adminLoginIdentifier: form.adminLoginIdentifier.trim(),
+          adminName: form.adminName.trim(),
+          idempotencyKey: form.idempotencyKey,
           expectedVersion: plan.version,
       }
       return executeGoverned<DashboardAdminProvisionResult>({
@@ -515,79 +583,94 @@ export default function TenantsPage({ profile, approvalMode }: PageProps) {
         actionType: 'dashboard.tenant.provision',
         payload,
         approvalPayload: payload,
-        approvalIdempotencyKey: createForm.idempotencyKey,
-        reason: `开通客户租户 ${createForm.tenantName.trim()}`,
+        approvalIdempotencyKey: form.idempotencyKey,
+        reason: `开通客户租户 ${form.tenantName.trim()}`,
         directPath: '/dashboard/saasAdmin/tenants/provision',
-        directHeaders: { 'X-Request-ID': createForm.idempotencyKey },
+        directHeaders: { 'X-Request-ID': form.idempotencyKey },
       })
     },
-    onSuccess: async (result) => {
+    onSuccess: async (result, operation) => {
+      const active = () => activationOperationEpochRef.current === operation.operationEpoch
       if (result.approvalRequested) {
-        setCreateOpen(false)
-        toast.success('开户申请已提交审批，待独立复核后执行')
         await queryClient.invalidateQueries({ queryKey: queryKeys.approvals })
+        if (active()) {
+          setCreateOpen(false)
+          toast.success('开户申请已提交审批，待独立复核后执行')
+        }
+        return
+      }
+      await invalidateTenantData()
+      if (!active()) {
+        purgeActivationMutation('tenant-provision-delivery')
         return
       }
       setCreateOpen(false)
       setCreateForm(emptyCreateForm())
-      if (result.data.activationPath) {
-        setActivationDelivery({ path: result.data.activationPath, expiresAt: result.data.activationExpiresAt || '' })
+      if (result.data.activationPath && result.data.tenantId > 0 && result.data.dashboardUserId > 0) {
+        setActivationDelivery({ tenantId: result.data.tenantId, dashboardUserId: result.data.dashboardUserId, tenantName: operation.form.tenantName.trim(), accountName: operation.form.adminName.trim(), accountHint: safeLoginHint(operation.form.adminLoginIdentifier), path: result.data.activationPath, expiresAt: result.data.activationExpiresAt || '' })
         setActivationDeliveryOpen(true)
       }
       toast.success(result.data.idempotent ? '开户请求已确认，未重复生成激活入口' : '租户已开通，请通过受控渠道交付一次性激活入口')
-      await invalidateTenantData()
     },
-    onError: (error) => toast.error(errorMessage(error, '开户失败，表单内容已保留')),
+    onError: (error, operation) => {
+      if (activationOperationEpochRef.current === operation.operationEpoch) toast.error(errorMessage(error, '开户失败，表单内容已保留'))
+    },
   })
 
-  const resendMutation = useMutation<GovernedResult<DashboardAdminGovernanceResult>, unknown>({
+  const resendMutation = useMutation<GovernedResult<DashboardAdminGovernanceResult>, unknown, ResendOperation>({
     mutationKey: ['tenant-activation-resend-delivery'],
-    mutationFn: async () => {
-      const tenantId = selectedTenantId
-      const userId = Number(targetAdminId)
-      const version = governanceQuery.data?.bindingVersion || 0
-      if (tenantId <= 0 || userId <= 0 || version <= 0) throw new Error('治理列表尚未加载完成')
-      const requestKey = requestKeys.current.resend || (requestKeys.current.resend = makeRequestKey('dashboard-resend'))
-      const payload = { targetUserId: userId, expectedVersion: version }
+    mutationFn: async (operation) => {
+      const payload = { targetUserId: operation.dashboardUserId, expectedVersion: operation.expectedVersion }
       return executeGoverned<DashboardAdminGovernanceResult>({
         approvalMode,
         actionType: 'dashboard.activation.resend',
         payload,
-        approvalPayload: { tenantId, ...payload },
-        approvalIdempotencyKey: requestKey,
-        reason: `重发租户 ${tenantId} 的 Dashboard 激活`,
-        directPath: `/dashboard/saasAdmin/tenants/${tenantId}/activation/resend`,
-        directHeaders: { 'X-Request-ID': requestKey },
+        approvalPayload: { tenantId: operation.tenantId, ...payload },
+        approvalIdempotencyKey: operation.requestKey,
+        reason: `重发租户 ${operation.tenantId} 的 Dashboard 激活`,
+        directPath: `/dashboard/saasAdmin/tenants/${operation.tenantId}/activation/resend`,
+        directHeaders: { 'X-Request-ID': operation.requestKey },
       })
     },
-    onSuccess: async (result) => {
+    onSuccess: async (result, operation) => {
+      const active = () => activationOperationEpochRef.current === operation.operationEpoch && selectedTenantIDRef.current === operation.tenantId
       if (result.approvalRequested) {
-        toast.success('重发激活申请已提交审批，待独立复核后执行')
         await queryClient.invalidateQueries({ queryKey: queryKeys.approvals })
+        if (active()) toast.success('重发激活申请已提交审批，待独立复核后执行')
         return
       }
-      delete requestKeys.current.resend
+      const requestKeySlot = `resend:${operation.tenantId}`
+      if (requestKeys.current[requestKeySlot] === operation.requestKey) delete requestKeys.current[requestKeySlot]
+      await queryClient.invalidateQueries({ queryKey: ['dashboard-admin-governance', operation.tenantId] })
+      await invalidateTenantData()
+      if (!active()) {
+        purgeActivationMutation('tenant-activation-resend-delivery')
+        return
+      }
+      if (result.data.tenantId !== operation.tenantId || result.data.dashboardUserId !== operation.dashboardUserId) {
+        purgeActivationMutation('tenant-activation-resend-delivery')
+        toast.error('激活结果与请求租户或账号不匹配，已拒绝展示入口')
+        return
+      }
       if (result.data.activationPath) {
-        setActivationDelivery({ path: result.data.activationPath, expiresAt: result.data.activationExpiresAt || '' })
+        setActivationDelivery({ tenantId: operation.tenantId, dashboardUserId: operation.dashboardUserId, tenantName: operation.tenantName, accountName: operation.accountName, accountHint: operation.accountHint, path: result.data.activationPath, expiresAt: result.data.activationExpiresAt || '' })
         setActivationDeliveryOpen(true)
       }
       toast.success(result.data.idempotent ? '重发请求已确认，激活入口不会重复显示' : '已生成新的激活入口，请通过受控渠道交付')
-      await governanceQuery.refetch()
-      await invalidateTenantData()
     },
-    onError: (error) => toast.error(errorMessage(error, '重发激活失败，目标信息已保留')),
+    onError: (error, operation) => {
+      if (activationOperationEpochRef.current === operation.operationEpoch && selectedTenantIDRef.current === operation.tenantId) toast.error(errorMessage(error, '重发激活失败，目标信息已保留'))
+    },
   })
 
   const clearActivationDelivery = () => {
+    activationOperationEpochRef.current += 1
     setActivationDeliveryOpen(false)
     setActivationDelivery(null)
     createMutation.reset()
     resendMutation.reset()
-    const mutationCache = queryClient.getMutationCache()
-    for (const mutation of mutationCache.getAll()) {
-      const key = mutation.options.mutationKey?.[0]
-      if (key === 'tenant-provision-delivery' || key === 'tenant-activation-resend-delivery') mutationCache.remove(mutation)
-    }
+    purgeActivationMutation('tenant-provision-delivery')
+    purgeActivationMutation('tenant-activation-resend-delivery')
   }
 
   const replaceMutation = useMutation<GovernedResult<DashboardAdminGovernanceResult>, unknown>({
@@ -669,11 +752,20 @@ export default function TenantsPage({ profile, approvalMode }: PageProps) {
   }), [keyword, packageFilter, statusFilter, tenants])
 
   const openCreate = () => {
+    activationOperationEpochRef.current += 1
     setCreateForm({ ...emptyCreateForm(), packageId: enabledPackages[0] ? String(enabledPackages[0].id) : '' })
     setCreateOpen(true)
   }
 
+  const closeCreate = () => {
+    activationOperationEpochRef.current += 1
+    setCreateOpen(false)
+  }
+
   const openTenant = (tenant: TenantSummary) => {
+    selectedTenantIDRef.current = tenant.tenantId
+    activationOperationEpochRef.current += 1
+    weComOperationEpochRef.current += 1
     setSelectedTenantId(tenant.tenantId)
     setTargetAdminId('')
     setCurrentAdminId('')
@@ -702,7 +794,8 @@ export default function TenantsPage({ profile, approvalMode }: PageProps) {
   const currentIdentity = governanceQuery.data?.identities.find((identity) => identity.id === Number(currentAdminId))
   const replacementIdentity = governanceQuery.data?.identities.find((identity) => identity.id === Number(replacementAdminId))
   const governanceSummary = selectedTenant ? `${selectedTenant.tenantName}（租户 ${selectedTenant.tenantId}），管理员 ${targetIdentity?.name || '未选择'}，绑定版本 ${governanceVersion || '加载中'}` : '请先打开一个客户租户详情。'
-  const governanceMutationError = resendMutation.error || replaceMutation.error || statusMutation.error
+  const resendMutationError = resendMutation.error && resendMutation.variables && resendMutation.variables.tenantId === selectedTenantIDRef.current && resendMutation.variables.operationEpoch === activationOperationEpochRef.current ? resendMutation.error : null
+  const governanceMutationError = resendMutationError || replaceMutation.error || statusMutation.error
   const aiProviderView = aiProviderQuery.data ? tenantAIProviderState(aiProviderQuery.data.configured, aiProviderQuery.data.provider) : null
   const activationURL = useMemo(() => {
     if (!activationDelivery?.path) return ''
@@ -744,7 +837,7 @@ export default function TenantsPage({ profile, approvalMode }: PageProps) {
         </TableShell>
       </section>
 
-      <Dialog open={createOpen} onOpenChange={setCreateOpen} title="开通客户租户" description="创建 SaaS 租户、套餐快照和首个 Dashboard 管理员" footer={<><Button type="button" variant="secondary" onClick={() => setCreateOpen(false)}>取消</Button><ConfirmAction title="确认开户" summary={<div className="space-y-1"><p>客户：{createForm.tenantName || '未填写'}</p><p>管理员：{createForm.adminName || '未填写'} / {createForm.adminLoginIdentifier || '未填写'}</p><p>套餐：{createPlan ? `${createPlan.name}（ID ${createPlan.id}，版本 ${createPlan.version}）` : '未选择'}</p><p>系统将在成功响应中仅展示一次激活入口，不会创建或传递初始密码，也不会自动发送邮件或短信。</p></div>} confirmLabel="确认开户" loading={createMutation.isPending} onConfirm={() => createMutation.mutateAsync()}>提交开户</ConfirmAction></>}>
+      <Dialog open={createOpen} onOpenChange={(open) => { if (!open) closeCreate() }} title="开通客户租户" description="创建 SaaS 租户、套餐快照和首个 Dashboard 管理员" footer={<><Button type="button" variant="secondary" onClick={closeCreate}>取消</Button><ConfirmAction title="确认开户" summary={<div className="space-y-1"><p>客户：{createForm.tenantName || '未填写'}</p><p>管理员：{createForm.adminName || '未填写'} / {createForm.adminLoginIdentifier || '未填写'}</p><p>套餐：{createPlan ? `${createPlan.name}（ID ${createPlan.id}，版本 ${createPlan.version}）` : '未选择'}</p><p>系统将在成功响应中仅展示一次激活入口，不会创建或传递初始密码，也不会自动发送邮件或短信。</p></div>} confirmLabel="确认开户" loading={createMutation.isPending} onConfirm={() => createMutation.mutateAsync({ operationEpoch: ++activationOperationEpochRef.current, form: { ...createForm } })}>提交开户</ConfirmAction></>}>
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="客户名称" className="sm:col-span-2"><Input value={createForm.tenantName} onChange={(event) => setCreateForm((form) => ({ ...form, tenantName: event.target.value }))} placeholder="客户公司名称" autoFocus /></Field>
           <Field label="管理员姓名"><Input value={createForm.adminName} onChange={(event) => setCreateForm((form) => ({ ...form, adminName: event.target.value }))} placeholder="超级管理员" /></Field>
@@ -758,10 +851,10 @@ export default function TenantsPage({ profile, approvalMode }: PageProps) {
       </Dialog>
 
       <Dialog open={activationDeliveryOpen} onOpenChange={(open) => { if (!open) clearActivationDelivery() }} title="一次性激活入口" description="完整入口只在本次成功响应后显示，关闭后会从页面状态和 DOM 清除。" size="sm">
-        <div className="space-y-3"><p className="text-sm text-amber-800">请由平台管理员通过安全的受控渠道交付；系统没有邮件、短信或企微自动发送能力。</p>{activationURL ? <><code className="block break-all rounded-md bg-zinc-950 px-3 py-3 text-xs text-emerald-300">{activationURL}</code><p className="text-xs text-zinc-500">有效期至：{activationDelivery?.expiresAt ? formatDate(activationDelivery.expiresAt) : '服务端未返回'}</p><div className="activation-delivery-actions flex flex-wrap gap-2"><Button type="button" onClick={async () => { try { await navigator.clipboard.writeText(activationURL); toast.success('激活入口已复制，请安全交付') } catch { toast.error('复制失败，请使用受控设备手动复制') } }}>复制激活入口</Button><Button type="button" variant="secondary" onClick={clearActivationDelivery}>我已记录并关闭</Button></div></> : <p role="alert" className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">服务端返回的激活入口不符合 fragment 安全合同，页面已拒绝展示。</p>}</div>
+        <div className="space-y-3"><p className="text-sm text-amber-800">请由平台管理员通过安全的受控渠道交付；系统没有邮件、短信或企微自动发送能力。</p>{activationURL ? <><div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950"><p>接收租户：{activationDelivery?.tenantName}（租户 {activationDelivery?.tenantId}）</p><p className="mt-1">接收账号：{activationDelivery?.accountName}（{activationDelivery?.accountHint}，用户 {activationDelivery?.dashboardUserId}）</p></div><code className="block break-all rounded-md bg-zinc-950 px-3 py-3 text-xs text-emerald-300">{activationURL}</code><p className="text-xs text-zinc-500">有效期至：{activationDelivery?.expiresAt ? formatDate(activationDelivery.expiresAt) : '服务端未返回'}</p><div className="activation-delivery-actions flex flex-wrap gap-2"><Button type="button" onClick={async () => { try { await navigator.clipboard.writeText(activationURL); toast.success('激活入口已复制，请安全交付') } catch { toast.error('复制失败，请使用受控设备手动复制') } }}>复制激活入口</Button><Button type="button" variant="secondary" onClick={clearActivationDelivery}>我已记录并关闭</Button></div></> : <p role="alert" className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">服务端返回的激活入口不符合 fragment 安全合同，页面已拒绝展示。</p>}</div>
       </Dialog>
 
-      <Dialog open={selectedTenantId > 0} onOpenChange={(open) => { if (!open) { closeAIProvider(); closeWeComEditor(); setWeComForm(emptyWeComIntegrationForm()); setWeComError(''); setSelectedTenantId(0) } }} title={selectedTenant?.tenantName || '客户详情'} description={selectedTenant ? `租户 ID ${selectedTenant.tenantId}` : '正在加载'} size="lg">
+      <Dialog open={selectedTenantId > 0} onOpenChange={(open) => { if (!open) { selectedTenantIDRef.current = 0; activationOperationEpochRef.current += 1; weComOperationEpochRef.current += 1; closeAIProvider(); closeWeComEditor(); setWeComForm(emptyWeComIntegrationForm()); setWeComError(''); setSelectedTenantId(0) } }} title={selectedTenant?.tenantName || '客户详情'} description={selectedTenant ? `租户 ID ${selectedTenant.tenantId}` : '正在加载'} size="lg">
         {detailQuery.isLoading && <LoadingState label="正在加载客户详情" />}
         {detailQuery.isError && <ErrorState message={errorMessage(detailQuery.error, '无法加载客户详情')} onRetry={() => detailQuery.refetch()} />}
         {selectedTenant && <div className="space-y-6">
@@ -781,9 +874,9 @@ export default function TenantsPage({ profile, approvalMode }: PageProps) {
               <p className="text-xs text-zinc-500">权威企业绑定 ID：{weComIntegrationQuery.data.corpId}。本页不接受请求体 CorpID，避免跨租户或跨企业覆盖。</p>
               {weComError && <p role="alert" className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{weComError}</p>}
               {canManageAIProvider ? <div className="integration-actions flex flex-wrap gap-2">
-                <Button type="button" variant="secondary" loading={verifyWeComMutation.isPending} disabled={!weComIntegrationQuery.data.candidate || verifyWeComMutation.isPending} onClick={() => verifyWeComMutation.mutate()}>验证候选</Button>
-                <ConfirmAction title="确认切换企微模式" summary={<div className="space-y-1"><p>{weComModeLabel(weComIntegrationQuery.data.current?.mode)} → {weComModeLabel(weComIntegrationQuery.data.candidate?.mode)}</p><p>提交候选 v{weComIntegrationQuery.data.candidate?.version || 0}；服务端将再次检查企业绑定、能力、凭据、媒体 lease 与 generation。</p></div>} disabled={!isLocallyVerified(weComIntegrationQuery.data.candidate)} loading={switchWeComMutation.isPending} onConfirm={() => switchWeComMutation.mutateAsync()}>切换为候选</ConfirmAction>
-                <ConfirmAction title="确认回滚企微模式" summary={<div className="space-y-1"><p>回滚目标：{weComModeLabel(weComIntegrationQuery.data.candidate?.mode)}</p><p>提交目标 v{weComIntegrationQuery.data.candidate?.version || 0}；回滚同样推进 generation，不会恢复旧任务。</p></div>} variant="secondary" disabled={!isLocallyVerified(weComIntegrationQuery.data.candidate)} loading={rollbackWeComMutation.isPending} onConfirm={() => rollbackWeComMutation.mutateAsync()}>回滚上一模式</ConfirmAction>
+                <Button type="button" variant="secondary" loading={verifyWeComMutation.isPending} disabled={!weComIntegrationQuery.data.candidate || verifyWeComMutation.isPending} onClick={() => verifyWeComMutation.mutate(beginWeComVersionOperation())}>验证候选</Button>
+                <ConfirmAction title="确认切换企微模式" summary={<div className="space-y-1"><p>{weComModeLabel(weComIntegrationQuery.data.current?.mode)} → {weComModeLabel(weComIntegrationQuery.data.candidate?.mode)}</p><p>提交候选 v{weComIntegrationQuery.data.candidate?.version || 0}；服务端将再次检查企业绑定、能力、凭据、媒体 lease 与 generation。</p></div>} disabled={!isLocallyVerified(weComIntegrationQuery.data.candidate)} loading={switchWeComMutation.isPending} onConfirm={() => switchWeComMutation.mutateAsync(beginWeComVersionOperation())}>切换为候选</ConfirmAction>
+                <ConfirmAction title="确认回滚企微模式" summary={<div className="space-y-1"><p>回滚目标：{weComModeLabel(weComIntegrationQuery.data.candidate?.mode)}</p><p>提交目标 v{weComIntegrationQuery.data.candidate?.version || 0}；回滚同样推进 generation，不会恢复旧任务。</p></div>} variant="secondary" disabled={!isLocallyVerified(weComIntegrationQuery.data.candidate)} loading={rollbackWeComMutation.isPending} onConfirm={() => rollbackWeComMutation.mutateAsync(beginWeComVersionOperation())}>回滚上一模式</ConfirmAction>
               </div> : <p className="text-xs text-zinc-500">当前账号只有查看权限，不能保存、验证、切换或回滚企微配置。</p>}
             </>}
             <div className="space-y-2" aria-label="企微集成审计时间线">
@@ -808,13 +901,13 @@ export default function TenantsPage({ profile, approvalMode }: PageProps) {
             </div>}
             {!canManageAIProvider && <p className="text-xs text-zinc-500">当前账号只有查看权限，不能修改模型或密钥。</p>}
           </section>}
-          {canManage && <section className="space-y-4 rounded-lg border border-emerald-200 bg-emerald-50/40 p-4"><SectionHeader title="Dashboard 超级管理员治理" description="对象和绑定版本来自服务端只读治理列表；页面不接受手填用户 ID 或版本。" />{governanceQuery.isLoading && <LoadingState label="正在加载 Dashboard 身份" />}{governanceQuery.isError && <ErrorState message={errorMessage(governanceQuery.error, '无法加载治理列表')} onRetry={() => governanceQuery.refetch()} />}{governanceQuery.data && <><div className="grid gap-3 sm:grid-cols-2"><Field label="治理绑定版本"><div className="flex h-9 items-center rounded-md border border-zinc-200 bg-white px-3 text-sm text-zinc-700">v{governanceQuery.data.bindingVersion}</div></Field><Field label="重发/停用/恢复对象"><Select value={targetAdminId} onChange={(event) => setTargetAdminId(event.target.value)}><option value="">请选择 Dashboard 超管</option>{governanceQuery.data.identities.filter((identity) => identity.isSuperAdmin).map((identity) => <option key={identity.id} value={identity.id}>{identity.name || identity.loginIdentifier}（{identity.id}，{identity.userStatus === 1 && identity.identityStatus === 1 && identity.activatedAt ? '启用' : '停用'}）</option>)}</Select></Field><Field label="当前超管"><Select value={currentAdminId} onChange={(event) => setCurrentAdminId(event.target.value)}><option value="">请选择当前超管</option>{governanceQuery.data.identities.filter((identity) => identity.isSuperAdmin).map((identity) => <option key={identity.id} value={identity.id}>{identity.name || identity.loginIdentifier}（{identity.id}）</option>)}</Select></Field><Field label="替换候选"><Select value={replacementAdminId} onChange={(event) => setReplacementAdminId(event.target.value)}><option value="">请选择已激活候选</option>{governanceQuery.data.identities.filter((identity) => identity.id !== Number(currentAdminId) && identity.userStatus === 1 && identity.identityStatus === 1 && Boolean(identity.activatedAt)).map((identity) => <option key={identity.id} value={identity.id}>{identity.name || identity.loginIdentifier}（{identity.id}）</option>)}</Select></Field></div><div className="mb-3 text-xs text-zinc-500">当前：{currentIdentity?.name || '未选择'}；候选：{replacementIdentity?.name || '未选择'}；目标状态：{targetIdentity?.isSuperAdmin ? (targetIdentity.userStatus === 1 && targetIdentity.identityStatus === 1 && targetIdentity.activatedAt ? '启用' : '停用') : '未选择'}</div>{governanceMutationError && <p role="alert" className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{errorMessage(governanceMutationError, '治理操作失败，当前选择已保留。')}</p>}<div className="flex flex-wrap gap-2"><ConfirmAction title="确认重发激活" summary={governanceSummary} loading={resendMutation.isPending} disabled={!targetIdentity || !targetIdentity.isSuperAdmin || targetIdentity.userStatus !== 1 || targetIdentity.identityStatus !== 1 || Boolean(targetIdentity.activatedAt)} onConfirm={() => resendMutation.mutateAsync()}><RefreshCw className="h-4 w-4" />重发激活</ConfirmAction><ConfirmAction title="确认替换超管" summary={`${governanceSummary}；当前 ${currentIdentity?.name || '未选择'} → 新 ${replacementIdentity?.name || '未选择'}`} loading={replaceMutation.isPending} disabled={!currentIdentity?.isSuperAdmin || currentIdentity.userStatus !== 1 || currentIdentity.identityStatus !== 1 || !currentIdentity.activatedAt || !replacementIdentity} onConfirm={() => replaceMutation.mutateAsync()}><ShieldCheck className="h-4 w-4" />替换超管</ConfirmAction><ConfirmAction title="确认停用超管" summary={governanceSummary} variant="danger" loading={statusMutation.isPending} disabled={!targetIdentity?.isSuperAdmin || targetIdentity.userStatus !== 1 || targetIdentity.identityStatus !== 1 || !targetIdentity.activatedAt} onConfirm={() => statusMutation.mutateAsync(false)}><UserX className="h-4 w-4" />停用超管</ConfirmAction><ConfirmAction title="确认恢复超管" summary={governanceSummary} variant="secondary" loading={statusMutation.isPending} disabled={!targetIdentity?.isSuperAdmin || targetIdentity.userStatus !== 2 || targetIdentity.identityStatus !== 2 || !targetIdentity.activatedAt} onConfirm={() => statusMutation.mutateAsync(true)}><UserRoundCog className="h-4 w-4" />恢复超管</ConfirmAction></div></>}</section>}
+          {canManage && <section className="space-y-4 rounded-lg border border-emerald-200 bg-emerald-50/40 p-4"><SectionHeader title="Dashboard 超级管理员治理" description="对象和绑定版本来自服务端只读治理列表；页面不接受手填用户 ID 或版本。" />{governanceQuery.isLoading && <LoadingState label="正在加载 Dashboard 身份" />}{governanceQuery.isError && <ErrorState message={errorMessage(governanceQuery.error, '无法加载治理列表')} onRetry={() => governanceQuery.refetch()} />}{governanceQuery.data && <><div className="grid gap-3 sm:grid-cols-2"><Field label="治理绑定版本"><div className="flex h-9 items-center rounded-md border border-zinc-200 bg-white px-3 text-sm text-zinc-700">v{governanceQuery.data.bindingVersion}</div></Field><Field label="重发/停用/恢复对象"><Select value={targetAdminId} onChange={(event) => setTargetAdminId(event.target.value)}><option value="">请选择 Dashboard 超管</option>{governanceQuery.data.identities.filter((identity) => identity.isSuperAdmin).map((identity) => <option key={identity.id} value={identity.id}>{identity.name || identity.loginIdentifier}（{identity.id}，{identity.userStatus === 1 && identity.identityStatus === 1 && identity.activatedAt ? '启用' : '停用'}）</option>)}</Select></Field><Field label="当前超管"><Select value={currentAdminId} onChange={(event) => setCurrentAdminId(event.target.value)}><option value="">请选择当前超管</option>{governanceQuery.data.identities.filter((identity) => identity.isSuperAdmin).map((identity) => <option key={identity.id} value={identity.id}>{identity.name || identity.loginIdentifier}（{identity.id}）</option>)}</Select></Field><Field label="替换候选"><Select value={replacementAdminId} onChange={(event) => setReplacementAdminId(event.target.value)}><option value="">请选择已激活候选</option>{governanceQuery.data.identities.filter((identity) => identity.id !== Number(currentAdminId) && identity.userStatus === 1 && identity.identityStatus === 1 && Boolean(identity.activatedAt)).map((identity) => <option key={identity.id} value={identity.id}>{identity.name || identity.loginIdentifier}（{identity.id}）</option>)}</Select></Field></div><div className="mb-3 text-xs text-zinc-500">当前：{currentIdentity?.name || '未选择'}；候选：{replacementIdentity?.name || '未选择'}；目标状态：{targetIdentity?.isSuperAdmin ? (targetIdentity.userStatus === 1 && targetIdentity.identityStatus === 1 && targetIdentity.activatedAt ? '启用' : '停用') : '未选择'}</div>{governanceMutationError && <p role="alert" className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{errorMessage(governanceMutationError, '治理操作失败，当前选择已保留。')}</p>}<div className="flex flex-wrap gap-2"><ConfirmAction title="确认重发激活" summary={governanceSummary} loading={resendMutation.isPending} disabled={!targetIdentity || !targetIdentity.isSuperAdmin || targetIdentity.userStatus !== 1 || targetIdentity.identityStatus !== 1 || Boolean(targetIdentity.activatedAt)} onConfirm={() => { const tenantId = selectedTenantIDRef.current; const expectedVersion = governanceQuery.data?.bindingVersion || 0; const identity = targetIdentity; const dashboardUserId = identity?.id || 0; if (!tenantId || !expectedVersion || !dashboardUserId || !selectedTenant || !identity) throw new Error('治理列表尚未加载完成'); const requestKeySlot = `resend:${tenantId}`; const requestKey = requestKeys.current[requestKeySlot] || (requestKeys.current[requestKeySlot] = makeRequestKey('dashboard-resend')); return resendMutation.mutateAsync({ tenantId, dashboardUserId, expectedVersion, requestKey, tenantName: selectedTenant.tenantName, accountName: identity.name || 'Dashboard 管理员', accountHint: safeLoginHint(identity.loginIdentifier), operationEpoch: ++activationOperationEpochRef.current }) }}><RefreshCw className="h-4 w-4" />重发激活</ConfirmAction><ConfirmAction title="确认替换超管" summary={`${governanceSummary}；当前 ${currentIdentity?.name || '未选择'} → 新 ${replacementIdentity?.name || '未选择'}`} loading={replaceMutation.isPending} disabled={!currentIdentity?.isSuperAdmin || currentIdentity.userStatus !== 1 || currentIdentity.identityStatus !== 1 || !currentIdentity.activatedAt || !replacementIdentity} onConfirm={() => replaceMutation.mutateAsync()}><ShieldCheck className="h-4 w-4" />替换超管</ConfirmAction><ConfirmAction title="确认停用超管" summary={governanceSummary} variant="danger" loading={statusMutation.isPending} disabled={!targetIdentity?.isSuperAdmin || targetIdentity.userStatus !== 1 || targetIdentity.identityStatus !== 1 || !targetIdentity.activatedAt} onConfirm={() => statusMutation.mutateAsync(false)}><UserX className="h-4 w-4" />停用超管</ConfirmAction><ConfirmAction title="确认恢复超管" summary={governanceSummary} variant="secondary" loading={statusMutation.isPending} disabled={!targetIdentity?.isSuperAdmin || targetIdentity.userStatus !== 2 || targetIdentity.identityStatus !== 2 || !targetIdentity.activatedAt} onConfirm={() => statusMutation.mutateAsync(true)}><UserRoundCog className="h-4 w-4" />恢复超管</ConfirmAction></div></>}</section>}
           <section className="space-y-3"><SectionHeader title="核心用量" /><div className="grid gap-3 sm:grid-cols-2">{coreMetrics.map((metric) => { const ratio = metric.limit > 0 ? metric.current / metric.limit : 0; return <div key={metric.metric} className="rounded-md border border-zinc-200 p-3"><div className="flex items-center justify-between gap-3 text-sm"><span>{metric.label}</span><strong>{metric.current} / {metric.limit}</strong></div><div className="mt-3"><ProgressBar value={ratio * 100} tone={usageTone(ratio)} /></div></div> })}</div></section>
           <section className="space-y-3"><SectionHeader title="最近变更" /><TableShell>{(detailQuery.data?.operations || []).length === 0 ? <EmptyState icon={<Building2 className="h-5 w-5" />} title="暂无变更记录" description="租户变更会自动记录。" /> : <table><thead><tr><th>目标</th><th>说明</th><th>时间</th></tr></thead><tbody>{(detailQuery.data?.operations || []).slice(0, 8).map((item) => <tr key={item.id}><td>{item.targetName || item.targetType}</td><td>{item.remark || item.action}</td><td>{formatDate(item.createdAt)}</td></tr>)}</tbody></table>}</TableShell></section>
         </div>}
       </Dialog>
 
-      <Dialog open={weComEditorOpen && selectedTenantId > 0} onOpenChange={(open) => { if (!open) closeWeComEditor() }} title="编辑企微候选配置" description={selectedTenant ? `${selectedTenant.tenantName}（租户 ${selectedTenant.tenantId}）` : '租户配置'} size="lg" footer={<div className="integration-actions flex flex-wrap gap-2"><Button type="button" variant="secondary" onClick={closeWeComEditor}>取消</Button><Button type="button" loading={saveWeComMutation.isPending} onClick={() => saveWeComMutation.mutate()}>保存候选</Button></div>}>
+      <Dialog open={weComEditorOpen && selectedTenantId > 0} onOpenChange={(open) => { if (!open) closeWeComEditor() }} title="编辑企微候选配置" description={selectedTenant ? `${selectedTenant.tenantName}（租户 ${selectedTenant.tenantId}）` : '租户配置'} size="lg" footer={<div className="integration-actions flex flex-wrap gap-2"><Button type="button" variant="secondary" onClick={closeWeComEditor}>取消</Button><Button type="button" loading={saveWeComMutation.isPending} onClick={submitWeComCandidate}>保存候选</Button></div>}>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2" aria-label="企微候选配置表单">
           <Field label="对接模式"><Select value={weComForm.mode} onChange={(event) => {
             const mode = event.target.value as WeComIntegrationMode
