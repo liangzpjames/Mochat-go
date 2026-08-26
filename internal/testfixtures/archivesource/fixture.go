@@ -1,6 +1,7 @@
 package archivesource
 
 import (
+	"bytes"
 	"context"
 	"crypto/md5"
 	"crypto/rand"
@@ -8,11 +9,15 @@ import (
 	"crypto/x509"
 	"database/sql"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"image"
+	"image/color"
+	"image/png"
 	"strconv"
 	"sync"
 
@@ -22,6 +27,8 @@ import (
 const DatasetMarker = "MOCHAT-LOCAL-ACCEPTANCE-20260827"
 
 const fixtureRandomKey = DatasetMarker + "-DECRYPTED-RANDOM-KEY"
+
+const fixtureMP4Base64 = "AAAAIGZ0eXBpc29tAAACAGlzb21pc28yYXZjMW1wNDEAAANGbW9vdgAAAGxtdmhkAAAAAAAAAAAAAAAAAAAD6AAAAMgAAQAAAQAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgAAAjl0cmFrAAAAXHRraGQAAAADAAAAAAAAAAAAAAABAAAAAAAAAMgAAAAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAABAAAAAABAAAAAQAAAAAAAkZWR0cwAAABxlbHN0AAAAAAAAAAEAAADIAAAAAAABAAAAAAGxbWRpYQAAACBtZGhkAAAAAAAAAAAAAAAAAAAoAAAACABVxAAAAAAALWhkbHIAAAAAAAAAAHZpZGUAAAAAAAAAAAAAAABWaWRlb0hhbmRsZXIAAAABXG1pbmYAAAAUdm1oZAAAAAEAAAAAAAAAAAAAACRkaW5mAAAAHGRyZWYAAAAAAAAAAQAAAAx1cmwgAAAAAQAAARxzdGJsAAAAuHN0c2QAAAAAAAAAAQAAAKhhdmMxAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAABAAEABIAAAASAAAAAAAAAABFUxhdmM2MS4xOS4xMDAgbGlieDI2NAAAAAAAAAAAAAAAGP//AAAALmF2Y0MBQsAK/+EAFmdCwArZHsBEAAADAAQAAAMAKDxImSABAAVoy4PLIAAAABBwYXNwAAAAAQAAAAEAAAAUYnRydAAAAAAAAGIgAABiIAAAABhzdHRzAAAAAAAAAAEAAAABAAAIAAAAABxzdHNjAAAAAAAAAAEAAAABAAAAAQAAAAEAAAAUc3RzegAAAAAAAAJ0AAAAAQAAABRzdGNvAAAAAAAAAAEAAAN2AAAAmXVkdGEAAACRbWV0YQAAAAAAAAAhaGRscgAAAAAAAAAAbWRpcmFwcGwAAAAAAAAAAAAAAABkaWxzdAAAACSpdG9vAAAAHGRhdGEAAAABAAAAAExhdmY2MS43LjEwMAAAADipY210AAAAMGRhdGEAAAABAAAAAE1PQ0hBVC1MT0NBTC1BQ0NFUFRBTkNFLTIwMjYwODI3AAAACGZyZWUAAAJ8bWRhdAAAAmIGBf//XtxF6b3m2Ui3lizYINkj7u94MjY0IC0gY29yZSAxNjQgLSBILjI2NC9NUEVHLTQgQVZDIGNvZGVjIC0gQ29weWxlZnQgMjAwMy0yMDIzIC0gaHR0cDovL3d3dy52aWRlb2xhbi5vcmcveDI2NC5odG1sIC0gb3B0aW9uczogY2FiYWM9MCByZWY9MyBkZWJsb2NrPTE6MDowIGFuYWx5c2U9MHgxOjB4MTExIG1lPWhleCBzdWJtZT03IHBzeT0xIHBzeV9yZD0xLjAwOjAuMDAgbWl4ZWRfcmVmPTEgbWVfcmFuZ2U9MTYgY2hyb21hX21lPTEgdHJlbGxpcz0xIDh4OGRjdD0wIGNxbT0wIGRlYWR6b25lPTIxLDExIGZhc3RfcHNraXA9MSBjaHJvbWFfcXBfb2Zmc2V0PS0yIHRocmVhZHM9MSBsb29rYWhlYWRfdGhyZWFkcz0xIHNsaWNlZF90aHJlYWRzPTAgbnI9MCBkZWNpbWF0ZT0xIGludGVybGFjZWQ9MCBibHVyYXlfY29tcGF0PTAgY29uc3RyYWluZWRfaW50cmE9MCBiZnJhbWVzPTAgd2VpZ2h0cD0wIGtleWludD0yNTAga2V5aW50X21pbj01IHNjZW5lY3V0PTQwIGludHJhX3JlZnJlc2g9MCByY19sb29rYWhlYWQ9NDAgcmM9Y3JmIG1idHJlZT0xIGNyZj0yMy4wIHFjb21wPTAuNjAgcXBtaW49MCBxcG1heD02OSBxcHN0ZXA9NCBpcF9yYXRpbz0xLjQwIGFxPTE6MS4wMACAAAAACmWIhA/yYoAAw+4="
 
 type MediaMode string
 
@@ -80,14 +87,18 @@ func NewArchiveFixture() (*ArchiveFixture, error) {
 		"missing": DatasetMarker + "-SDKFILE-MISSING-IMAGE",
 		"corrupt": DatasetMarker + "-SDKFILE-CORRUPT-IMAGE",
 	}
+	videoBytes, err := base64.StdEncoding.DecodeString(fixtureMP4Base64)
+	if err != nil {
+		return nil, fmt.Errorf("decode deterministic acceptance MP4: %w", err)
+	}
 	media := map[string][]byte{
-		mediaFileIDs["image"]:   append([]byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'}, []byte(DatasetMarker+"-IMAGE")...),
-		mediaFileIDs["voice"]:   append([]byte("RIFF"), []byte(DatasetMarker+"-WAVEfmt ")...),
-		mediaFileIDs["video"]:   append([]byte{0, 0, 0, 24}, []byte("ftypmp42"+DatasetMarker+"-VIDEO")...),
-		mediaFileIDs["file"]:    []byte("%PDF-1.4\n% " + DatasetMarker + " FILE\n%%EOF\n"),
-		mediaFileIDs["mixed"]:   append([]byte{0x89, 'P', 'N', 'G'}, []byte(DatasetMarker+"-MIXED")...),
-		mediaFileIDs["missing"]: append([]byte{0x89, 'P', 'N', 'G'}, []byte(DatasetMarker+"-MISSING")...),
-		mediaFileIDs["corrupt"]: append([]byte{0x89, 'P', 'N', 'G'}, []byte(DatasetMarker+"-CORRUPT")...),
+		mediaFileIDs["image"]:   fixturePNG(color.NRGBA{R: 29, G: 78, B: 216, A: 255}),
+		mediaFileIDs["voice"]:   fixtureWAV(),
+		mediaFileIDs["video"]:   videoBytes,
+		mediaFileIDs["file"]:    fixturePDF(),
+		mediaFileIDs["mixed"]:   fixturePNG(color.NRGBA{R: 20, G: 184, B: 166, A: 255}),
+		mediaFileIDs["missing"]: fixturePNG(color.NRGBA{R: 245, G: 158, B: 11, A: 255}),
+		mediaFileIDs["corrupt"]: fixturePNG(color.NRGBA{R: 239, G: 68, B: 68, A: 255}),
 	}
 	plainMessages := []map[string]any{
 		baseMessage(1, "text", map[string]any{"content": DatasetMarker + " local contract text"}),
@@ -97,19 +108,17 @@ func NewArchiveFixture() (*ArchiveFixture, error) {
 		baseMessage(5, "file", map[string]any{"sdkfileid": mediaFileIDs["file"], "filename": DatasetMarker + "-fixture.pdf", "fileext": "pdf", "filesize": len(media[mediaFileIDs["file"]]), "md5sum": mediaMD5(media[mediaFileIDs["file"]])}),
 		baseMessage(6, "link", map[string]any{"title": DatasetMarker + " local link", "description": "local contract only", "link_url": "https://example.invalid/mochat-local-acceptance", "image_url": "https://example.invalid/local-image.png"}),
 		baseMessage(7, "location", map[string]any{"longitude": 121.4737, "latitude": 31.2304, "address": DatasetMarker + " local location", "title": "local contract", "zoom": 16}),
-		baseMessage(8, "mixed", map[string]any{"item": []map[string]any{
+		baseMessage(8, "image", map[string]any{"sdkfileid": mediaFileIDs["missing"], "md5sum": mediaMD5(media[mediaFileIDs["missing"]]), "filesize": len(media[mediaFileIDs["missing"]])}),
+		baseMessage(9, "mixed", map[string]any{"item": []map[string]any{
 			{"type": "text", "content": DatasetMarker + " mixed text"},
 			{"type": "image", "image": map[string]any{
 				"sdkfileid": mediaFileIDs["mixed"], "md5sum": mediaMD5(media[mediaFileIDs["mixed"]]), "filesize": len(media[mediaFileIDs["mixed"]]),
 			}},
 			{"type": "image", "image": map[string]any{
-				"sdkfileid": mediaFileIDs["missing"], "md5sum": mediaMD5(media[mediaFileIDs["missing"]]), "filesize": len(media[mediaFileIDs["missing"]]),
-			}},
-			{"type": "image", "image": map[string]any{
 				"sdkfileid": mediaFileIDs["corrupt"], "md5sum": mediaMD5(media[mediaFileIDs["corrupt"]]), "filesize": len(media[mediaFileIDs["corrupt"]]),
 			}},
 		}}),
-		baseMessage(9, "future_archive_type", map[string]any{"opaque": DatasetMarker + " preserve unknown payload", "version": 1}),
+		baseMessage(10, "future_archive_type", map[string]any{"opaque": DatasetMarker + " preserve unknown payload", "version": 1}),
 	}
 	messages := make([]fixtureMessage, 0, len(plainMessages))
 	for index, message := range plainMessages {
@@ -130,6 +139,73 @@ func NewArchiveFixture() (*ArchiveFixture, error) {
 			mediaFileIDs["corrupt"]: MediaCorrupt,
 		},
 	}, nil
+}
+
+func fixturePNG(fill color.NRGBA) []byte {
+	canvas := image.NewNRGBA(image.Rect(0, 0, 2, 2))
+	for y := 0; y < 2; y++ {
+		for x := 0; x < 2; x++ {
+			canvas.SetNRGBA(x, y, fill)
+		}
+	}
+	var encoded bytes.Buffer
+	if err := png.Encode(&encoded, canvas); err != nil {
+		panic(err)
+	}
+	return append(encoded.Bytes(), []byte(DatasetMarker)...)
+}
+
+func fixtureWAV() []byte {
+	const sampleRate = 8000
+	pcm := make([]byte, 160)
+	for index := range pcm {
+		if (index/10)%2 == 0 {
+			pcm[index] = 64
+		} else {
+			pcm[index] = 192
+		}
+	}
+	result := make([]byte, 44+len(pcm))
+	copy(result[0:4], "RIFF")
+	binary.LittleEndian.PutUint32(result[4:8], uint32(len(result)-8))
+	copy(result[8:12], "WAVE")
+	copy(result[12:16], "fmt ")
+	binary.LittleEndian.PutUint32(result[16:20], 16)
+	binary.LittleEndian.PutUint16(result[20:22], 1)
+	binary.LittleEndian.PutUint16(result[22:24], 1)
+	binary.LittleEndian.PutUint32(result[24:28], sampleRate)
+	binary.LittleEndian.PutUint32(result[28:32], sampleRate)
+	binary.LittleEndian.PutUint16(result[32:34], 1)
+	binary.LittleEndian.PutUint16(result[34:36], 8)
+	copy(result[36:40], "data")
+	binary.LittleEndian.PutUint32(result[40:44], uint32(len(pcm)))
+	copy(result[44:], pcm)
+	return result
+}
+
+func fixturePDF() []byte {
+	content := "BT /F1 12 Tf 36 72 Td (" + DatasetMarker + " local acceptance PDF) Tj ET\n"
+	objects := []string{
+		"<< /Type /Catalog /Pages 2 0 R >>",
+		"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+		"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 120] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
+		"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+		fmt.Sprintf("<< /Length %d >>\nstream\n%sendstream", len(content), content),
+	}
+	var document bytes.Buffer
+	document.WriteString("%PDF-1.4\n")
+	offsets := make([]int, len(objects)+1)
+	for index, object := range objects {
+		offsets[index+1] = document.Len()
+		fmt.Fprintf(&document, "%d 0 obj\n%s\nendobj\n", index+1, object)
+	}
+	xref := document.Len()
+	fmt.Fprintf(&document, "xref\n0 %d\n0000000000 65535 f \n", len(objects)+1)
+	for index := 1; index < len(offsets); index++ {
+		fmt.Fprintf(&document, "%010d 00000 n \n", offsets[index])
+	}
+	fmt.Fprintf(&document, "trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n", len(objects)+1, xref)
+	return document.Bytes()
 }
 
 func mediaMD5(data []byte) string {

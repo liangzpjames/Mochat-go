@@ -154,11 +154,11 @@ func TestVerifyDashboardMediaHTTPUsesRealLoginAndProjectsGlobalArchiveMedia(t *t
 			}
 			globalListRead = true
 			_ = json.NewEncoder(w).Encode(map[string]any{"code": 200, "data": map[string]any{
-				"list":  []map[string]any{{"id": "msg:" + datasetID + "-MSG-09", "archiveSource": "external", "archiveSourceId": "wecom:ww-local-acceptance"}},
+				"list":  []map[string]any{{"id": "msg:" + datasetID + "-MSG-10", "archiveSource": "external", "archiveSourceId": "wecom:ww-local-acceptance"}},
 				"total": 1, "page": 1, "pageSize": 100,
 			}})
 		case "/dashboard/workMessage/detail":
-			if request.Header.Get("Authorization") != "Bearer opaque-dashboard-token" || request.URL.Query().Get("id") != "msg:"+datasetID+"-MSG-09" {
+			if request.Header.Get("Authorization") != "Bearer opaque-dashboard-token" || request.URL.Query().Get("id") != "msg:"+datasetID+"-MSG-10" {
 				t.Fatalf("global detail request=%s auth=%q", request.URL.String(), request.Header.Get("Authorization"))
 			}
 			globalDetailRead = true
@@ -169,13 +169,20 @@ func TestVerifyDashboardMediaHTTPUsesRealLoginAndProjectsGlobalArchiveMedia(t *t
 					"content": map[string]any{"media": map[string]any{"id": fmt.Sprintf("media-%d", index), "type": mediaType, "status": "ready", "url": fmt.Sprintf("/dashboard/archive/media/media-%d/content", index)}},
 				})
 			}
-			for _, fixture := range []struct{ sequence, messageType int }{{1, 1}, {6, 6}, {7, 7}, {8, 9}, {9, 100}} {
+			for _, fixture := range []struct {
+				sequence, messageType int
+				mediaStatus           string
+			}{{1, 1, ""}, {6, 6, ""}, {7, 7, ""}, {8, 2, "missing"}, {9, 9, "corrupt"}, {10, 100, ""}} {
+				content := map[string]any{"value": datasetID}
+				if fixture.mediaStatus != "" {
+					content["media"] = map[string]any{"id": fixture.mediaStatus + "-id", "type": "image", "status": fixture.mediaStatus}
+				}
 				messages = append(messages, map[string]any{
 					"id": fmt.Sprintf("msg:%s-MSG-%02d", datasetID, fixture.sequence), "archiveSource": "external", "type": fixture.messageType,
-					"content": map[string]any{"value": datasetID},
+					"content": content,
 				})
 			}
-			_ = json.NewEncoder(w).Encode(map[string]any{"code": 200, "data": map[string]any{"messages": messages, "messageTotal": 9}})
+			_ = json.NewEncoder(w).Encode(map[string]any{"code": 200, "data": map[string]any{"messages": messages, "messageTotal": 10}})
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
@@ -185,7 +192,7 @@ func TestVerifyDashboardMediaHTTPUsesRealLoginAndProjectsGlobalArchiveMedia(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
-	if evidence.MessageCount != 9 || strings.Join(evidence.MediaTypes, ",") != "image,voice,video,file" {
+	if evidence.MessageCount != 10 || strings.Join(evidence.MediaTypes, ",") != "image,voice,video,file" || strings.Join(evidence.TerminalMediaStatuses, ",") != "missing,corrupt" {
 		t.Fatalf("evidence=%+v", evidence)
 	}
 	if !reflect.DeepEqual(evidence.MessageTypes, []int{1, 2, 3, 4, 5, 9}) {

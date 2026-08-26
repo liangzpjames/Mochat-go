@@ -5,9 +5,12 @@ import (
 	"context"
 	"crypto/md5"
 	"database/sql"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"image"
+	_ "image/png"
 	"strings"
 	"testing"
 
@@ -15,6 +18,63 @@ import (
 )
 
 var _ wecomarchivedemo.MediaErrorCoder = FixtureError{}
+
+func TestFixtureMediaBytesAreDecodableProductionFormats(t *testing.T) {
+	fixture, err := NewArchiveFixture()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer fixture.Close()
+	ids := fixture.MediaFileIDs()
+	pngBytes := fixture.ExpectedMedia(ids["image"])
+	if config, format, err := image.DecodeConfig(bytes.NewReader(pngBytes)); err != nil || format != "png" || config.Width < 1 || config.Height < 1 {
+		t.Fatalf("PNG config=%+v format=%q err=%v", config, format, err)
+	}
+	wav := fixture.ExpectedMedia(ids["voice"])
+	if len(wav) < 45 || string(wav[:4]) != "RIFF" || string(wav[8:12]) != "WAVE" || string(wav[12:16]) != "fmt " || string(wav[36:40]) != "data" || int(binary.LittleEndian.Uint32(wav[40:44])) != len(wav)-44 {
+		t.Fatalf("WAV is not a complete PCM container: %d bytes", len(wav))
+	}
+	mp4 := fixture.ExpectedMedia(ids["video"])
+	if len(mp4) < 128 || !bytes.Contains(mp4[:64], []byte("ftyp")) || !bytes.Contains(mp4, []byte("moov")) || !bytes.Contains(mp4, []byte("mdat")) || !bytes.Contains(mp4, []byte(DatasetMarker)) {
+		t.Fatalf("MP4 does not contain playable container boxes and dataset marker: %d bytes", len(mp4))
+	}
+	pdf := fixture.ExpectedMedia(ids["file"])
+	if !bytes.HasPrefix(pdf, []byte("%PDF-1.")) || !bytes.Contains(pdf, []byte("xref")) || !bytes.Contains(pdf, []byte("startxref")) || !bytes.Contains(pdf, []byte(DatasetMarker)) || !bytes.HasSuffix(pdf, []byte("%%EOF\n")) {
+		t.Fatalf("PDF is not a complete marked document: %q", pdf)
+	}
+}
+
+func TestFixtureMissingMediaIsAnIndependentDashboardMessage(t *testing.T) {
+	fixture, err := NewArchiveFixture()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer fixture.Close()
+	page, err := fixture.GetChatData(7, 1, 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var envelope struct {
+		ChatData []struct {
+			Encrypted string `json:"encrypt_chat_msg"`
+		} `json:"chatdata"`
+	}
+	if err := json.Unmarshal(page, &envelope); err != nil || len(envelope.ChatData) != 1 {
+		t.Fatalf("chat data=%s err=%v", page, err)
+	}
+	plain, err := fixture.DecryptData(fixtureRandomKey, envelope.ChatData[0].Encrypted)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var message map[string]any
+	if err := json.Unmarshal(plain, &message); err != nil {
+		t.Fatal(err)
+	}
+	imagePayload, _ := message["image"].(map[string]any)
+	if message["msgtype"] != "image" || imagePayload["sdkfileid"] != fixture.MediaFileIDs()["missing"] {
+		t.Fatalf("sequence 8 is not independent missing image: %s", plain)
+	}
+}
 
 type recordingExecutor struct {
 	statements []string
@@ -45,7 +105,7 @@ func TestFixtureArchiveMessagesUseProductionSDKShapesAndPreserveUnknown(t *testi
 	if err := json.Unmarshal(envelope, &rawEnvelope); err != nil {
 		t.Fatal(err)
 	}
-	if rawEnvelope.ErrCode != 0 || len(rawEnvelope.ChatData) != 9 {
+	if rawEnvelope.ErrCode != 0 || len(rawEnvelope.ChatData) != 10 {
 		t.Fatalf("envelope=%s", envelope)
 	}
 	for _, item := range rawEnvelope.ChatData {
@@ -66,8 +126,8 @@ func TestFixtureArchiveMessagesUseProductionSDKShapesAndPreserveUnknown(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantTypes := []string{"text", "image", "voice", "video", "file", "link", "location", "mixed", "future_archive_type"}
-	if page.NextSeq != 9 || len(page.Messages) != len(wantTypes) {
+	wantTypes := []string{"text", "image", "voice", "video", "file", "link", "location", "image", "mixed", "future_archive_type"}
+	if page.NextSeq != 10 || len(page.Messages) != len(wantTypes) {
 		t.Fatalf("page=%+v", page)
 	}
 	for index, raw := range page.Messages {
@@ -88,7 +148,11 @@ func TestFixtureArchiveMessagesUseProductionSDKShapesAndPreserveUnknown(t *testi
 		if _, ok := message[msgType]; !ok {
 			t.Fatalf("message type payload %q was not preserved: %s", msgType, raw)
 		}
-		if sdkFileID := fixture.MediaFileIDs()[msgType]; sdkFileID != "" && msgType != "mixed" {
+		sdkFileID := fixture.MediaFileIDs()[msgType]
+		if index == 7 {
+			sdkFileID = fixture.MediaFileIDs()["missing"]
+		}
+		if sdkFileID != "" && msgType != "mixed" {
 			var payload struct {
 				SDKFileID string `json:"sdkfileid"`
 				MD5Sum    string `json:"md5sum"`
@@ -116,14 +180,12 @@ func TestFixtureArchiveMessagesUseProductionSDKShapesAndPreserveUnknown(t *testi
 			}
 			mixedID := fixture.MediaFileIDs()["mixed"]
 			sum := md5.Sum(fixture.ExpectedMedia(mixedID))
-			if len(payload.Item) != 4 || payload.Item[1].Type != "image" || payload.Item[1].Image.SDKFileID != mixedID || payload.Item[1].Image.MD5Sum != hex.EncodeToString(sum[:]) {
+			if len(payload.Item) != 3 || payload.Item[1].Type != "image" || payload.Item[1].Image.SDKFileID != mixedID || payload.Item[1].Image.MD5Sum != hex.EncodeToString(sum[:]) {
 				t.Fatalf("mixed payload does not match SDK nested image shape: %+v", payload)
 			}
-			for index, kind := range []string{"missing", "corrupt"} {
-				mediaID := fixture.MediaFileIDs()[kind]
-				if mediaID == "" || payload.Item[index+2].Type != "image" || payload.Item[index+2].Image.SDKFileID != mediaID {
-					t.Fatalf("mixed %s media contract is missing: %+v", kind, payload)
-				}
+			mediaID := fixture.MediaFileIDs()["corrupt"]
+			if mediaID == "" || payload.Item[2].Type != "image" || payload.Item[2].Image.SDKFileID != mediaID {
+				t.Fatalf("mixed corrupt media contract is missing: %+v", payload)
 			}
 		}
 	}

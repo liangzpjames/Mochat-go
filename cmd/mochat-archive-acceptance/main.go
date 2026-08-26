@@ -377,7 +377,7 @@ func verify(ctx context.Context, output io.Writer, values options) error {
 	if err != nil {
 		return err
 	}
-	if counts != (acceptanceCounts{Runs: 1, Messages: 9, Media: 7, Ready: 5, Missing: 1, Corrupt: 1}) {
+	if counts != (acceptanceCounts{Runs: 1, Messages: 10, Media: 7, Ready: 5, Missing: 1, Corrupt: 1}) {
 		return fmt.Errorf("acceptance counts do not match contract: %+v", counts)
 	}
 	var cursor int64
@@ -385,10 +385,10 @@ func verify(ctx context.Context, output io.Writer, values options) error {
 	if err := db.QueryRowContext(ctx, `SELECT cursor_sequence,status FROM mochat_go_archive_sync_runs WHERE tenant_id=? AND corp_id=? AND source_id=? AND idempotency_key=?`, acceptanceTenant, acceptanceCorp, acceptanceSource, acceptanceRunKey).Scan(&cursor, &status); err != nil {
 		return err
 	}
-	if cursor != 9 || status != "succeeded" {
-		return fmt.Errorf("archive run did not finish at cursor 9")
+	if cursor != 10 || status != "succeeded" {
+		return fmt.Errorf("archive run did not finish at cursor 10")
 	}
-	expectedTypes := []int{1, 2, 3, 4, 5, 6, 7, 9, 100}
+	expectedTypes := []int{1, 2, 3, 4, 5, 6, 7, 2, 9, 100}
 	for index, expectedType := range expectedTypes {
 		seq := index + 1
 		table := `mc_work_message_` + strconv.Itoa((seq-1)%10+1)
@@ -493,13 +493,14 @@ func verify(ctx context.Context, output io.Writer, values options) error {
 			return errors.New("SDK media locator leaked into message projection")
 		}
 	}
-	return json.NewEncoder(output).Encode(map[string]any{"dataset": datasetID, "action": "verify", "status": "PASS", "cursor": cursor, "counts": counts, "messageTypes": expectedTypes, "syncAudits": syncAuditCount, "authorizedMediaReads": 1, "terminalMediaReads": map[string]int{"missing": http.StatusNotFound, "corrupt": http.StatusNotFound}, "dashboardMessages": dashboardEvidence.MessageCount, "dashboardMediaTypes": dashboardEvidence.MediaTypes, "dashboardMessageTypes": dashboardEvidence.MessageTypes, "production": false})
+	return json.NewEncoder(output).Encode(map[string]any{"dataset": datasetID, "action": "verify", "status": "PASS", "cursor": cursor, "counts": counts, "messageTypes": expectedTypes, "syncAudits": syncAuditCount, "authorizedMediaReads": 1, "terminalMediaReads": map[string]int{"missing": http.StatusNotFound, "corrupt": http.StatusNotFound}, "dashboardMessages": dashboardEvidence.MessageCount, "dashboardMediaTypes": dashboardEvidence.MediaTypes, "dashboardMessageTypes": dashboardEvidence.MessageTypes, "dashboardTerminalMediaStatuses": dashboardEvidence.TerminalMediaStatuses, "production": false})
 }
 
 type dashboardProjectionEvidence struct {
-	MessageCount int
-	MediaTypes   []string
-	MessageTypes []int
+	MessageCount          int
+	MediaTypes            []string
+	MessageTypes          []int
+	TerminalMediaStatuses []string
 }
 
 func verifyDashboardMediaHTTP(ctx context.Context, client *http.Client, baseURL, loginIdentifier, password, mediaID, expectedSHA256 string, terminalMediaIDs map[string]string) (dashboardProjectionEvidence, error) {
@@ -649,6 +650,7 @@ func verifyDashboardGlobalMessagesHTTP(ctx context.Context, client *http.Client,
 	}
 	foundTypes := map[string]bool{}
 	foundMessageTypes := map[int]bool{}
+	foundTerminalStatuses := map[string]bool{}
 	for _, message := range detailEnvelope.Data.Messages {
 		if !strings.HasPrefix(message.ID, "msg:"+datasetID+"-MSG-") || message.ArchiveSource != "external" {
 			continue
@@ -660,6 +662,9 @@ func verifyDashboardGlobalMessagesHTTP(ctx context.Context, client *http.Client,
 		mediaURL, _ := media["url"].(string)
 		if status == "ready" && strings.HasPrefix(mediaURL, "/dashboard/archive/media/") && strings.HasSuffix(mediaURL, "/content") {
 			foundTypes[mediaType] = true
+		}
+		if status == "missing" || status == "corrupt" {
+			foundTerminalStatuses[status] = true
 		}
 	}
 	requiredTypes := []string{"image", "voice", "video", "file"}
@@ -674,10 +679,16 @@ func verifyDashboardGlobalMessagesHTTP(ctx context.Context, client *http.Client,
 			return dashboardProjectionEvidence{}, fmt.Errorf("dashboard global message detail missing message type %d", messageType)
 		}
 	}
-	if detailEnvelope.Data.MessageTotal < 9 || len(detailEnvelope.Data.Messages) < 9 {
+	requiredTerminalStatuses := []string{"missing", "corrupt"}
+	for _, terminalStatus := range requiredTerminalStatuses {
+		if !foundTerminalStatuses[terminalStatus] {
+			return dashboardProjectionEvidence{}, fmt.Errorf("dashboard global message detail missing %s media projection", terminalStatus)
+		}
+	}
+	if detailEnvelope.Data.MessageTotal < 10 || len(detailEnvelope.Data.Messages) < 10 {
 		return dashboardProjectionEvidence{}, fmt.Errorf("dashboard global message detail count=%d messages=%d", detailEnvelope.Data.MessageTotal, len(detailEnvelope.Data.Messages))
 	}
-	return dashboardProjectionEvidence{MessageCount: detailEnvelope.Data.MessageTotal, MediaTypes: requiredTypes, MessageTypes: requiredMessageTypes}, nil
+	return dashboardProjectionEvidence{MessageCount: detailEnvelope.Data.MessageTotal, MediaTypes: requiredTypes, MessageTypes: requiredMessageTypes, TerminalMediaStatuses: requiredTerminalStatuses}, nil
 }
 
 func cleanupStatements() []string {
