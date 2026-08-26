@@ -1,0 +1,307 @@
+package dashboard
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"jiyi/mochat-go/internal/dashboardprincipal"
+)
+
+const archiveMediaTestID = "8ff7bf2d-5604-43bc-a600-3ec91d575085"
+
+type fakeArchiveMediaContentStore struct {
+	object ArchiveMediaContentObject
+	found  bool
+	filter ArchiveMediaContentFilter
+	calls  int
+}
+
+func (store *fakeArchiveMediaContentStore) ArchiveMediaContent(_ context.Context, filter ArchiveMediaContentFilter) (ArchiveMediaContentObject, bool, error) {
+	store.calls++
+	store.filter = filter
+	return store.object, store.found, nil
+}
+
+func TestArchiveMediaContentServesFullHeadAndSingleRanges(t *testing.T) {
+	root := t.TempDir()
+	path := writeArchiveMediaTestFile(t, root, []byte("0123456789"))
+	store := &fakeArchiveMediaContentStore{found: true, object: ArchiveMediaContentObject{
+		ID: archiveMediaTestID, MediaType: "voice", Name: "voice.wav", MIMEType: "audio/wav",
+		Size: 10, Status: "ready", StoragePath: path, SHA256: archiveMediaTestSHA256([]byte("0123456789")),
+	}}
+	handler := NewArchiveMediaContentHandler(store, root)
+	hashCalls := 0
+	handler.hashFile = func(reader io.Reader) ([sha256.Size]byte, error) {
+		hashCalls++
+		return archiveMediaSHA256(reader)
+	}
+	tests := []struct {
+		name, method, header, body, length, contentRange string
+		status                                           int
+	}{
+		{"full", "GET", "", "0123456789", "10", "", 200},
+		{"head", "HEAD", "", "", "10", "", 200},
+		{"range", "GET", "bytes=2-5", "2345", "4", "bytes 2-5/10", 206},
+		{"head range", "HEAD", "bytes=2-5", "", "4", "bytes 2-5/10", 206},
+		{"open", "GET", "bytes=7-", "789", "3", "bytes 7-9/10", 206},
+		{"suffix", "GET", "bytes=-3", "789", "3", "bytes 7-9/10", 206},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, archiveMediaRequest(test.method, test.header))
+			if response.Code != test.status || response.Body.String() != test.body {
+				t.Fatalf("status/body=%d/%q want=%d/%q", response.Code, response.Body.String(), test.status, test.body)
+			}
+			if response.Header().Get("Content-Length") != test.length || response.Header().Get("Content-Range") != test.contentRange {
+				t.Fatalf("length/range=%q/%q", response.Header().Get("Content-Length"), response.Header().Get("Content-Range"))
+			}
+			if response.Header().Get("Content-Type") != "audio/wav" || response.Header().Get("X-Content-Type-Options") != "nosniff" || response.Header().Get("Cache-Control") != "private, no-store" {
+				t.Fatalf("headers=%#v", response.Header())
+			}
+			if !strings.HasPrefix(response.Header().Get("Content-Disposition"), "inline;") {
+				t.Fatalf("inline disposition=%q", response.Header().Get("Content-Disposition"))
+			}
+		})
+	}
+	downloadRequest := archiveMediaRequest(http.MethodGet, "")
+	downloadRequest.URL.RawQuery = "download=1"
+	downloadResponse := httptest.NewRecorder()
+	handler.ServeHTTP(downloadResponse, downloadRequest)
+	if downloadResponse.Code != http.StatusOK || !strings.HasPrefix(downloadResponse.Header().Get("Content-Disposition"), "attachment;") {
+		t.Fatalf("download status/disposition=%d/%q", downloadResponse.Code, downloadResponse.Header().Get("Content-Disposition"))
+	}
+	if store.filter.TenantID != 11 || store.filter.CorpID != 27 || !store.filter.RestrictEmployeeIDs || len(store.filter.AllowedEmployeeIDs) != 2 {
+		t.Fatalf("scope filter=%+v", store.filter)
+	}
+	if hashCalls != 7 {
+		t.Fatalf("full/head/range integrity checks=%d want=7", hashCalls)
+	}
+}
+
+func TestArchiveMediaContentRejectsUnsupportedMethod(t *testing.T) {
+	response := httptest.NewRecorder()
+	NewArchiveMediaContentHandler(&fakeArchiveMediaContentStore{}, t.TempDir()).ServeHTTP(response, archiveMediaRequest(http.MethodPost, ""))
+	if response.Code != http.StatusMethodNotAllowed || response.Header().Get("Allow") != "GET, HEAD" {
+		t.Fatalf("status/allow=%d/%q", response.Code, response.Header().Get("Allow"))
+	}
+}
+
+func TestArchiveMediaContentFailsClosedBeforeLookup(t *testing.T) {
+	store := &fakeArchiveMediaContentStore{}
+	handler := NewArchiveMediaContentHandler(store, t.TempDir())
+	principal := dashboardprincipal.DashboardPrincipal{UserID: 5, TenantID: 11, CorpID: 27, CorpStatus: dashboardprincipal.CorpBindingStatusActive, AuthVersion: 1}
+	access := DashboardAccessContext{UserID: 5, TenantID: 11, CorpID: 27, Scope: DataScopeDepartment, ScopeRequired: true, AllowedEmployeeIDs: []int{31}}
+	tests := []struct {
+		name string
+		p    *dashboardprincipal.DashboardPrincipal
+		a    *DashboardAccessContext
+		path string
+	}{
+		{name: "missing principal", a: &access},
+		{name: "missing access", p: &principal},
+		{name: "tenant mismatch", p: &principal, a: changedArchiveMediaAccess(access, func(value *DashboardAccessContext) { value.TenantID++ })},
+		{name: "corp mismatch", p: &principal, a: changedArchiveMediaAccess(access, func(value *DashboardAccessContext) { value.CorpID++ })},
+		{name: "user mismatch", p: &principal, a: changedArchiveMediaAccess(access, func(value *DashboardAccessContext) { value.UserID++ })},
+		{name: "unscoped resource", p: &principal, a: changedArchiveMediaAccess(access, func(value *DashboardAccessContext) { value.ScopeRequired = false })},
+		{name: "empty employee scope", p: &principal, a: changedArchiveMediaAccess(access, func(value *DashboardAccessContext) { value.AllowedEmployeeIDs = nil })},
+		{name: "invalid id", p: &principal, a: &access, path: "/dashboard/archive/media/not-a-uuid/content"},
+		{name: "path traversal", p: &principal, a: &access, path: "/dashboard/archive/media/../content"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			path := test.path
+			if path == "" {
+				path = "/dashboard/archive/media/" + archiveMediaTestID + "/content"
+			}
+			request := httptest.NewRequest(http.MethodGet, path, nil)
+			ctx := request.Context()
+			if test.p != nil {
+				ctx = dashboardprincipal.WithPrincipal(ctx, *test.p)
+			}
+			if test.a != nil {
+				ctx = WithDashboardAccessContext(ctx, *test.a)
+			}
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, request.WithContext(ctx))
+			if response.Code != http.StatusNotFound {
+				t.Fatalf("status=%d want=404", response.Code)
+			}
+		})
+	}
+	if store.calls != 0 {
+		t.Fatalf("unsafe request reached store %d times", store.calls)
+	}
+}
+
+func TestArchiveMediaContentHidesUnavailableAndInvalidRanges(t *testing.T) {
+	root := t.TempDir()
+	path := writeArchiveMediaTestFile(t, root, []byte("payload"))
+	for _, test := range []struct {
+		name, status, storagePath, rangeHeader string
+		found, directory                       bool
+		want                                   int
+	}{
+		{name: "unknown", want: 404},
+		{name: "pending", found: true, status: "pending", storagePath: path, want: 404},
+		{name: "fetching", found: true, status: "fetching", storagePath: path, want: 404},
+		{name: "failed", found: true, status: "failed", storagePath: path, want: 404},
+		{name: "missing", found: true, status: "missing", storagePath: path, want: 404},
+		{name: "corrupt", found: true, status: "corrupt", storagePath: path, want: 404},
+		{name: "tampered path", found: true, status: "ready", storagePath: filepath.Join(root, "elsewhere"), want: 404},
+		{name: "directory", found: true, status: "ready", storagePath: path, directory: true, want: 404},
+		{name: "multiple ranges", found: true, status: "ready", storagePath: path, rangeHeader: "bytes=0-1,3-4", want: 416},
+		{name: "unsatisfied", found: true, status: "ready", storagePath: path, rangeHeader: "bytes=99-", want: 416},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if test.directory {
+				if err := os.Remove(path); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Mkdir(path, 0o700); err != nil {
+					t.Fatal(err)
+				}
+				defer func() { _ = os.Remove(path); _ = os.WriteFile(path, []byte("payload"), 0o600) }()
+			}
+			store := &fakeArchiveMediaContentStore{found: test.found, object: ArchiveMediaContentObject{ID: archiveMediaTestID, MediaType: "file", Size: 7, Status: test.status, StoragePath: test.storagePath, SHA256: archiveMediaTestSHA256([]byte("payload"))}}
+			response := httptest.NewRecorder()
+			NewArchiveMediaContentHandler(store, root).ServeHTTP(response, archiveMediaRequest(http.MethodGet, test.rangeHeader))
+			if response.Code != test.want {
+				t.Fatalf("status=%d want=%d", response.Code, test.want)
+			}
+		})
+	}
+}
+
+func TestArchiveMediaContentSanitizesMetadataAndRejectsChangedFiles(t *testing.T) {
+	root := t.TempDir()
+	path := writeArchiveMediaTestFile(t, root, []byte("payload"))
+	originalInfo, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := &fakeArchiveMediaContentStore{found: true, object: ArchiveMediaContentObject{
+		ID: archiveMediaTestID, MediaType: "image", Name: "..\\unsafe\"\r\nX-Evil: yes.svg",
+		MIMEType: "image/svg+xml", Size: 7, Status: "ready", StoragePath: path, SHA256: archiveMediaTestSHA256([]byte("payload")),
+	}}
+	response := httptest.NewRecorder()
+	NewArchiveMediaContentHandler(store, root).ServeHTTP(response, archiveMediaRequest(http.MethodGet, ""))
+	disposition := response.Header().Get("Content-Disposition")
+	if response.Code != http.StatusOK || response.Header().Get("Content-Type") != "application/octet-stream" || !strings.HasPrefix(disposition, "attachment;") || strings.ContainsAny(disposition, "\r\n") || strings.Contains(disposition, "unsafe\"") {
+		t.Fatalf("status/type/disposition=%d/%q/%q", response.Code, response.Header().Get("Content-Type"), disposition)
+	}
+	if err := os.WriteFile(path, []byte("PAYLOAD"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(path, originalInfo.ModTime(), originalInfo.ModTime()); err != nil {
+		t.Fatal(err)
+	}
+	response = httptest.NewRecorder()
+	NewArchiveMediaContentHandler(store, root).ServeHTTP(response, archiveMediaRequest(http.MethodGet, ""))
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("same-size tamper status=%d want=404", response.Code)
+	}
+	if err := os.WriteFile(path, []byte("payload"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store.object.Size = 8
+	response = httptest.NewRecorder()
+	NewArchiveMediaContentHandler(store, root).ServeHTTP(response, archiveMediaRequest(http.MethodGet, ""))
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("changed file status=%d want=404", response.Code)
+	}
+}
+
+func TestArchiveMediaContentRejectsSymlink(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "archive-media", archiveMediaTestID)
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(root, "outside")
+	if err := os.WriteFile(target, []byte("payload"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, path); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	store := &fakeArchiveMediaContentStore{found: true, object: ArchiveMediaContentObject{ID: archiveMediaTestID, MediaType: "file", Size: 7, Status: "ready", StoragePath: path, SHA256: archiveMediaTestSHA256([]byte("payload"))}}
+	response := httptest.NewRecorder()
+	NewArchiveMediaContentHandler(store, root).ServeHTTP(response, archiveMediaRequest(http.MethodGet, ""))
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("symlink status=%d want=404", response.Code)
+	}
+}
+
+func TestArchiveMediaContentRejectsSymlinkedArchiveDirectory(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	path := filepath.Join(outside, archiveMediaTestID)
+	if err := os.WriteFile(path, []byte("payload"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	archiveRoot := filepath.Join(root, "archive-media")
+	if err := os.Symlink(outside, archiveRoot); err != nil {
+		t.Skipf("directory symlink unavailable: %v", err)
+	}
+	store := &fakeArchiveMediaContentStore{found: true, object: ArchiveMediaContentObject{ID: archiveMediaTestID, MediaType: "file", Size: 7, Status: "ready", StoragePath: filepath.Join(archiveRoot, archiveMediaTestID), SHA256: archiveMediaTestSHA256([]byte("payload"))}}
+	response := httptest.NewRecorder()
+	NewArchiveMediaContentHandler(store, root).ServeHTTP(response, archiveMediaRequest(http.MethodGet, ""))
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("symlinked archive directory status=%d want=404", response.Code)
+	}
+}
+
+func TestArchiveMediaPermissionResourceMatchesGETAndHEAD(t *testing.T) {
+	for _, method := range []string{http.MethodGet, http.MethodHead} {
+		resources := []DashboardPermissionResource{{
+			PermissionCode: "dashboard.chat.v2_all", Method: method,
+			PathPattern: "/dashboard/archive/media/{id}/content", ScopeRequired: true,
+		}}
+		matches := matchingDashboardResources(resources, method, "/dashboard/archive/media/"+archiveMediaTestID+"/content")
+		if len(matches) != 1 || !matches[0].ScopeRequired {
+			t.Fatalf("%s matches=%+v", method, matches)
+		}
+	}
+}
+
+func changedArchiveMediaAccess(value DashboardAccessContext, change func(*DashboardAccessContext)) *DashboardAccessContext {
+	change(&value)
+	return &value
+}
+
+func writeArchiveMediaTestFile(t *testing.T, root string, payload []byte) string {
+	t.Helper()
+	path := filepath.Join(root, "archive-media", archiveMediaTestID)
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, payload, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func archiveMediaTestSHA256(payload []byte) string {
+	sum := sha256.Sum256(payload)
+	return hex.EncodeToString(sum[:])
+}
+
+func archiveMediaRequest(method, rangeHeader string) *http.Request {
+	req := httptest.NewRequest(method, "/dashboard/archive/media/"+archiveMediaTestID+"/content", nil)
+	if rangeHeader != "" {
+		req.Header.Set("Range", rangeHeader)
+	}
+	principal := dashboardprincipal.DashboardPrincipal{UserID: 5, TenantID: 11, CorpID: 27, CorpStatus: dashboardprincipal.CorpBindingStatusActive, AuthVersion: 1}
+	ctx := dashboardprincipal.WithPrincipal(req.Context(), principal)
+	ctx = WithDashboardAccessContext(ctx, DashboardAccessContext{UserID: 5, TenantID: 11, CorpID: 27, WorkEmployeeID: 31, Scope: DataScopeDepartment, ScopeRequired: true, AllowedEmployeeIDs: []int{31, 32}})
+	return req.WithContext(ctx)
+}

@@ -1802,6 +1802,7 @@ func main() {
 			compatserver.WithWorkMessageExportCandidatesHandler(http.HandlerFunc(autoTag.WorkMessageExportCandidates)),
 			compatserver.WithWorkMessageExportTasksHandler(http.HandlerFunc(autoTag.WorkMessageExportTasks)),
 			compatserver.WithWorkMessageExportDownloadHandler(http.HandlerFunc(autoTag.WorkMessageExportDownload)),
+			compatserver.WithArchiveMediaContentHandler(dashboard.NewArchiveMediaContentHandler(mysqlStore, cfg.FileStorageRoot)),
 			compatserver.WithRiskBehaviorRulesHandler(http.HandlerFunc(riskBehavior.Rules)),
 			compatserver.WithRiskBehaviorRecordsHandler(http.HandlerFunc(riskBehavior.Records)),
 			compatserver.WithRiskBehaviorRecordDetailHandler(http.HandlerFunc(riskBehavior.RecordDetail)),

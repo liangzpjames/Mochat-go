@@ -289,6 +289,19 @@ describe('ConversationGlobalPage', () => {
     await waitFor(() => expect(screen.queryByRole('dialog', { name: '会话详情' })).toBeNull());
   });
 
+  it('renders authenticated media in the global detail drawer', async () => {
+    renderPage({
+      search: vi.fn(() => Promise.resolve({ ...page, page: 1 })),
+      detail: vi.fn(() => Promise.resolve({
+        ...detail,
+        messages: [{ ...detail.messages[0]!, type: 2, content: { media: { id: '8ff7bf2d-5604-43bc-a600-3ec91d575085', type: 'image', name: '验收图片.png', mimeType: 'image/png', size: 8, status: 'ready', url: '/dashboard/archive/media/8ff7bf2d-5604-43bc-a600-3ec91d575085/content' } } }],
+      })),
+    });
+    await screen.findByText('星河科技');
+    fireEvent.click(screen.getByRole('button', { name: '查看会话' }));
+    expect(await screen.findByRole('img', { name: '验收图片.png' })).not.toBeNull();
+  });
+
   it('shows a dedicated forbidden state', async () => {
     renderPage({
       search: vi.fn(() => Promise.reject(

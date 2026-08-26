@@ -256,6 +256,12 @@ func (h *AutoTagHandler) WorkMessageCustomerDetail(w http.ResponseWriter, r *htt
 		writeWorkMessageCustomerError(w, err)
 		return
 	}
+	if projector, supported := h.store.(WorkMessageMediaProjector); supported {
+		if err := projector.ProjectWorkMessageStaffMedia(r.Context(), principal.Principal.TenantID, corpID, &detail.WorkMessageStaffDetail); err != nil {
+			writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, "会话媒体读取失败", nil)
+			return
+		}
+	}
 	if detail.Messages == nil {
 		detail.Messages = []WorkMessageStaffMessage{}
 	}

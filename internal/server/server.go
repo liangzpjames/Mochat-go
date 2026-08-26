@@ -358,6 +358,7 @@ type Server struct {
 	workMessageExportCandidates                     http.Handler
 	workMessageExportTasks                          http.Handler
 	workMessageExportDownload                       http.Handler
+	archiveMediaContent                             http.Handler
 	riskBehaviorRules                               http.Handler
 	riskBehaviorRecords                             http.Handler
 	riskBehaviorRuleCreate                          http.Handler
@@ -2705,6 +2706,10 @@ func WithWorkMessageExportTasksHandler(handler http.Handler) Option {
 
 func WithWorkMessageExportDownloadHandler(handler http.Handler) Option {
 	return func(server *Server) { server.workMessageExportDownload = handler }
+}
+
+func WithArchiveMediaContentHandler(handler http.Handler) Option {
+	return func(server *Server) { server.archiveMediaContent = handler }
 }
 func WithRiskBehaviorRulesHandler(handler http.Handler) Option {
 	return func(server *Server) { server.riskBehaviorRules = handler }
@@ -5288,6 +5293,9 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.workMessageExportTasks.ServeHTTP(w, r)
 	case r.URL.Path == "/dashboard/workMessage/exportDownload" && r.Method == http.MethodGet && s.workMessageExportDownload != nil:
 		s.workMessageExportDownload.ServeHTTP(w, r)
+	case strings.HasPrefix(r.URL.Path, "/dashboard/archive/media/") && strings.HasSuffix(r.URL.Path, "/content") &&
+		(r.Method == http.MethodGet || r.Method == http.MethodHead) && s.archiveMediaContent != nil:
+		s.archiveMediaContent.ServeHTTP(w, r)
 	case r.URL.Path == "/dashboard/risk/rules" && r.Method == http.MethodGet && s.riskBehaviorRules != nil:
 		s.riskBehaviorRules.ServeHTTP(w, r)
 	case r.URL.Path == "/dashboard/risk/records" && r.Method == http.MethodGet && s.riskBehaviorRecords != nil:
@@ -7191,6 +7199,9 @@ func (s *Server) migratedRoutes() []string {
 	}
 	if s.workMessageExportDownload != nil {
 		routes = append(routes, "GET /dashboard/workMessage/exportDownload")
+	}
+	if s.archiveMediaContent != nil {
+		routes = append(routes, "GET|HEAD /dashboard/archive/media/{id}/content")
 	}
 	if s.workMessageIndex != nil {
 		routes = append(routes, "GET /dashboard/workMessage/index", "GET /dashboard/workMessage/detail")

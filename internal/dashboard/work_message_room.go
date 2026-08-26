@@ -297,6 +297,12 @@ func (h *AutoTagHandler) WorkMessageRoomMessages(w http.ResponseWriter, r *http.
 		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
 		return
 	}
+	if projector, supported := h.store.(WorkMessageMediaProjector); supported {
+		if err := projector.ProjectWorkMessageRoomMedia(r.Context(), principalScope.Principal.TenantID, principalScope.Principal.CorpID, &messages); err != nil {
+			writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, "会话媒体读取失败", nil)
+			return
+		}
+	}
 	normalizeWorkMessageRoomMessages(&messages)
 	writeEnvelope(w, http.StatusOK, 200, "success", messages)
 }

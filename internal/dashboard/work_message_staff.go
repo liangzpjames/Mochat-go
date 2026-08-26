@@ -138,6 +138,12 @@ type WorkMessageStaffStore interface {
 	StaffDetail(context.Context, WorkMessageStaffDetailFilter) (WorkMessageStaffDetail, error)
 }
 
+type WorkMessageMediaProjector interface {
+	ProjectWorkMessageStaffMedia(context.Context, int, int, *WorkMessageStaffDetail) error
+	ProjectWorkMessageRoomMedia(context.Context, int, int, *WorkMessageRoomMessages) error
+	ProjectWorkMessagePageMedia(context.Context, int, int, *WorkMessagePage) error
+}
+
 func EncodeWorkMessageStaffCursor(cursor WorkMessageStaffCursor) string {
 	raw, _ := json.Marshal(cursor)
 	return base64.RawURLEncoding.EncodeToString(raw)
@@ -239,6 +245,12 @@ func (h *AutoTagHandler) WorkMessageStaffDetail(w http.ResponseWriter, r *http.R
 	if err != nil {
 		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
 		return
+	}
+	if projector, supported := h.store.(WorkMessageMediaProjector); supported {
+		if err := projector.ProjectWorkMessageStaffMedia(r.Context(), principalScope.Principal.TenantID, corpID, &detail); err != nil {
+			writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, "会话媒体读取失败", nil)
+			return
+		}
 	}
 	if detail.Messages == nil {
 		detail.Messages = []WorkMessageStaffMessage{}

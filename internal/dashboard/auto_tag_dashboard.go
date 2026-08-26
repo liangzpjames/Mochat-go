@@ -250,6 +250,7 @@ type WorkMessageItem struct {
 	MsgDataTime     string
 	ArchiveSource   string
 	ArchiveSourceID string
+	Media           map[string]any
 }
 
 type WorkMessagePage struct {
@@ -676,6 +677,12 @@ func (h *AutoTagHandler) WorkMessageIndex(w http.ResponseWriter, r *http.Request
 		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
 		return
 	}
+	if projector, supported := h.store.(WorkMessageMediaProjector); supported {
+		if err := projector.ProjectWorkMessagePageMedia(r.Context(), principalScope.Principal.TenantID, corpID, &page); err != nil {
+			writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, "会话媒体读取失败", nil)
+			return
+		}
+	}
 	list := make([]map[string]any, 0, len(page.Items))
 	for _, item := range page.Items {
 		list = append(list, workMessagePayload(item))
@@ -719,6 +726,12 @@ func (h *AutoTagHandler) workMessageGlobalDetail(w http.ResponseWriter, r *http.
 	if err != nil {
 		writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, err.Error(), nil)
 		return
+	}
+	if projector, supported := h.store.(WorkMessageMediaProjector); supported {
+		if err := projector.ProjectWorkMessagePageMedia(r.Context(), tenantID, corpID, &page); err != nil {
+			writeEnvelope(w, http.StatusInternalServerError, http.StatusInternalServerError, "会话媒体读取失败", nil)
+			return
+		}
 	}
 	if page.Total == 0 || len(page.Items) == 0 {
 		writeEnvelope(w, http.StatusNotFound, http.StatusNotFound, "conversation not found", nil)
@@ -1473,6 +1486,14 @@ func workMessageToUserPayload(item WorkMessageToUser) map[string]any {
 }
 
 func workMessagePayload(item WorkMessageItem) map[string]any {
+	content := workMessageContentPayload(item.ContentRaw)
+	if item.Media != nil {
+		if object, ok := content.(map[string]any); ok {
+			object["media"] = item.Media
+		} else {
+			content = map[string]any{"value": content, "media": item.Media}
+		}
+	}
 	return map[string]any{
 		"id":              item.ID,
 		"action":          item.Action,
@@ -1481,7 +1502,7 @@ func workMessagePayload(item WorkMessageItem) map[string]any {
 		"isCurrentUser":   item.IsCurrentUser,
 		"is_current_user": item.IsCurrentUser,
 		"type":            item.Type,
-		"content":         workMessageContentPayload(item.ContentRaw),
+		"content":         content,
 		"contentRaw":      item.ContentRaw,
 		"msgDataTime":     item.MsgDataTime,
 		"msg_data_time":   item.MsgDataTime,
