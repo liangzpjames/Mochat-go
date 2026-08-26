@@ -2,12 +2,12 @@
 
 package wecomarchivedemo
 
-import "errors"
+import "fmt"
 
 func CheckFinanceSDKLibrary() error {
-	return errors.New("WeCom Finance SDK requires Linux")
+	return fmt.Errorf("%w: Linux is required", ErrFinanceSDKCapabilityUnavailable)
 }
 
 func NewFinanceSDK(_, _ string) (FinanceSDK, error) {
-	return nil, errors.New("WeCom Finance SDK requires Linux")
+	return nil, fmt.Errorf("%w: Linux is required", ErrFinanceSDKCapabilityUnavailable)
 }

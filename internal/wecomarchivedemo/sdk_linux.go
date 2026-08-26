@@ -3,6 +3,7 @@
 package wecomarchivedemo
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -22,6 +23,13 @@ type financeSymbols struct {
 	freeSlice           func(uintptr)
 	getContentFromSlice func(uintptr) uintptr
 	getSliceLen         func(uintptr) int32
+	newMediaData        func() uintptr
+	freeMediaData       func(uintptr)
+	getMediaData        func(uintptr, string, string, string, string, int32, uintptr) int32
+	getOutIndexBuf      func(uintptr) uintptr
+	getData             func(uintptr) uintptr
+	getDataLen          func(uintptr) int32
+	isMediaDataFinish   func(uintptr) int32
 }
 
 type nativeFinanceSDK struct {
@@ -92,6 +100,13 @@ func loadFinanceSymbols(library uintptr) (financeSymbols, error) {
 		"FreeSlice":           &symbols.freeSlice,
 		"GetContentFromSlice": &symbols.getContentFromSlice,
 		"GetSliceLen":         &symbols.getSliceLen,
+		"NewMediaData":        &symbols.newMediaData,
+		"FreeMediaData":       &symbols.freeMediaData,
+		"GetMediaData":        &symbols.getMediaData,
+		"GetOutIndexBuf":      &symbols.getOutIndexBuf,
+		"GetData":             &symbols.getData,
+		"GetDataLen":          &symbols.getDataLen,
+		"IsMediaDataFinish":   &symbols.isMediaDataFinish,
 	} {
 		address, err := purego.Dlsym(library, name)
 		if err != nil {
@@ -134,6 +149,62 @@ func (s *nativeFinanceSDK) DecryptData(randomKey, encryptedMessage string) ([]by
 		return nil, SDKError{Operation: "DecryptData", Code: code}
 	}
 	return s.copySlice(result)
+}
+
+func (s *nativeFinanceSDK) GetMediaData(ctx context.Context, sdkFileID, indexBuf string, timeoutSeconds int) (MediaChunk, error) {
+	if ctx == nil {
+		return MediaChunk{}, errors.New("context is required")
+	}
+	if err := ctx.Err(); err != nil {
+		return MediaChunk{}, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.handle == 0 {
+		return MediaChunk{}, errors.New("WeCom Finance SDK is closed")
+	}
+	media := s.symbols.newMediaData()
+	if media == 0 {
+		return MediaChunk{}, errors.New("WeCom Finance SDK NewMediaData returned nil")
+	}
+	defer s.symbols.freeMediaData(media)
+	if code := int(s.symbols.getMediaData(s.handle, indexBuf, sdkFileID, "", "", int32(timeoutSeconds), media)); code != 0 {
+		return MediaChunk{}, SDKError{Operation: "GetMediaData", Code: code}
+	}
+	length := int(s.symbols.getDataLen(media))
+	if length < 0 {
+		return MediaChunk{}, errors.New("WeCom Finance SDK returned a negative media length")
+	}
+	data := []byte{}
+	if length > 0 {
+		pointer := s.symbols.getData(media)
+		if pointer == 0 {
+			return MediaChunk{}, errors.New("WeCom Finance SDK returned a nil media pointer")
+		}
+		data = append(data, unsafe.Slice((*byte)(unsafe.Pointer(pointer)), length)...)
+	}
+	finished := s.symbols.isMediaDataFinish(media) != 0
+	nextIndexBuf, err := copyCString(s.symbols.getOutIndexBuf(media), 4096)
+	if err != nil {
+		return MediaChunk{}, err
+	}
+	if finished {
+		nextIndexBuf = ""
+	}
+	return MediaChunk{Data: data, NextIndexBuf: nextIndexBuf, Finished: finished}, nil
+}
+
+func copyCString(pointer uintptr, maxLength int) (string, error) {
+	if pointer == 0 {
+		return "", nil
+	}
+	value := unsafe.Slice((*byte)(unsafe.Pointer(pointer)), maxLength)
+	for index, item := range value {
+		if item == 0 {
+			return string(value[:index]), nil
+		}
+	}
+	return "", errors.New("WeCom Finance SDK returned an oversized media index")
 }
 
 func (s *nativeFinanceSDK) copySlice(result uintptr) ([]byte, error) {

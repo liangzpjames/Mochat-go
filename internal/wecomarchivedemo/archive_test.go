@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -26,6 +27,15 @@ type fakeFinanceSDK struct {
 	getLimit   uint32
 	getStarted chan struct{}
 	getRelease chan struct{}
+	media      map[string][]MediaChunk
+	mediaErr   error
+	mediaCalls []mediaCall
+}
+
+type mediaCall struct {
+	sdkFileID      string
+	indexBuf       string
+	timeoutSeconds int
 }
 
 func (f *fakeFinanceSDK) GetChatData(seq uint64, limit uint32, _ int) ([]byte, error) {
@@ -47,6 +57,27 @@ func (f *fakeFinanceSDK) DecryptData(randomKey, encryptedMessage string) ([]byte
 		return nil, errors.New("unknown encrypted message")
 	}
 	return plain, nil
+}
+
+func (f *fakeFinanceSDK) GetMediaData(ctx context.Context, sdkFileID, indexBuf string, timeoutSeconds int) (MediaChunk, error) {
+	if err := ctx.Err(); err != nil {
+		return MediaChunk{}, err
+	}
+	f.mediaCalls = append(f.mediaCalls, mediaCall{sdkFileID: sdkFileID, indexBuf: indexBuf, timeoutSeconds: timeoutSeconds})
+	if f.mediaErr != nil {
+		return MediaChunk{}, f.mediaErr
+	}
+	chunks := f.media[sdkFileID]
+	position := 0
+	if indexBuf != "" {
+		if _, err := fmt.Sscanf(indexBuf, "chunk-%d", &position); err != nil {
+			return MediaChunk{}, errors.New("invalid fixture index")
+		}
+	}
+	if position >= len(chunks) {
+		return MediaChunk{}, errors.New("fixture chunk not found")
+	}
+	return chunks[position], nil
 }
 
 func (f *fakeFinanceSDK) Close() error { return nil }
@@ -308,6 +339,42 @@ func TestArchiveServiceDoesNotAdvanceOnSDKError(t *testing.T) {
 	}
 	if state.Seq != 0 {
 		t.Fatalf("seq advanced to %d", state.Seq)
+	}
+}
+
+func TestArchiveServiceFetchMediaUsesConfiguredTimeoutAndPreservesChunks(t *testing.T) {
+	sdk := &fakeFinanceSDK{media: map[string][]MediaChunk{
+		"fixture-sdk-file": {{Data: []byte("1234567"), NextIndexBuf: "chunk-1", Finished: false}},
+	}}
+	store, err := NewEvidenceStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	service, err := NewArchiveService(sdk, testPrivateKeyPEM(t), store, 100, 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	chunk, err := service.FetchMedia(context.Background(), "fixture-sdk-file", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(chunk.Data) != "1234567" || chunk.NextIndexBuf != "chunk-1" || chunk.Finished {
+		t.Fatalf("chunk=%+v", chunk)
+	}
+	if len(sdk.mediaCalls) != 1 || sdk.mediaCalls[0].timeoutSeconds != 5 {
+		t.Fatalf("calls=%+v", sdk.mediaCalls)
+	}
+}
+
+func TestFinanceSDKReportsCapabilityUnavailableOutsideLinux(t *testing.T) {
+	if runtime.GOOS == "linux" {
+		t.Skip("non-Linux capability contract")
+	}
+	if err := CheckFinanceSDKLibrary(); !errors.Is(err, ErrFinanceSDKCapabilityUnavailable) {
+		t.Fatalf("check error=%v", err)
+	}
+	if sdk, err := NewFinanceSDK("local-corp", "local-secret"); sdk != nil || !errors.Is(err, ErrFinanceSDKCapabilityUnavailable) {
+		t.Fatalf("sdk=%v err=%v", sdk, err)
 	}
 }
 

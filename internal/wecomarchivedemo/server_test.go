@@ -1,6 +1,7 @@
 package wecomarchivedemo
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -30,6 +31,128 @@ func TestPublicHandlerDoesNotExposeAdminRoutesOrSecrets(t *testing.T) {
 	}
 	if strings.Contains(recorder.Body.String(), config.CallbackToken) || strings.Contains(recorder.Body.String(), config.AdminToken) {
 		t.Fatalf("health response leaked a secret: %s", recorder.Body.String())
+	}
+}
+
+func TestAdminHandlerServesAuthenticatedArchiveMediaChunkWithoutLeaks(t *testing.T) {
+	privatePEM := testPrivateKeyPEM(t)
+	const sdkFileID = "MOCHAT-LOCAL-ACCEPTANCE-20260827-sdkfile-image-sensitive-tail"
+	sdk := &fakeFinanceSDK{media: map[string][]MediaChunk{
+		sdkFileID: {{Data: []byte("1234567"), NextIndexBuf: "chunk-1", Finished: false}},
+	}}
+	store, err := NewEvidenceStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	archive, err := NewArchiveService(sdk, privatePEM, store, 100, 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	config := Config{
+		AdminToken: "admin-secret-with-at-least-forty-characters-123456",
+		CorpID:     "ww-local-acceptance", ArchiveSecret: "archive-secret-sensitive", RSAPrivateKey: privatePEM,
+	}
+	handler := NewAdminHandler(config, store, archive)
+	request := httptest.NewRequest(http.MethodPost, "/work-message/archive/media", strings.NewReader(`{"corp_id":4,"wx_corpid":"ww-local-acceptance","sdkFileId":"`+sdkFileID+`","indexBuf":""}`))
+	request.Header.Set("Authorization", "Bearer "+config.AdminToken)
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	var response struct {
+		ErrCode      int    `json:"errcode"`
+		DataBase64   string `json:"dataBase64"`
+		NextIndexBuf string `json:"nextIndexBuf"`
+		Finished     bool   `json:"finished"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := base64.StdEncoding.DecodeString(response.DataBase64)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.ErrCode != 0 || string(decoded) != "1234567" || response.NextIndexBuf != "chunk-1" || response.Finished {
+		t.Fatalf("response=%+v decoded=%q", response, decoded)
+	}
+	for _, forbidden := range []string{sdkFileID, config.ArchiveSecret, "PRIVATE KEY", "random-key-sensitive"} {
+		if strings.Contains(recorder.Body.String(), forbidden) {
+			t.Fatalf("media response leaked protected value %q: %s", forbidden, recorder.Body.String())
+		}
+	}
+}
+
+func TestAdminHandlerRejectsInvalidArchiveMediaRequests(t *testing.T) {
+	privatePEM := testPrivateKeyPEM(t)
+	store, err := NewEvidenceStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	archive, err := NewArchiveService(&fakeFinanceSDK{}, privatePEM, store, 100, 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	config := Config{AdminToken: "admin-secret-with-at-least-forty-characters-123456", CorpID: "ww-bound", RSAPrivateKey: privatePEM}
+	handler := NewAdminHandler(config, store, archive)
+	tests := []struct {
+		name       string
+		method     string
+		body       string
+		wantStatus int
+	}{
+		{name: "missing bearer", method: http.MethodPost, body: `{"corp_id":4,"wx_corpid":"ww-bound","sdkFileId":"media"}`, wantStatus: http.StatusUnauthorized},
+		{name: "wrong bearer", method: http.MethodPost, body: `{"corp_id":4,"wx_corpid":"ww-bound","sdkFileId":"media"}`, wantStatus: http.StatusUnauthorized},
+		{name: "corp mismatch", method: http.MethodPost, body: `{"corp_id":4,"wx_corpid":"ww-other","sdkFileId":"media"}`, wantStatus: http.StatusBadRequest},
+		{name: "empty sdk file", method: http.MethodPost, body: `{"corp_id":4,"wx_corpid":"ww-bound","sdkFileId":""}`, wantStatus: http.StatusBadRequest},
+		{name: "oversized sdk file", method: http.MethodPost, body: `{"corp_id":4,"wx_corpid":"ww-bound","sdkFileId":"` + strings.Repeat("x", 4097) + `"}`, wantStatus: http.StatusBadRequest},
+		{name: "oversized index", method: http.MethodPost, body: `{"corp_id":4,"wx_corpid":"ww-bound","sdkFileId":"media","indexBuf":"` + strings.Repeat("x", 1025) + `"}`, wantStatus: http.StatusBadRequest},
+		{name: "oversized body", method: http.MethodPost, body: `{"padding":"` + strings.Repeat("x", 70<<10) + `"}`, wantStatus: http.StatusBadRequest},
+		{name: "wrong method", method: http.MethodGet, body: "", wantStatus: http.StatusMethodNotAllowed},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			request := httptest.NewRequest(test.method, "/work-message/archive/media", strings.NewReader(test.body))
+			if test.name != "missing bearer" {
+				token := config.AdminToken
+				if test.name == "wrong bearer" {
+					token = strings.Repeat("z", len(token))
+				}
+				request.Header.Set("Authorization", "Bearer "+token)
+			}
+			recorder := httptest.NewRecorder()
+			handler.ServeHTTP(recorder, request)
+			if recorder.Code != test.wantStatus {
+				t.Fatalf("status=%d want=%d body=%s", recorder.Code, test.wantStatus, recorder.Body.String())
+			}
+		})
+	}
+}
+
+func TestAdminHandlerSanitizesArchiveMediaSDKError(t *testing.T) {
+	privatePEM := testPrivateKeyPEM(t)
+	const sdkFileID = "MOCHAT-LOCAL-ACCEPTANCE-20260827-sdkfile-secret-tail"
+	store, err := NewEvidenceStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	archive, err := NewArchiveService(&fakeFinanceSDK{mediaErr: SDKError{Operation: "GetMediaData", Code: 10009}}, privatePEM, store, 100, 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	config := Config{AdminToken: "admin-secret-with-at-least-forty-characters-123456", CorpID: "ww-bound", ArchiveSecret: "archive-secret", RSAPrivateKey: privatePEM}
+	handler := NewAdminHandler(config, store, archive)
+	request := httptest.NewRequest(http.MethodPost, "/work-message/archive/media", strings.NewReader(`{"corp_id":4,"wx_corpid":"ww-bound","sdkFileId":"`+sdkFileID+`"}`))
+	request.Header.Set("Authorization", "Bearer "+config.AdminToken)
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusBadGateway || !strings.Contains(recorder.Body.String(), `"errcode":"ARCHIVE_MEDIA_SDK_ERROR"`) {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	for _, forbidden := range []string{sdkFileID, config.ArchiveSecret, "PRIVATE KEY"} {
+		if strings.Contains(recorder.Body.String(), forbidden) {
+			t.Fatalf("error response leaked %q: %s", forbidden, recorder.Body.String())
+		}
 	}
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"crypto/subtle"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"encoding/xml"
@@ -146,6 +147,58 @@ func NewAdminHandler(config Config, store *EvidenceStore, archive *ArchiveServic
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"errcode": 0, "errmsg": "ok", "messages": page.Messages})
 	})
+	mux.HandleFunc("POST /work-message/archive/media", func(w http.ResponseWriter, r *http.Request) {
+		if archive == nil {
+			writeJSON(w, http.StatusConflict, map[string]any{"errcode": "ARCHIVE_PULL_NOT_CONFIGURED", "errmsg": "archive pull is not configured"})
+			return
+		}
+		var input struct {
+			CorpID         int    `json:"corp_id"`
+			WXCorpID       string `json:"wx_corpid"`
+			SDKFileID      string `json:"sdkFileId"`
+			IndexBuf       string `json:"indexBuf"`
+			TimeoutSeconds int    `json:"timeoutSeconds"`
+		}
+		decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10))
+		if err := decoder.Decode(&input); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"errcode": "ARCHIVE_MEDIA_INVALID_REQUEST", "errmsg": "invalid archive media request"})
+			return
+		}
+		var trailing any
+		if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"errcode": "ARCHIVE_MEDIA_INVALID_REQUEST", "errmsg": "invalid archive media request"})
+			return
+		}
+		if input.CorpID <= 0 || strings.TrimSpace(input.WXCorpID) != strings.TrimSpace(config.CorpID) {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"errcode": "ARCHIVE_CORP_BINDING_MISMATCH", "errmsg": "archive corp binding mismatch"})
+			return
+		}
+		if strings.TrimSpace(input.SDKFileID) == "" || len(input.SDKFileID) > 4096 || len(input.IndexBuf) > 1024 {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"errcode": "ARCHIVE_MEDIA_INVALID_REQUEST", "errmsg": "invalid archive media request"})
+			return
+		}
+		if input.TimeoutSeconds == 0 {
+			input.TimeoutSeconds = config.TimeoutSeconds
+			if input.TimeoutSeconds == 0 {
+				input.TimeoutSeconds = 5
+			}
+		}
+		if input.TimeoutSeconds < 1 || input.TimeoutSeconds > 30 {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"errcode": "ARCHIVE_MEDIA_INVALID_REQUEST", "errmsg": "invalid archive media request"})
+			return
+		}
+		chunk, err := archive.FetchMediaWithTimeout(r.Context(), input.SDKFileID, input.IndexBuf, input.TimeoutSeconds)
+		if err != nil {
+			code, status := sanitizeArchiveMediaError(err)
+			writeJSON(w, status, map[string]any{"errcode": code, "errmsg": "archive media request failed"})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"errcode": 0, "errmsg": "ok",
+			"dataBase64":   base64.StdEncoding.EncodeToString(chunk.Data),
+			"nextIndexBuf": chunk.NextIndexBuf, "finished": chunk.Finished,
+		})
+	})
 	return requireBearer(config.AdminToken, mux)
 }
 
@@ -155,6 +208,20 @@ func sanitizeArchiveError(err error) string {
 		return fmt.Sprintf("%s failed with code %d", sdkErr.Operation, sdkErr.Code)
 	}
 	return "archive bridge request failed"
+}
+
+func sanitizeArchiveMediaError(err error) (string, int) {
+	var sdkErr SDKError
+	if errors.As(err, &sdkErr) {
+		return "ARCHIVE_MEDIA_SDK_ERROR", http.StatusBadGateway
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return "ARCHIVE_MEDIA_TIMEOUT", http.StatusGatewayTimeout
+	}
+	if errors.Is(err, ErrFinanceSDKCapabilityUnavailable) {
+		return "ARCHIVE_MEDIA_CAPABILITY_UNAVAILABLE", http.StatusServiceUnavailable
+	}
+	return "ARCHIVE_MEDIA_REQUEST_FAILED", http.StatusBadGateway
 }
 
 func requireBearer(token string, next http.Handler) http.Handler {

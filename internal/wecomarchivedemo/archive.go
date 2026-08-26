@@ -130,6 +130,41 @@ func (s *ArchiveService) FetchPage(ctx context.Context, startSeq uint64, limit u
 	return page, nil
 }
 
+func (s *ArchiveService) FetchMedia(ctx context.Context, sdkFileID, indexBuf string) (MediaChunk, error) {
+	return s.FetchMediaWithTimeout(ctx, sdkFileID, indexBuf, s.timeoutSeconds)
+}
+
+func (s *ArchiveService) FetchMediaWithTimeout(ctx context.Context, sdkFileID, indexBuf string, timeoutSeconds int) (MediaChunk, error) {
+	if ctx == nil {
+		return MediaChunk{}, errors.New("context is required")
+	}
+	if err := ctx.Err(); err != nil {
+		return MediaChunk{}, err
+	}
+	if strings.TrimSpace(sdkFileID) == "" || len(sdkFileID) > 4096 {
+		return MediaChunk{}, errors.New("invalid SDK media identifier")
+	}
+	if len(indexBuf) > 1024 {
+		return MediaChunk{}, errors.New("invalid SDK media index")
+	}
+	if timeoutSeconds <= 0 || timeoutSeconds > 30 {
+		return MediaChunk{}, errors.New("media timeout must be between 1 and 30 seconds")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	chunk, err := s.sdk.GetMediaData(ctx, sdkFileID, indexBuf, timeoutSeconds)
+	if err != nil {
+		return MediaChunk{}, err
+	}
+	chunk.Data = append([]byte(nil), chunk.Data...)
+	if chunk.Finished {
+		chunk.NextIndexBuf = ""
+	} else if chunk.NextIndexBuf == "" || chunk.NextIndexBuf == indexBuf {
+		return MediaChunk{}, errors.New("WeCom Finance SDK media index did not advance")
+	}
+	return chunk, nil
+}
+
 func (s *ArchiveService) Pull(ctx context.Context) (PullResult, error) {
 	if ctx == nil {
 		return PullResult{}, errors.New("context is required")
