@@ -82,3 +82,27 @@
 ### 审查修复后的 concerns
 
 - 无已知 Important/Minor 遗留；真实企业微信仍按任务约束不调用。完整 store 流程使用 sqlmock 覆盖 SQL 事务交互，未连接外部 MariaDB。
+
+## Slot version ABA 复审修复（2026-08-27）
+
+### RED 证据
+
+- 扩展 `TestWeComIntegrationCandidateVersionFlowSaveV1VerifyV2SwitchV2`，要求 `(current A v1, candidate B v2)` 执行 `switch(v2)` 后 promoted B 与 demoted A 的 version 都为 v3；原实现返回 demoted A v2，测试在首次 switch 结果断言处失败，直接复现已消费 request v2 可再次命中 A 的 ABA 条件。
+
+### 修复说明
+
+- slot 转换事务在删除/重插两条锁定记录前计算 `nextVersion=max(current.Version,candidate.Version)+1`，promoted 与 demoted 记录统一写入该 version；无符号溢出时返回 `ErrVersionConflict` 并回滚。
+- 完整 store 流程继续证明 save candidate v1 → verify candidate v2 → switch(v2) 成功。
+- 同一流程新增 switch(v2) 重放：锁定新 current B v3 与 rollback target A v3 后返回 `ErrVersionConflict`，只发生 rollback，不执行 DELETE/INSERT，既有 current B v3 快照不变。
+- 新增 rollback target version 覆盖：`rollback(v3)` 精确锁定 demoted A v3，成功后 A/B 两条记录都推进到 v4。
+
+### GREEN 证据
+
+- `go test ./internal/dashboardadmin ./internal/store ./internal/dashboard -run 'WeComIntegration|SaaSAdminAccess' -count=1`：3 个包通过。
+- `go test ./cmd/mochat-go -run 'SaaS|Approval|Composition' -count=1`：通过。
+- `go test ./internal/migration -run 0166 -count=1`：通过。
+- `git diff --check`：通过，仅有 Windows LF/CRLF 提示，无 whitespace error。
+
+### ABA 修复后的 concerns
+
+- 无已知遗留；version 与 generation 现在均在每次 slot 转换时全局单调递增，重复请求不能重新命中另一 slot。

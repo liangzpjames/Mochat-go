@@ -94,17 +94,21 @@ func TestWeComIntegrationCandidateVersionFlowSaveV1VerifyV2SwitchV2(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
+	currentCiphertext, currentKeyID, err := manager.EncryptAuthorization(41, "current", wecomcredentials.AuthorizationCredential{Mode: "self_built", EmployeeSecret: "current-employee-secret"})
+	if err != nil {
+		t.Fatal(err)
+	}
 	store := NewMySQLStore(db).WithWeComCredentialCipher(manager)
 	actor := dashboardadmin.Actor{UserID: 700, Active: true}
 	bindingRows := func() *sqlmock.Rows {
 		return sqlmock.NewRows([]string{"corp_id", "wx_corpid"}).AddRow(63, "ww-authoritative")
 	}
-	integrationRows := func(slot, status, verificationLevel string, version uint64, cipher, key string) *sqlmock.Rows {
+	integrationRows := func(id, slot, status, verificationLevel string, version uint64, cipher, key string) *sqlmock.Rows {
 		verifiedAt := any(nil)
 		if verificationLevel != "" {
 			verifiedAt = time.Date(2026, 8, 27, 0, 0, 0, 0, time.UTC)
 		}
-		return sqlmock.NewRows([]string{"id", "mode", "slot", "status", "verified_wx_corpid", "agent_id", "provider_app_id", "credential_ciphertext", "credential_key_id", "credential_hint", "scope_json", "scope_digest", "missing_capabilities_json", "generation", "version", "verification_level", "verified_at", "last_error_code", "updated_at"}).AddRow(map[bool]string{true: "candidate", false: "current"}[slot == "candidate"], "self_built", slot, status, map[bool]string{true: "ww-authoritative", false: ""}[verificationLevel != ""], "100001", "", cipher, key, "employee", `[]`, dashboardadmin.WeComScopeDigest(nil), `[]`, 1, version, verificationLevel, verifiedAt, "", time.Date(2026, 8, 27, 0, 0, 0, 0, time.UTC))
+		return sqlmock.NewRows([]string{"id", "mode", "slot", "status", "verified_wx_corpid", "agent_id", "provider_app_id", "credential_ciphertext", "credential_key_id", "credential_hint", "scope_json", "scope_digest", "missing_capabilities_json", "generation", "version", "verification_level", "verified_at", "last_error_code", "updated_at"}).AddRow(id, "self_built", slot, status, map[bool]string{true: "ww-authoritative", false: ""}[verificationLevel != ""], "100001", "", cipher, key, "employee", `[]`, dashboardadmin.WeComScopeDigest(nil), `[]`, 1, version, verificationLevel, verifiedAt, "", time.Date(2026, 8, 27, 0, 0, 0, 0, time.UTC))
 	}
 	expectAuthBinding := func(permission string) {
 		mock.ExpectQuery("SELECT u.id FROM mochat_go_saas_admin_users").WithArgs(700, permission).WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(700))
@@ -118,9 +122,9 @@ func TestWeComIntegrationCandidateVersionFlowSaveV1VerifyV2SwitchV2(t *testing.T
 	// Save candidate against current v1. The inserted candidate starts at v1.
 	mock.ExpectBegin()
 	expectAuthBinding(dashboard.SaaSAdminPermissionIntegrationsManage)
-	mock.ExpectQuery("SELECT id,mode,slot,status").WithArgs(41, 63).WillReturnRows(integrationRows("current", "active", dashboardadmin.WeComVerificationLocalContract, 1, "", ""))
+	mock.ExpectQuery("SELECT id,mode,slot,status").WithArgs(41, 63).WillReturnRows(integrationRows("current", "current", "active", dashboardadmin.WeComVerificationLocalContract, 1, currentCiphertext, currentKeyID))
 	mock.ExpectExec("INSERT INTO mochat_go_wecom_integrations").WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectQuery("SELECT id,mode,slot,status").WithArgs(41, 63, "candidate").WillReturnRows(integrationRows("candidate", "pending_verification", "", 1, ciphertext, keyID))
+	mock.ExpectQuery("SELECT id,mode,slot,status").WithArgs(41, 63, "candidate").WillReturnRows(integrationRows("candidate", "candidate", "pending_verification", "", 1, ciphertext, keyID))
 	expectLegacyAudit()
 	mock.ExpectCommit()
 	saved, err := store.SaveWeComIntegrationCandidate(context.Background(), actor, 41, dashboardadmin.WeComIntegrationCandidateInput{Mode: "self_built", AgentID: "100001", EmployeeSecret: "employee-secret", Version: 1})
@@ -131,13 +135,13 @@ func TestWeComIntegrationCandidateVersionFlowSaveV1VerifyV2SwitchV2(t *testing.T
 	// Verify candidate v1, which atomically persists local_contract as v2.
 	mock.ExpectBegin()
 	expectAuthBinding(dashboard.SaaSAdminPermissionIntegrationsManage)
-	mock.ExpectQuery("SELECT id,mode,slot,status").WithArgs(41, 63, "candidate").WillReturnRows(integrationRows("candidate", "pending_verification", "", 1, ciphertext, keyID))
+	mock.ExpectQuery("SELECT id,mode,slot,status").WithArgs(41, 63, "candidate").WillReturnRows(integrationRows("candidate", "candidate", "pending_verification", "", 1, ciphertext, keyID))
 	mock.ExpectCommit()
 	mock.ExpectBegin()
 	expectAuthBinding(dashboard.SaaSAdminPermissionIntegrationsManage)
-	mock.ExpectQuery("SELECT id,mode,slot,status").WithArgs(41, 63, "candidate").WillReturnRows(integrationRows("candidate", "pending_verification", "", 1, ciphertext, keyID))
+	mock.ExpectQuery("SELECT id,mode,slot,status").WithArgs(41, 63, "candidate").WillReturnRows(integrationRows("candidate", "candidate", "pending_verification", "", 1, ciphertext, keyID))
 	mock.ExpectExec("UPDATE mochat_go_wecom_integrations SET status=").WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectQuery("SELECT id,mode,slot,status").WithArgs(41, 63, "candidate").WillReturnRows(integrationRows("candidate", "active", dashboardadmin.WeComVerificationLocalContract, 2, ciphertext, keyID))
+	mock.ExpectQuery("SELECT id,mode,slot,status").WithArgs(41, 63, "candidate").WillReturnRows(integrationRows("candidate", "candidate", "active", dashboardadmin.WeComVerificationLocalContract, 2, ciphertext, keyID))
 	expectLegacyAudit()
 	mock.ExpectCommit()
 	service := dashboardadmin.NewWeComIntegrationService(store, dashboardadmin.WeComIntegrationVerifierFunc(func(context.Context, dashboardadmin.WeComVerificationRequest) (dashboardadmin.WeComVerificationResult, error) {
@@ -151,8 +155,8 @@ func TestWeComIntegrationCandidateVersionFlowSaveV1VerifyV2SwitchV2(t *testing.T
 	// Switch locks the promoted candidate's v2, not current v1.
 	mock.ExpectBegin()
 	expectAuthBinding(dashboard.SaaSAdminPermissionIntegrationsManage)
-	mock.ExpectQuery("SELECT id,mode,slot,status").WithArgs(41, 63, "current").WillReturnRows(integrationRows("current", "active", dashboardadmin.WeComVerificationLocalContract, 1, "", ""))
-	mock.ExpectQuery("SELECT id,mode,slot,status").WithArgs(41, 63, "candidate").WillReturnRows(integrationRows("candidate", "active", dashboardadmin.WeComVerificationLocalContract, 2, ciphertext, keyID))
+	mock.ExpectQuery("SELECT id,mode,slot,status").WithArgs(41, 63, "current").WillReturnRows(integrationRows("current", "current", "active", dashboardadmin.WeComVerificationLocalContract, 1, currentCiphertext, currentKeyID))
+	mock.ExpectQuery("SELECT id,mode,slot,status").WithArgs(41, 63, "candidate").WillReturnRows(integrationRows("candidate", "candidate", "active", dashboardadmin.WeComVerificationLocalContract, 2, ciphertext, keyID))
 	mock.ExpectQuery("SELECT COUNT\\(\\*\\) FROM mochat_go_archive_media_objects").WithArgs(41, 63).WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
 	mock.ExpectExec("DELETE FROM mochat_go_wecom_integrations").WithArgs(41, 63).WillReturnResult(sqlmock.NewResult(0, 2))
 	mock.ExpectExec("INSERT INTO mochat_go_wecom_integrations").WillReturnResult(sqlmock.NewResult(0, 1))
@@ -160,8 +164,39 @@ func TestWeComIntegrationCandidateVersionFlowSaveV1VerifyV2SwitchV2(t *testing.T
 	expectLegacyAudit()
 	mock.ExpectCommit()
 	view, err := service.Switch(context.Background(), actor, 41, 2)
-	if err != nil || view.Current == nil || view.Current.ID != "candidate" || view.Current.Version != 3 {
+	if err != nil || view.Current == nil || view.Current.ID != "candidate" || view.Current.Version != 3 || view.Candidate == nil || view.Candidate.ID != "current" || view.Candidate.Version != 3 {
 		t.Fatalf("switch candidate v2: view=%+v err=%v", view, err)
+	}
+
+	// Replaying the consumed switch(v2) targets demoted A v3 and must roll back
+	// without changing current B v3.
+	mock.ExpectBegin()
+	expectAuthBinding(dashboard.SaaSAdminPermissionIntegrationsManage)
+	mock.ExpectQuery("SELECT id,mode,slot,status").WithArgs(41, 63, "current").WillReturnRows(integrationRows("candidate", "current", "active", dashboardadmin.WeComVerificationLocalContract, 3, ciphertext, keyID))
+	mock.ExpectQuery("SELECT id,mode,slot,status").WithArgs(41, 63, "candidate").WillReturnRows(integrationRows("current", "candidate", "active", dashboardadmin.WeComVerificationLocalContract, 3, currentCiphertext, currentKeyID))
+	mock.ExpectQuery("SELECT COUNT\\(\\*\\) FROM mochat_go_archive_media_objects").WithArgs(41, 63).WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+	mock.ExpectRollback()
+	if _, err := service.Switch(context.Background(), actor, 41, 2); !errors.Is(err, dashboardadmin.ErrVersionConflict) {
+		t.Fatalf("replayed switch v2 err=%v", err)
+	}
+	if view.Current.ID != "candidate" || view.Current.Version != 3 {
+		t.Fatalf("replayed switch changed prior current snapshot: %+v", view.Current)
+	}
+
+	// Rollback targets demoted A's fresh v3 and advances both slots to v4.
+	mock.ExpectBegin()
+	expectAuthBinding(dashboard.SaaSAdminPermissionIntegrationsManage)
+	mock.ExpectQuery("SELECT id,mode,slot,status").WithArgs(41, 63, "current").WillReturnRows(integrationRows("candidate", "current", "active", dashboardadmin.WeComVerificationLocalContract, 3, ciphertext, keyID))
+	mock.ExpectQuery("SELECT id,mode,slot,status").WithArgs(41, 63, "candidate").WillReturnRows(integrationRows("current", "candidate", "active", dashboardadmin.WeComVerificationLocalContract, 3, currentCiphertext, currentKeyID))
+	mock.ExpectQuery("SELECT COUNT\\(\\*\\) FROM mochat_go_archive_media_objects").WithArgs(41, 63).WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+	mock.ExpectExec("DELETE FROM mochat_go_wecom_integrations").WithArgs(41, 63).WillReturnResult(sqlmock.NewResult(0, 2))
+	mock.ExpectExec("INSERT INTO mochat_go_wecom_integrations").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("INSERT INTO mochat_go_wecom_integrations").WillReturnResult(sqlmock.NewResult(0, 1))
+	expectLegacyAudit()
+	mock.ExpectCommit()
+	rolledBack, err := service.Rollback(context.Background(), actor, 41, 3)
+	if err != nil || rolledBack.Current == nil || rolledBack.Current.ID != "current" || rolledBack.Current.Version != 4 || rolledBack.Candidate == nil || rolledBack.Candidate.Version != 4 {
+		t.Fatalf("rollback candidate v3: view=%+v err=%v", rolledBack, err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)

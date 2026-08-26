@@ -306,16 +306,24 @@ func (s *MySQLStore) swapWeComIntegration(ctx context.Context, actor dashboardad
 	if err != nil {
 		return dashboardadmin.WeComIntegrationView{}, err
 	}
+	nextVersion := current.Version
+	if candidate.Version > nextVersion {
+		nextVersion = candidate.Version
+	}
+	nextVersion++
+	if nextVersion == 0 {
+		return dashboardadmin.WeComIntegrationView{}, dashboardadmin.ErrVersionConflict
+	}
 	if _, err = tx.ExecContext(ctx, `DELETE FROM mochat_go_wecom_integrations WHERE tenant_id=? AND corp_id=? AND slot IN ('current','candidate')`, tenantID, binding.CorpID); err != nil {
 		return dashboardadmin.WeComIntegrationView{}, err
 	}
 	oldCurrent := current
 	oldCurrent.Slot = "candidate"
-	oldCurrent.Version++
 	next := candidate
 	next.Slot = "current"
 	next.Generation = generation
-	next.Version++
+	oldCurrent.Version = nextVersion
+	next.Version = nextVersion
 	if err = insertWeComIntegrationSnapshotTx(ctx, tx, tenantID, binding.CorpID, oldCurrent); err != nil {
 		return dashboardadmin.WeComIntegrationView{}, err
 	}
