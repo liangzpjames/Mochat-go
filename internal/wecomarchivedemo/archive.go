@@ -12,6 +12,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -32,6 +33,12 @@ type PullResult struct {
 	NextSeq      uint64    `json:"next_seq"`
 	MessageCount int       `json:"message_count"`
 	PulledAt     time.Time `json:"pulled_at"`
+}
+
+type ArchivePage struct {
+	StartSeq uint64            `json:"start_seq"`
+	NextSeq  uint64            `json:"next_seq"`
+	Messages []json.RawMessage `json:"messages"`
 }
 
 type getChatDataResponse struct {
@@ -63,6 +70,64 @@ func NewArchiveService(sdk FinanceSDK, privatePEM string, store *EvidenceStore, 
 		return nil, errors.New("timeout must be positive")
 	}
 	return &ArchiveService{sdk: sdk, privateKey: key, store: store, limit: limit, timeoutSeconds: timeoutSeconds, now: time.Now}, nil
+}
+
+func (s *ArchiveService) FetchPage(ctx context.Context, startSeq uint64, limit uint32) (ArchivePage, error) {
+	if ctx == nil {
+		return ArchivePage{}, errors.New("context is required")
+	}
+	if err := ctx.Err(); err != nil {
+		return ArchivePage{}, err
+	}
+	if limit == 0 || limit > 1000 {
+		return ArchivePage{}, errors.New("limit must be between 1 and 1000")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	value, err := s.sdk.GetChatData(startSeq, limit, s.timeoutSeconds)
+	if err != nil {
+		return ArchivePage{}, err
+	}
+	var response getChatDataResponse
+	if err := json.Unmarshal(value, &response); err != nil {
+		return ArchivePage{}, fmt.Errorf("parse GetChatData response: %w", err)
+	}
+	if response.ErrCode != 0 {
+		return ArchivePage{}, SDKError{Operation: "GetChatData", Code: response.ErrCode}
+	}
+	page := ArchivePage{StartSeq: startSeq, NextSeq: startSeq, Messages: make([]json.RawMessage, 0, len(response.ChatData))}
+	for _, item := range response.ChatData {
+		randomKey, err := decryptRandomKey(s.privateKey, item.EncryptedRandomKey)
+		if err != nil {
+			return ArchivePage{}, fmt.Errorf("decrypt random key for seq %d: %w", item.Seq, err)
+		}
+		plain, err := s.sdk.DecryptData(string(randomKey), item.EncryptedChatMsg)
+		if err != nil {
+			return ArchivePage{}, fmt.Errorf("decrypt chat message for seq %d: %w", item.Seq, err)
+		}
+		var message map[string]json.RawMessage
+		if err := json.Unmarshal(plain, &message); err != nil {
+			return ArchivePage{}, fmt.Errorf("parse chat message for seq %d: %w", item.Seq, err)
+		}
+		message["seq"] = json.RawMessage(strconv.FormatUint(item.Seq, 10))
+		if rawMsgID, ok := message["msgid"]; !ok || strings.TrimSpace(string(rawMsgID)) == "" || string(rawMsgID) == `""` {
+			encodedMsgID, err := json.Marshal(item.MsgID)
+			if err != nil {
+				return ArchivePage{}, err
+			}
+			message["msgid"] = encodedMsgID
+		}
+		raw, err := json.Marshal(message)
+		if err != nil {
+			return ArchivePage{}, fmt.Errorf("encode chat message for seq %d: %w", item.Seq, err)
+		}
+		page.Messages = append(page.Messages, raw)
+		if item.Seq > page.NextSeq {
+			page.NextSeq = item.Seq
+		}
+	}
+	return page, nil
 }
 
 func (s *ArchiveService) Pull(ctx context.Context) (PullResult, error) {

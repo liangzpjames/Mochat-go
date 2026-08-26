@@ -1,6 +1,7 @@
 package wecomarchivedemo
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -51,6 +52,53 @@ func TestAdminHandlerRequiresBearerToken(t *testing.T) {
 	handler.ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("authenticated status = %d body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestAdminHandlerServesAuthenticatedArchiveBridgePage(t *testing.T) {
+	privatePEM, encryptedRandomKey := archiveRSAFixture(t, []byte("session-key"))
+	chatData, _ := json.Marshal(map[string]any{"errcode": 0, "chatdata": []map[string]any{{
+		"seq": 41, "msgid": "msg-live-41", "publickey_ver": 3,
+		"encrypt_random_key": encryptedRandomKey, "encrypt_chat_msg": "cipher-41",
+	}}})
+	sdk := &fakeFinanceSDK{chatData: chatData, plain: map[string][]byte{
+		"cipher-41": []byte(`{"msgid":"msg-live-41","msgtype":"text","text":{"content":"live marker"}}`),
+	}}
+	store, err := NewEvidenceStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	archive, err := NewArchiveService(sdk, privatePEM, store, 100, 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	config := Config{
+		AdminToken: "admin-secret-with-at-least-forty-characters-123456",
+		CorpID:     "ww-live", ArchiveSecret: "archive-secret", RSAPrivateKey: privatePEM,
+	}
+	handler := NewAdminHandler(config, store, archive)
+
+	request := httptest.NewRequest(http.MethodPost, "/work-message/archive/messages",
+		strings.NewReader(`{"corp_id":4,"wx_corpid":"ww-live","seq":40,"limit":10}`))
+	request.Header.Set("Authorization", "Bearer "+config.AdminToken)
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), `"msgid":"msg-live-41"`) || !strings.Contains(recorder.Body.String(), `"seq":41`) {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	for _, forbidden := range []string{config.ArchiveSecret, "PRIVATE KEY"} {
+		if strings.Contains(recorder.Body.String(), forbidden) {
+			t.Fatalf("bridge response leaked protected configuration: %s", recorder.Body.String())
+		}
+	}
+
+	request = httptest.NewRequest(http.MethodPost, "/work-message/archive/messages",
+		strings.NewReader(`{"corp_id":4,"wx_corpid":"ww-other","seq":40,"limit":10}`))
+	request.Header.Set("Authorization", "Bearer "+config.AdminToken)
+	recorder = httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("mismatched corp status=%d body=%s", recorder.Code, recorder.Body.String())
 	}
 }
 

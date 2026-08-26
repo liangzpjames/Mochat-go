@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"encoding/xml"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -119,7 +120,41 @@ func NewAdminHandler(config Config, store *EvidenceStore, archive *ArchiveServic
 		}
 		writeJSON(w, http.StatusOK, result)
 	})
+	mux.HandleFunc("POST /work-message/archive/messages", func(w http.ResponseWriter, r *http.Request) {
+		if archive == nil {
+			writeJSON(w, http.StatusConflict, map[string]any{"errcode": http.StatusConflict, "errmsg": "archive pull is not configured"})
+			return
+		}
+		var input struct {
+			CorpID   int    `json:"corp_id"`
+			WXCorpID string `json:"wx_corpid"`
+			Seq      uint64 `json:"seq"`
+			Limit    uint32 `json:"limit"`
+		}
+		decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10))
+		if err := decoder.Decode(&input); err != nil || input.CorpID <= 0 || strings.TrimSpace(input.WXCorpID) != strings.TrimSpace(config.CorpID) {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"errcode": http.StatusBadRequest, "errmsg": "archive corp binding mismatch"})
+			return
+		}
+		if input.Limit == 0 {
+			input.Limit = config.PullLimit
+		}
+		page, err := archive.FetchPage(r.Context(), input.Seq, input.Limit)
+		if err != nil {
+			writeJSON(w, http.StatusBadGateway, map[string]any{"errcode": http.StatusBadGateway, "errmsg": sanitizeArchiveError(err)})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"errcode": 0, "errmsg": "ok", "messages": page.Messages})
+	})
 	return requireBearer(config.AdminToken, mux)
+}
+
+func sanitizeArchiveError(err error) string {
+	var sdkErr SDKError
+	if errors.As(err, &sdkErr) {
+		return fmt.Sprintf("%s failed with code %d", sdkErr.Operation, sdkErr.Code)
+	}
+	return "archive bridge request failed"
 }
 
 func requireBearer(token string, next http.Handler) http.Handler {

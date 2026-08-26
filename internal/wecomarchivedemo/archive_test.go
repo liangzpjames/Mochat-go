@@ -22,11 +22,15 @@ type fakeFinanceSDK struct {
 	plain      map[string][]byte
 	getErr     error
 	keys       []string
+	getSeq     uint64
+	getLimit   uint32
 	getStarted chan struct{}
 	getRelease chan struct{}
 }
 
-func (f *fakeFinanceSDK) GetChatData(_ uint64, _ uint32, _ int) ([]byte, error) {
+func (f *fakeFinanceSDK) GetChatData(seq uint64, limit uint32, _ int) ([]byte, error) {
+	f.getSeq = seq
+	f.getLimit = limit
 	if f.getStarted != nil {
 		close(f.getStarted)
 	}
@@ -46,6 +50,50 @@ func (f *fakeFinanceSDK) DecryptData(randomKey, encryptedMessage string) ([]byte
 }
 
 func (f *fakeFinanceSDK) Close() error { return nil }
+
+func TestArchiveServiceFetchPageReturnsDecryptedMessagesWithoutAdvancingState(t *testing.T) {
+	privatePEM, encryptedRandomKey := archiveRSAFixture(t, []byte("session-key"))
+	chatData, _ := json.Marshal(map[string]any{"errcode": 0, "chatdata": []map[string]any{{
+		"seq": 41, "msgid": "msg-live-41", "publickey_ver": 3,
+		"encrypt_random_key": encryptedRandomKey, "encrypt_chat_msg": "cipher-41",
+	}}})
+	sdk := &fakeFinanceSDK{chatData: chatData, plain: map[string][]byte{
+		"cipher-41": []byte(`{"msgid":"msg-live-41","action":"send","from":"employee-a","tolist":["external-a"],"msgtime":1783342800000,"msgtype":"text","text":{"content":"live marker"}}`),
+	}}
+	store, err := NewEvidenceStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	service, err := NewArchiveService(sdk, privatePEM, store, 100, 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	page, err := service.FetchPage(context.Background(), 40, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if page.StartSeq != 40 || page.NextSeq != 41 || len(page.Messages) != 1 {
+		t.Fatalf("page=%#v", page)
+	}
+	if sdk.getSeq != 40 || sdk.getLimit != 10 || len(sdk.keys) != 1 || sdk.keys[0] != "session-key" {
+		t.Fatalf("sdk request seq=%d limit=%d keys=%v", sdk.getSeq, sdk.getLimit, sdk.keys)
+	}
+	var message map[string]any
+	if err := json.Unmarshal(page.Messages[0], &message); err != nil {
+		t.Fatal(err)
+	}
+	if int(message["seq"].(float64)) != 41 || message["msgid"] != "msg-live-41" {
+		t.Fatalf("message=%#v", message)
+	}
+	state, err := store.LoadState()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Seq != 0 || state.PullCount != 0 || state.PulledMessageCount != 0 {
+		t.Fatalf("FetchPage mutated state: %#v", state)
+	}
+}
 
 func TestArchiveServicePullDecryptsAndAdvancesSeq(t *testing.T) {
 	privatePEM, encryptedRandomKey := archiveRSAFixture(t, []byte("session-key"))
