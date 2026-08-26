@@ -112,6 +112,12 @@ func TestWrapDashboardPassesAPIPathsToNext(t *testing.T) {
 	}
 
 	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/wecom/archive/callback?cid=4", nil))
+	if rec.Code != http.StatusAccepted || rec.Body.String() != "/wecom/archive/callback" {
+		t.Fatalf("archive callback path = %d %q", rec.Code, rec.Body.String())
+	}
+
+	rec = httptest.NewRecorder()
 	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/Task/AutoTag/KeyWordTag", nil))
 	if rec.Code != http.StatusAccepted || rec.Body.String() != "/Task/AutoTag/KeyWordTag" {
 		t.Fatalf("task api path = %d %q", rec.Code, rec.Body.String())

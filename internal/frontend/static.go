@@ -233,6 +233,7 @@ func reservedPath(path string) bool {
 		"/undefined/sidebar/",
 		"/undefined/operation/",
 		"/weWork/",
+		"/wecom/archive/callback",
 		"/Task/",
 		"/load/",
 		"/auth/",
