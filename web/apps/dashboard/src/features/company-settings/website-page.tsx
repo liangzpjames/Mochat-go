@@ -244,6 +244,7 @@ export function CompanyWebsitePage({ api, isSuperAdmin, onTenantAccessDenied, on
 	const hasArchiveChanges = archiveChatSecret.trim() !== '' || archiveRSAPublicKey.trim() !== '' || archiveRSAPrivateKey.trim() !== '';
 	const archiveKeyPairComplete = (archiveRSAPublicKey.trim() === '') === (archiveRSAPrivateKey.trim() === '');
 	const callbackConfiguration = callbackQuery.data;
+	const archiveCallbackUrl = buildArchiveCallbackUrl(callbackConfiguration?.callbackUrl ?? '');
   const syncStatus = syncQuery.data;
   const syncIsRunning = syncStatus?.status === 'queued' || syncStatus?.status === 'syncing' || syncMutation.isPending;
   const syncConfigurationRequired =
@@ -354,10 +355,19 @@ export function CompanyWebsitePage({ api, isSuperAdmin, onTenantAccessDenied, on
 			<div>
 			  <p className="company-profile-eyebrow">会话内容存档</p>
 			  <h2 id="company-archive-heading">会话存档配置</h2>
-			  <p>会话存档需要 Secret 与匹配的 RSA 公私钥；服务端验证密钥对后加密保存。</p>
+			  <p>将接收事件服务器 URL 填入企业微信“管理工具 → 会话内容存档”，再配置 Secret 与匹配的 RSA 公私钥。</p>
 			</div>
 			<CredentialStatus label="会话存档" configured={profile.credentials.archive.configured} />
 		  </header>
+		  {archiveCallbackUrl !== '' && (
+			<div className="company-readonly-config" aria-label="会话存档接收事件配置（只读）">
+			  <ReadonlyCopyField
+				label="接收事件服务器 URL"
+				value={archiveCallbackUrl}
+				onCopied={() => setOperationFeedback({ scope: 'archive', tone: 'notice', message: '会话存档接收事件服务器 URL 已复制。' })}
+			  />
+			</div>
+		  )}
 		  <div className="company-profile-archive-fields">
 			<SecretField label="会话存档 Secret" value={archiveChatSecret} onChange={setArchiveChatSecret} />
 			<PEMField label="会话存档 RSA 公钥" value={archiveRSAPublicKey} onChange={setArchiveRSAPublicKey} placeholder="-----BEGIN PUBLIC KEY-----" />
@@ -505,6 +515,17 @@ function ReadonlyCopyField({ label, value, onCopied }: { label: string; value: s
 			</div>
 		</label>
 	);
+}
+
+function buildArchiveCallbackUrl(callbackUrl: string): string {
+  if (callbackUrl.trim() === '') return '';
+  try {
+    const url = new URL(callbackUrl);
+    url.pathname = '/wecom/archive/callback';
+    return url.toString();
+  } catch {
+    return '';
+  }
 }
 
 function AuditList({ items }: { items: CompanyAudit[] }) {

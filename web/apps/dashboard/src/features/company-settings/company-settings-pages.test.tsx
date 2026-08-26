@@ -559,6 +559,7 @@ describe('企业设置页面', () => {
     renderPage(<CompanyWebsitePage api={api} isSuperAdmin />);
 
     expect(await screen.findByDisplayValue('http://localhost:18080/weWork/callback?cid=11')).toHaveProperty('readOnly', true);
+    expect(screen.getByDisplayValue('http://localhost:18080/wecom/archive/callback?cid=11')).toHaveProperty('readOnly', true);
     expect(screen.getByDisplayValue('callback-token')).toHaveProperty('readOnly', true);
     expect(screen.getByDisplayValue('a'.repeat(43))).toHaveProperty('readOnly', true);
     fireEvent.click(screen.getByRole('button', { name: '复制Token' }));
