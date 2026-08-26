@@ -45,6 +45,38 @@ func TestManagerEncryptsCorpAndAgentCredentialsWithBoundContext(t *testing.T) {
 	}
 }
 
+func TestAuthorizationCredentialIsTenantAndIntegrationBound(t *testing.T) {
+	manager, err := NewManager(Config{EncryptionKey: testKey(3), EncryptionKeyID: "wecom-v1", RequireEncryption: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	value := AuthorizationCredential{
+		Mode:          "third_party_delegated",
+		PermanentCode: "local-permanent-code",
+		ProviderAppID: "provider-a",
+	}
+	ciphertext, keyID, err := manager.EncryptAuthorization(7, "integration-a", value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(ciphertext, value.PermanentCode) {
+		t.Fatal("authorization ciphertext contains plaintext")
+	}
+	got, err := manager.DecryptAuthorization(7, "integration-a", keyID, ciphertext)
+	if err != nil || got != value {
+		t.Fatalf("authorization round trip failed: got=%+v err=%v", got, err)
+	}
+	if _, err := manager.DecryptAuthorization(8, "integration-a", keyID, ciphertext); err == nil {
+		t.Fatal("cross-tenant authorization decrypt succeeded")
+	}
+	if _, err := manager.DecryptAuthorization(7, "integration-b", keyID, ciphertext); err == nil {
+		t.Fatal("cross-integration authorization decrypt succeeded")
+	}
+	if _, err := manager.DecryptAuthorization(7, "integration-a", "unknown", ciphertext); err == nil {
+		t.Fatal("unknown-key authorization decrypt succeeded")
+	}
+}
+
 func TestManagerReadsHistoricalKeyAndWritesActiveKey(t *testing.T) {
 	ring := `{"wecom-v1":"` + testKey(1) + `","wecom-v2":"` + testKey(2) + `"}`
 	oldManager, err := NewManager(Config{EncryptionKeys: ring, EncryptionKeyID: "wecom-v1"})

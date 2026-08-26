@@ -16,8 +16,8 @@ import (
 )
 
 const (
-	SaaSAdminExpectedMigrationVersion = "0165_ai_daily_insight_unification"
-	SaaSAdminExpectedMigrationCount   = 165
+	SaaSAdminExpectedMigrationVersion = "0166_wecom_integration_and_archive_media"
+	SaaSAdminExpectedMigrationCount   = 166
 
 	SaaSAdminSystemHealthStateHealthy  = "healthy"
 	SaaSAdminSystemHealthStateWarning  = "warning"

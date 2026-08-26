@@ -43,6 +43,20 @@ type AgentCredential struct {
 	WXSecret string `json:"wxSecret"`
 }
 
+// AuthorizationCredential stores the encrypted credentials for one tenant's
+// selected WeCom integration. It is deliberately separate from the legacy
+// corp and agent credentials so self-built and third-party credentials cannot
+// be substituted for each other.
+type AuthorizationCredential struct {
+	Mode           string `json:"mode"`
+	EmployeeSecret string `json:"employeeSecret,omitempty"`
+	ContactSecret  string `json:"contactSecret,omitempty"`
+	AgentSecret    string `json:"agentSecret,omitempty"`
+	ChatSecret     string `json:"chatSecret,omitempty"`
+	ProviderAppID  string `json:"providerAppId,omitempty"`
+	PermanentCode  string `json:"permanentCode,omitempty"`
+}
+
 type ConfigStatus struct {
 	EncryptionConfigured bool   `json:"encryptionConfigured"`
 	RequireEncryption    bool   `json:"requireEncryption"`
@@ -147,6 +161,23 @@ func (m *Manager) DecryptAgent(corpID int, wxAgentID string, keyID string, encod
 		return AgentCredential{}, err
 	}
 	credential.WXSecret = strings.TrimSpace(credential.WXSecret)
+	return credential, nil
+}
+
+// EncryptAuthorization encrypts third-party or self-built integration
+// credentials. The integration resource type and both tenant and integration
+// IDs are authenticated as AES-GCM additional data.
+func (m *Manager) EncryptAuthorization(tenantID int, integrationID string, value AuthorizationCredential) (ciphertext, keyID string, err error) {
+	return m.encrypt("integration", tenantID, integrationID, value)
+}
+
+// DecryptAuthorization decrypts credentials only when the tenant and
+// integration IDs match those used when the encrypted value was created.
+func (m *Manager) DecryptAuthorization(tenantID int, integrationID, keyID, ciphertext string) (AuthorizationCredential, error) {
+	var credential AuthorizationCredential
+	if err := m.decrypt("integration", tenantID, integrationID, keyID, ciphertext, &credential); err != nil {
+		return AuthorizationCredential{}, err
+	}
 	return credential, nil
 }
 
