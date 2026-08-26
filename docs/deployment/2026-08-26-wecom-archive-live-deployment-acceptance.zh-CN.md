@@ -60,6 +60,9 @@
 | bridge 管理口 | 未鉴权 401；服务器本机携带受保护 Token 为 200；不公开管理 Token |
 | 专用 callback GET | 伪造签名返回 `400 text/plain`，不再返回 SPA HTML |
 | 企业微信真实 URL 校验 | 2026-08-26 20:27:30（CST）真实 GET 返回 200、响应 19 字节；证明 URL、Token 签名与 EncodingAESKey 解密/原文回包匹配，证据仅保留时间、方法、状态和字节数 |
+| 企业微信真实事件通知 | 2026-08-26 21:23:46、21:24:05（CST）收到两次真实 POST，均返回 200；主应用识别 `corp=4` 后因 Dashboard/主库尚未启用归档凭据而明确跳过主库同步 |
+| Finance SDK 真实直拉 | 官方 `GetChatData` 成功；真实游标从 `seq=0` 推进至 `seq=4`，解密并保存 4 条证据（1 条图片、3 条文本），`publickey_ver=1`，无拉取错误 |
+| 幂等与重启续拉 | `seq=4` 空页复拉为 0；bridge 重启后仍从 `seq=4` 开始且返回 0，JSONL 证据保持 4 行，无重复写入 |
 | callback POST | 非法 XML 返回 400，证明进入回调处理器 |
 | callback 子路径 / PUT | 均为 404 |
 | 定时同步 | 每 15 秒正常执行，当前 `corps=0`、`failed=0` |
@@ -97,9 +100,10 @@
 
 - 真实：服务器容器、MySQL/Redis、迁移、Nginx、健康端点、生产静态资源、现有 Dashboard 会话和 RBAC、bridge 内网鉴权、专用回调路由。
 - 合成：非法 GET 签名、非法 POST XML、cron fake bridge smoke 和 SDK 自检，仅证明失败关闭、路由和内部数据合同。
-- 已有真实证据：企业微信后台真实 GET challenge 返回 200；该项只证明 URL、Token/AES 校验链路，不等于会话内容存档已拉取。
-- 尚无真实证据：`msgaudit_notify`、真实 `GetChatData/DecryptData`、真实消息游标推进、真实客户/群/员工消息回写、真实 Sidebar 员工 OAuth/JSSDK。
-- 当前企业记录仍为 CorpID 未验证、会话存档未配置，因此 cron 的 `corps=0` 是正确的受限状态，而不是已同步 0 条消息。
+- 已有真实证据：企业微信后台真实 GET challenge、两次真实存档事件 POST、官方 Finance SDK `GetChatData/DecryptData`、`seq=0→4`、4 条脱敏证据、空页幂等和 bridge 重启续拉。
+- 尚无真实证据：主程序 MySQL 消息落库、Dashboard 会话回读、媒体 `GetMediaData` 文件下载、真实 Sidebar 员工 OAuth/JSSDK。当前图片记录只证明图片类型元数据被拉取和解密，不证明媒体文件已经下载。
+- 当前企业记录仍未在 Dashboard/主库启用完整的会话存档凭据，因此主应用在两次真实事件上均明确记录 `archive is not enabled`，cron 的 `corps=0` 是正确的受限状态；不能把隔离 bridge 的 4 条 JSONL 证据冒充主库数据。
+- 真实证据回滚点：`/opt/mochat-go/backups/wecom-archive-live-evidence-20260826T212700CST`，目录权限 `0700`、文件权限 `0600`，`SHA256SUMS` 已验证。该目录含受限消息证据，只能留在服务器审计范围内，不得上传到仓库或普通报告。
 
 ## 8. 回滚步骤
 
@@ -123,10 +127,10 @@ docker compose --env-file .env.local -f docker-compose.yml up -d --no-build --no
 
 ## 9. 下一步与剩余风险
 
-1. 在 MoChat 企业配置中完成 CorpID 验证，并确保回调 Token/EncodingAESKey 与企微会话存档后台一致。
-2. 开通会话内容存档试用、设置 RSA 公钥、允许服务器出口 IP、将测试员工加入存档范围并产生真实会话。
+1. 将本次已验证的会话存档 Secret、RSA 密钥对和 CorpID 通过受保护的服务端流程写入 MoChat 加密凭据存储，并启用 `mc_corp.id=4` 的归档状态；不得经聊天、HTTP 明文页面或命令参数传递 Secret。
+2. 复验真实事件触发与 15 秒定时兜底共用主库游标，完成 MySQL 幂等落库、Dashboard 回读和失败不推进游标。
 3. 修复/补齐“企业应用配置 → Sidebar 应用记录 → 员工 OAuth/JSSDK”的一致化链路；当前“应用不存在”是明确产品缺口。
 4. 为验收账号授予数据概览、AI 设置、AI 洞察所需页面权限，或提供已登录的对应角色；另提供 SaaS Admin 已登录态。
 5. 在真实 390×844 企微客户端中复验 Sidebar 三工作区、12 路由、客户上下文、刷新、权限、空态和失败态。
-6. 收到真实事件后核对 bridge JSONL、seq、数据库消息、敏感词消费和 Dashboard 回读，再决定是否把会话存档 Provider 从 `limited` 提升。
+6. bridge JSONL 与 seq 已通过真实验证；待数据库消息、敏感词消费和 Dashboard 回读闭合后，再决定是否把会话存档 Provider 从 `limited` 提升。
 7. 临时服务器登录密码已在会话中暴露，应立即轮换并改用 SSH Key；报告不记录该密码。

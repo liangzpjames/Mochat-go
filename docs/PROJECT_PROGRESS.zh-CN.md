@@ -280,6 +280,16 @@ Phase 7 已建立中文设计、实施计划和 ECS 交付路线，并完成隔�
 - 证据生成文件不得直接覆盖人工维护的总进度。
 - 用户审阅/确认文档使用中文；代码标识符、命令、路径与接口字段保留原文。
 
+## 企业微信会话内容存档真实试用记录（2026-08-26）
+
+- 专用地址 `http://139.196.34.133/wecom/archive/callback?cid=4` 已通过企业微信真实 GET challenge；2026-08-26 21:23:46、21:24:05（CST）又收到两次真实存档事件 POST，均返回 200。
+- 隔离 Finance SDK bridge 使用用户隐藏交付的 CorpID 与会话存档 Secret 完成真实 `GetChatData/DecryptData`：游标从 `seq=0` 推进至 `seq=4`，得到 4 条真实记录（1 条图片、3 条文本），密钥版本为 `publickey_ver=1`。
+- 幂等与恢复证据：`seq=4` 空页复拉为 0；bridge 重启后仍从 `seq=4` 开始、再次返回 0；状态为 `pulled_message_count=4`、JSONL 证据 4 行，无重复写入和拉取错误。
+- 服务器受限证据快照位于 `/opt/mochat-go/backups/wecom-archive-live-evidence-20260826T212700CST`，目录 `0700`、文件 `0600`，校验和已验证。消息正文、人员标识、Secret、私钥及管理 Token 未写入本文。
+- 真实与模拟边界：上述结果证明企微事件入口、官方 SDK 直拉、RSA 解密、seq、幂等和重启续拉；图片只完成类型元数据解密，尚未验证 `GetMediaData` 文件下载。
+- 主程序仍未闭环：两次真实事件均被主应用识别，但因 `mc_corp.id=4` 尚未在 Dashboard/主库配置完整加密归档凭据而记录 `archive is not enabled`；定时任务仍为 `corps=0`。隔离 bridge 的 4 条 JSONL 证据不得冒充 MySQL 落库、Dashboard 回读或 Sidebar 真实数据。
+- 下一门禁是安全导入会话存档凭据与 RSA 密钥到 MoChat 加密凭据存储，启用企业归档状态，再完成主库幂等落库、Dashboard 回读、敏感词消费与媒体下载验证；在此之前 Provider 保持 `LIMITED`。
+
 ## 离职员工部门选择器优化记录（2026-08-21）
 
 - 目标：移除部门名称后的员工数，统一员工会话与离职员工的部门选择控件，并补齐本地可验收的离职员工数据。
