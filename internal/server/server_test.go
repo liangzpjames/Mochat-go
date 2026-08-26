@@ -2826,18 +2826,34 @@ func TestCorpCallbackRoutesRemainAvailableAfterLegacyCutover(t *testing.T) {
 		ManifestPath: writeManifest(t),
 		ProxyTimeout: time.Second,
 	}, WithWeWorkCallbackHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("cid") != "4" {
+			t.Fatalf("callback cid = %q, want 4", r.URL.Query().Get("cid"))
+		}
 		_, _ = w.Write([]byte("go wework callback"))
 	})))
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	for _, path := range []string{"/dashboard/corp/weWorkCallback", "/weWork/callback"} {
-		req := httptest.NewRequest(http.MethodPost, path, nil)
+	for _, path := range []string{"/dashboard/corp/weWorkCallback?cid=4", "/weWork/callback?cid=4", "/wecom/archive/callback?cid=4"} {
+		for _, method := range []string{http.MethodGet, http.MethodPost} {
+			req := httptest.NewRequest(method, path, nil)
+			rec := httptest.NewRecorder()
+			srv.ServeHTTP(rec, req)
+			if rec.Code != http.StatusOK || rec.Body.String() != "go wework callback" {
+				t.Fatalf("%s %s status=%d body=%q", method, path, rec.Code, rec.Body.String())
+			}
+		}
+	}
+
+	for _, request := range []*http.Request{
+		httptest.NewRequest(http.MethodPut, "/wecom/archive/callback?cid=4", nil),
+		httptest.NewRequest(http.MethodGet, "/wecom/archive/callback/extra?cid=4", nil),
+	} {
 		rec := httptest.NewRecorder()
-		srv.ServeHTTP(rec, req)
-		if rec.Code != http.StatusOK || rec.Body.String() != "go wework callback" {
-			t.Fatalf("%s status=%d body=%q", path, rec.Code, rec.Body.String())
+		srv.ServeHTTP(rec, request)
+		if rec.Code != http.StatusNotFound {
+			t.Fatalf("%s %s status=%d, want %d", request.Method, request.URL.Path, rec.Code, http.StatusNotFound)
 		}
 	}
 }

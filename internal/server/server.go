@@ -4634,8 +4634,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.userPasswordUpdate.ServeHTTP(w, r)
 	case r.URL.Path == "/dashboard/role/permissionByUser" && r.Method == http.MethodGet && s.permissionByUser != nil:
 		s.permissionByUser.ServeHTTP(w, r)
-	case (r.URL.Path == "/weWork/callback" || r.URL.Path == "/dashboard/corp/weWorkCallback") && (r.Method == http.MethodGet || r.Method == http.MethodPost) && s.weWorkCallback != nil:
+	case (r.URL.Path == "/weWork/callback" || r.URL.Path == "/dashboard/corp/weWorkCallback" || r.URL.Path == "/wecom/archive/callback") && (r.Method == http.MethodGet || r.Method == http.MethodPost) && s.weWorkCallback != nil:
 		s.weWorkCallback.ServeHTTP(w, r)
+	case strings.HasPrefix(r.URL.Path, "/wecom/archive/callback"):
+		http.NotFound(w, r)
 	case r.URL.Path == "/dashboard/corpData/index" && r.Method == http.MethodGet && s.corpDataIndex != nil:
 		s.corpDataIndex.ServeHTTP(w, r)
 	case r.URL.Path == "/dashboard/corpData/lineChat" && r.Method == http.MethodGet && s.corpDataLineChat != nil:
@@ -6217,6 +6219,8 @@ func (s *Server) migratedRoutes() []string {
 			"POST /dashboard/corp/weWorkCallback",
 			"GET /weWork/callback",
 			"POST /weWork/callback",
+			"GET /wecom/archive/callback",
+			"POST /wecom/archive/callback",
 		)
 	}
 	if s.corpDataIndex != nil {
