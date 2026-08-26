@@ -173,7 +173,7 @@ func NewAdminHandler(config Config, store *EvidenceStore, archive *ArchiveServic
 			writeJSON(w, http.StatusBadRequest, map[string]any{"errcode": "ARCHIVE_CORP_BINDING_MISMATCH", "errmsg": "archive corp binding mismatch"})
 			return
 		}
-		if strings.TrimSpace(input.SDKFileID) == "" || len(input.SDKFileID) > 4096 || len(input.IndexBuf) > 1024 {
+		if strings.TrimSpace(input.SDKFileID) == "" || len(input.SDKFileID) > 4096 || len(input.IndexBuf) > maxMediaIndexLength {
 			writeJSON(w, http.StatusBadRequest, map[string]any{"errcode": "ARCHIVE_MEDIA_INVALID_REQUEST", "errmsg": "invalid archive media request"})
 			return
 		}

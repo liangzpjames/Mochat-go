@@ -366,6 +366,51 @@ func TestArchiveServiceFetchMediaUsesConfiguredTimeoutAndPreservesChunks(t *test
 	}
 }
 
+func TestArchiveServiceFetchMediaAllowsZeroByteChunkWhenIndexAdvances(t *testing.T) {
+	sdk := &fakeFinanceSDK{media: map[string][]MediaChunk{
+		"fixture-sdk-file": {{Data: []byte{}, NextIndexBuf: "chunk-1", Finished: false}},
+	}}
+	store, err := NewEvidenceStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	service, err := NewArchiveService(sdk, testPrivateKeyPEM(t), store, 100, 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	chunk, err := service.FetchMedia(context.Background(), "fixture-sdk-file", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(chunk.Data) != 0 || chunk.NextIndexBuf != "chunk-1" || chunk.Finished {
+		t.Fatalf("chunk=%+v", chunk)
+	}
+}
+
+func TestValidateMediaIndexLength(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		length int
+		want   int
+		ok     bool
+	}{
+		{name: "negative", length: -1, ok: false},
+		{name: "zero", length: 0, want: 0, ok: true},
+		{name: "maximum", length: maxMediaIndexLength, want: maxMediaIndexLength, ok: true},
+		{name: "over maximum", length: maxMediaIndexLength + 1, ok: false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := validateMediaIndexLength(test.length)
+			if test.ok && (err != nil || got != test.want) {
+				t.Fatalf("got=%d err=%v", got, err)
+			}
+			if !test.ok && err == nil {
+				t.Fatalf("length %d was accepted", test.length)
+			}
+		})
+	}
+}
+
 func TestFinanceSDKReportsCapabilityUnavailableOutsideLinux(t *testing.T) {
 	if runtime.GOOS == "linux" {
 		t.Skip("non-Linux capability contract")

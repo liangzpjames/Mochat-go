@@ -144,7 +144,7 @@ func (s *ArchiveService) FetchMediaWithTimeout(ctx context.Context, sdkFileID, i
 	if strings.TrimSpace(sdkFileID) == "" || len(sdkFileID) > 4096 {
 		return MediaChunk{}, errors.New("invalid SDK media identifier")
 	}
-	if len(indexBuf) > 1024 {
+	if len(indexBuf) > maxMediaIndexLength {
 		return MediaChunk{}, errors.New("invalid SDK media index")
 	}
 	if timeoutSeconds <= 0 || timeoutSeconds > 30 {

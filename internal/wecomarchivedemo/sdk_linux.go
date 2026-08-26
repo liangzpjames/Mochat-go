@@ -27,6 +27,7 @@ type financeSymbols struct {
 	freeMediaData       func(uintptr)
 	getMediaData        func(uintptr, string, string, string, string, int32, uintptr) int32
 	getOutIndexBuf      func(uintptr) uintptr
+	getIndexLen         func(uintptr) int32
 	getData             func(uintptr) uintptr
 	getDataLen          func(uintptr) int32
 	isMediaDataFinish   func(uintptr) int32
@@ -104,6 +105,7 @@ func loadFinanceSymbols(library uintptr) (financeSymbols, error) {
 		"FreeMediaData":       &symbols.freeMediaData,
 		"GetMediaData":        &symbols.getMediaData,
 		"GetOutIndexBuf":      &symbols.getOutIndexBuf,
+		"GetIndexLen":         &symbols.getIndexLen,
 		"GetData":             &symbols.getData,
 		"GetDataLen":          &symbols.getDataLen,
 		"IsMediaDataFinish":   &symbols.isMediaDataFinish,
@@ -184,7 +186,7 @@ func (s *nativeFinanceSDK) GetMediaData(ctx context.Context, sdkFileID, indexBuf
 		data = append(data, unsafe.Slice((*byte)(unsafe.Pointer(pointer)), length)...)
 	}
 	finished := s.symbols.isMediaDataFinish(media) != 0
-	nextIndexBuf, err := copyCString(s.symbols.getOutIndexBuf(media), 4096)
+	nextIndexBuf, err := copyMediaIndex(s.symbols.getOutIndexBuf(media), int(s.symbols.getIndexLen(media)))
 	if err != nil {
 		return MediaChunk{}, err
 	}
@@ -194,17 +196,18 @@ func (s *nativeFinanceSDK) GetMediaData(ctx context.Context, sdkFileID, indexBuf
 	return MediaChunk{Data: data, NextIndexBuf: nextIndexBuf, Finished: finished}, nil
 }
 
-func copyCString(pointer uintptr, maxLength int) (string, error) {
-	if pointer == 0 {
+func copyMediaIndex(pointer uintptr, length int) (string, error) {
+	length, err := validateMediaIndexLength(length)
+	if err != nil {
+		return "", err
+	}
+	if length == 0 {
 		return "", nil
 	}
-	value := unsafe.Slice((*byte)(unsafe.Pointer(pointer)), maxLength)
-	for index, item := range value {
-		if item == 0 {
-			return string(value[:index]), nil
-		}
+	if pointer == 0 {
+		return "", errors.New("WeCom Finance SDK returned a nil media index pointer")
 	}
-	return "", errors.New("WeCom Finance SDK returned an oversized media index")
+	return string(unsafe.Slice((*byte)(unsafe.Pointer(pointer)), length)), nil
 }
 
 func (s *nativeFinanceSDK) copySlice(result uintptr) ([]byte, error) {
