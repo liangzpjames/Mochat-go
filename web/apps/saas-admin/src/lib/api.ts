@@ -63,8 +63,30 @@ async function saasAuthRequest<T>(path: string, init: RequestInit): Promise<T> {
     throw new ApiError(`服务响应格式错误（HTTP ${response.status}）`, response.status, 'INVALID_RESPONSE')
   }
   const httpCode = Number(body.code || response.status)
-  if (response.status === 428 && body.errorCode === 'PASSWORD_CHANGE_REQUIRED' && body.data) {
-    return body.data
+  const continuation = body.data as unknown
+  if (
+    (path === '/saas/auth/login' || path === '/saas/auth/mfa')
+    && response.status === 428
+    && httpCode === 428
+    && body.errorCode === 'PASSWORD_CHANGE_REQUIRED'
+    && continuation !== null
+    && typeof continuation === 'object'
+    && !Array.isArray(continuation)
+  ) {
+    const fields = continuation as Record<string, unknown>
+    const allowedFields = new Set(['passwordChangeToken', 'mustRotatePassword'])
+    if (
+      Object.keys(fields).length === allowedFields.size
+      && Object.keys(fields).every((field) => allowedFields.has(field))
+      && typeof fields.passwordChangeToken === 'string'
+      && fields.passwordChangeToken.trim() !== ''
+      && fields.mustRotatePassword === true
+    ) {
+      return {
+        passwordChangeToken: fields.passwordChangeToken,
+        mustRotatePassword: true,
+      } as T
+    }
   }
   if (!response.ok || httpCode >= 400) {
     throw new ApiError(body.msg || body.message || '认证失败', response.status, body.errorCode || 'AUTH_REQUEST_FAILED', httpCode)

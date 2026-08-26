@@ -105,6 +105,29 @@ describe('SaaS Admin token storage', () => {
     })
   })
 
+  it.each([
+    ['wrong endpoint', () => changeSaaSPassword('challenge', 'new-password'), { passwordChangeToken: 'next', mustRotatePassword: true }],
+    ['wrong envelope code', () => loginSaaS('platform-admin', 'initial-password'), { passwordChangeToken: 'next', mustRotatePassword: true }, 200],
+    ['missing token', () => loginSaaS('platform-admin', 'initial-password'), { mustRotatePassword: true }],
+    ['rotation not required', () => loginSaaS('platform-admin', 'initial-password'), { passwordChangeToken: 'next', mustRotatePassword: false }],
+    ['session smuggling', () => loginSaaS('platform-admin', 'initial-password'), { passwordChangeToken: 'next', mustRotatePassword: true, token: 'session-token' }],
+  ])('fails closed for a malformed password-change continuation: %s', async (_name, request, data, code = 428) => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      code,
+      errorCode: 'PASSWORD_CHANGE_REQUIRED',
+      msg: 'password change required',
+      data,
+    }), {
+      status: 428,
+      headers: { 'Content-Type': 'application/json' },
+    })))
+
+    await expect(request()).rejects.toMatchObject({
+      machineCode: 'PASSWORD_CHANGE_REQUIRED',
+      status: 428,
+    })
+  })
+
   it('uses tenant-scoped WeCom integration endpoints and optimistic versions', async () => {
     vi.stubGlobal('localStorage', {
       getItem: vi.fn((key: string) => key === 'mochat_saas_admin_token' ? 'saas-token' : key === 'mochat_saas_admin_user_id' ? '7' : key === 'mochat_saas_admin_expires_at' ? '9999999999' : null),
