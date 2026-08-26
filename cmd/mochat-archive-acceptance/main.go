@@ -12,6 +12,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -251,18 +252,12 @@ func seed(ctx context.Context, output io.Writer, values options) error {
 	if err != nil {
 		return err
 	}
-	run, found, err := existingDatasetRun(ctx, db)
+	run, err := archiveprovider.NewSyncService(archiveStore).Sync(ctx, source, archiveprovider.SyncRequest{
+		Scope: archiveprovider.Scope{TenantID: acceptanceTenant, CorpID: acceptanceCorp}, StartCursor: archiveprovider.Cursor{}, Limit: 3,
+		RetryFailed: true, IdempotencyKey: acceptanceRunKey,
+	})
 	if err != nil {
 		return err
-	}
-	if !found {
-		run, err = archiveprovider.NewSyncService(archiveStore).Sync(ctx, source, archiveprovider.SyncRequest{
-			Scope: archiveprovider.Scope{TenantID: acceptanceTenant, CorpID: acceptanceCorp}, StartCursor: archiveprovider.Cursor{}, Limit: 3,
-			RetryFailed: true, IdempotencyKey: acceptanceRunKey,
-		})
-		if err != nil {
-			return err
-		}
 	}
 	media := archiveprovider.NewMediaSyncService(archiveStore, client, values.StorageRoot)
 	processed := 0
@@ -282,7 +277,7 @@ func seed(ctx context.Context, output io.Writer, values options) error {
 	}
 	return json.NewEncoder(output).Encode(map[string]any{
 		"dataset": datasetID, "action": "seed", "tenantId": acceptanceTenant, "corpId": acceptanceCorp,
-		"runId": run.ID, "cursor": run.Cursor.Sequence, "mediaProcessed": processed, "counts": counts, "production": false,
+		"runId": run.ID, "cursor": run.Cursor.Sequence, "syncIdempotent": run.Idempotent, "mediaProcessed": processed, "counts": counts, "production": false,
 	})
 }
 
@@ -338,22 +333,6 @@ func prepareInfrastructure(ctx context.Context, db *sql.DB, dashboardPasswordHas
 		}
 	}
 	return tx.Commit()
-}
-
-func existingDatasetRun(ctx context.Context, db *sql.DB) (archiveprovider.SyncRun, bool, error) {
-	var run archiveprovider.SyncRun
-	err := db.QueryRowContext(ctx, `SELECT CAST(id AS CHAR),status,cursor_sequence,fetched_count,processed_count,skipped_count,failed_count FROM mochat_go_archive_sync_runs WHERE tenant_id=? AND corp_id=? AND source_kind='external' AND source_id=? AND idempotency_key=? LIMIT 1`, acceptanceTenant, acceptanceCorp, acceptanceSource, acceptanceRunKey).
-		Scan(&run.ID, &run.Status, &run.Cursor.Sequence, &run.Counts.Fetched, &run.Counts.Processed, &run.Counts.Skipped, &run.Counts.Failed)
-	if errors.Is(err, sql.ErrNoRows) {
-		return archiveprovider.SyncRun{}, false, nil
-	}
-	if err != nil {
-		return archiveprovider.SyncRun{}, false, err
-	}
-	if run.Status != archiveprovider.SyncStatusSucceeded {
-		return archiveprovider.SyncRun{}, false, fmt.Errorf("existing dataset run is not succeeded")
-	}
-	return run, true, nil
 }
 
 type acceptanceCounts struct {
@@ -438,7 +417,24 @@ func verify(ctx context.Context, output io.Writer, values options) error {
 	if err := db.QueryRowContext(ctx, `SELECT id,sha256 FROM mochat_go_archive_media_objects WHERE tenant_id=? AND corp_id=? AND status='ready' ORDER BY media_type,id LIMIT 1`, acceptanceTenant, acceptanceCorp).Scan(&mediaID, &mediaSHA); err != nil {
 		return err
 	}
-	if err := verifyDashboardMediaHTTP(ctx, http.DefaultClient, values.APIBaseURL, "19008208270", password, mediaID, mediaSHA); err != nil {
+	terminalMediaIDs := make(map[string]string, 2)
+	rows, err := db.QueryContext(ctx, `SELECT id,status FROM mochat_go_archive_media_objects WHERE tenant_id=? AND corp_id=? AND msgid LIKE ? AND status IN ('missing','corrupt')`, acceptanceTenant, acceptanceCorp, datasetID+"-MSG-%")
+	if err != nil {
+		return err
+	}
+	for rows.Next() {
+		var id, mediaStatus string
+		if err := rows.Scan(&id, &mediaStatus); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		terminalMediaIDs[mediaStatus] = id
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	dashboardEvidence, err := verifyDashboardMediaHTTP(ctx, http.DefaultClient, values.APIBaseURL, "19008208270", password, mediaID, mediaSHA, terminalMediaIDs)
+	if err != nil {
 		return err
 	}
 	var unsafeLocatorCount, invalidReady int
@@ -451,7 +447,7 @@ func verify(ctx context.Context, output io.Writer, values options) error {
 	if unsafeLocatorCount != 0 || invalidReady != 0 {
 		return errors.New("archive media confidentiality or integrity contract failed")
 	}
-	rows, err := db.QueryContext(ctx, `SELECT storage_path,bytes_received,sha256 FROM mochat_go_archive_media_objects WHERE tenant_id=? AND corp_id=? AND status='ready'`, acceptanceTenant, acceptanceCorp)
+	rows, err = db.QueryContext(ctx, `SELECT storage_path,bytes_received,sha256 FROM mochat_go_archive_media_objects WHERE tenant_id=? AND corp_id=? AND status='ready'`, acceptanceTenant, acceptanceCorp)
 	if err != nil {
 		return err
 	}
@@ -496,40 +492,46 @@ func verify(ctx context.Context, output io.Writer, values options) error {
 			return errors.New("SDK media locator leaked into message projection")
 		}
 	}
-	return json.NewEncoder(output).Encode(map[string]any{"dataset": datasetID, "action": "verify", "status": "PASS", "cursor": cursor, "counts": counts, "messageTypes": expectedTypes, "syncAudits": syncAuditCount, "authorizedMediaReads": 1, "production": false})
+	return json.NewEncoder(output).Encode(map[string]any{"dataset": datasetID, "action": "verify", "status": "PASS", "cursor": cursor, "counts": counts, "messageTypes": expectedTypes, "syncAudits": syncAuditCount, "authorizedMediaReads": 1, "terminalMediaReads": map[string]int{"missing": http.StatusNotFound, "corrupt": http.StatusNotFound}, "dashboardMessages": dashboardEvidence.MessageCount, "dashboardMediaTypes": dashboardEvidence.MediaTypes, "dashboardMessageTypes": dashboardEvidence.MessageTypes, "production": false})
 }
 
-func verifyDashboardMediaHTTP(ctx context.Context, client *http.Client, baseURL, loginIdentifier, password, mediaID, expectedSHA256 string) error {
+type dashboardProjectionEvidence struct {
+	MessageCount int
+	MediaTypes   []string
+	MessageTypes []int
+}
+
+func verifyDashboardMediaHTTP(ctx context.Context, client *http.Client, baseURL, loginIdentifier, password, mediaID, expectedSHA256 string, terminalMediaIDs map[string]string) (dashboardProjectionEvidence, error) {
 	if client == nil {
 		client = http.DefaultClient
 	}
 	mediaURL := strings.TrimRight(baseURL, "/") + "/dashboard/archive/media/" + mediaID + "/content"
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, mediaURL, nil)
 	if err != nil {
-		return err
+		return dashboardProjectionEvidence{}, err
 	}
 	response, err := client.Do(request)
 	if err != nil {
-		return err
+		return dashboardProjectionEvidence{}, err
 	}
 	_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 4096))
 	_ = response.Body.Close()
 	if response.StatusCode != http.StatusUnauthorized {
-		return fmt.Errorf("unauthenticated archive media returned status %d", response.StatusCode)
+		return dashboardProjectionEvidence{}, fmt.Errorf("unauthenticated archive media returned status %d", response.StatusCode)
 	}
 
 	loginBody, err := json.Marshal(map[string]string{"phone": loginIdentifier, "password": password})
 	if err != nil {
-		return err
+		return dashboardProjectionEvidence{}, err
 	}
 	request, err = http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(baseURL, "/")+"/dashboard/user/auth", bytes.NewReader(loginBody))
 	if err != nil {
-		return err
+		return dashboardProjectionEvidence{}, err
 	}
 	request.Header.Set("Content-Type", "application/json")
 	response, err = client.Do(request)
 	if err != nil {
-		return err
+		return dashboardProjectionEvidence{}, err
 	}
 	defer response.Body.Close()
 	var envelope struct {
@@ -538,28 +540,143 @@ func verifyDashboardMediaHTTP(ctx context.Context, client *http.Client, baseURL,
 		} `json:"data"`
 	}
 	if response.StatusCode != http.StatusOK || json.NewDecoder(io.LimitReader(response.Body, 1<<20)).Decode(&envelope) != nil || strings.TrimSpace(envelope.Data.Token) == "" {
-		return fmt.Errorf("dashboard acceptance login returned status %d", response.StatusCode)
+		return dashboardProjectionEvidence{}, fmt.Errorf("dashboard acceptance login returned status %d", response.StatusCode)
 	}
 
 	request, err = http.NewRequestWithContext(ctx, http.MethodGet, mediaURL, nil)
 	if err != nil {
-		return err
+		return dashboardProjectionEvidence{}, err
 	}
 	request.Header.Set("Authorization", "Bearer "+strings.TrimSpace(envelope.Data.Token))
 	response, err = client.Do(request)
 	if err != nil {
-		return err
+		return dashboardProjectionEvidence{}, err
 	}
 	defer response.Body.Close()
 	body, err := io.ReadAll(io.LimitReader(response.Body, 16<<20))
 	if err != nil {
-		return err
+		return dashboardProjectionEvidence{}, err
 	}
 	actual := fmt.Sprintf("%x", sha256.Sum256(body))
 	if response.StatusCode != http.StatusOK || !strings.EqualFold(actual, strings.TrimSpace(expectedSHA256)) {
-		return fmt.Errorf("authenticated archive media integrity check failed with status %d", response.StatusCode)
+		return dashboardProjectionEvidence{}, fmt.Errorf("authenticated archive media integrity check failed with status %d", response.StatusCode)
 	}
-	return nil
+	for _, terminalStatus := range []string{"missing", "corrupt"} {
+		terminalID := strings.TrimSpace(terminalMediaIDs[terminalStatus])
+		if terminalID == "" {
+			return dashboardProjectionEvidence{}, fmt.Errorf("dashboard acceptance fixture missing %s media id", terminalStatus)
+		}
+		request, err = http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(baseURL, "/")+"/dashboard/archive/media/"+url.PathEscape(terminalID)+"/content", nil)
+		if err != nil {
+			return dashboardProjectionEvidence{}, err
+		}
+		request.Header.Set("Authorization", "Bearer "+strings.TrimSpace(envelope.Data.Token))
+		response, err = client.Do(request)
+		if err != nil {
+			return dashboardProjectionEvidence{}, err
+		}
+		_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 4096))
+		_ = response.Body.Close()
+		if response.StatusCode != http.StatusNotFound {
+			return dashboardProjectionEvidence{}, fmt.Errorf("dashboard %s archive media returned status %d", terminalStatus, response.StatusCode)
+		}
+	}
+	return verifyDashboardGlobalMessagesHTTP(ctx, client, baseURL, strings.TrimSpace(envelope.Data.Token))
+}
+
+func verifyDashboardGlobalMessagesHTTP(ctx context.Context, client *http.Client, baseURL, token string) (dashboardProjectionEvidence, error) {
+	listURL := fmt.Sprintf("%s/dashboard/workMessage/toUsers?view=global&corpId=%d&page=1&pageSize=100", strings.TrimRight(baseURL, "/"), acceptanceCorp)
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, listURL, nil)
+	if err != nil {
+		return dashboardProjectionEvidence{}, err
+	}
+	request.Header.Set("Authorization", "Bearer "+token)
+	response, err := client.Do(request)
+	if err != nil {
+		return dashboardProjectionEvidence{}, err
+	}
+	defer response.Body.Close()
+	var listEnvelope struct {
+		Code int `json:"code"`
+		Data struct {
+			List []struct {
+				ID              string `json:"id"`
+				ArchiveSource   string `json:"archiveSource"`
+				ArchiveSourceID string `json:"archiveSourceId"`
+			} `json:"list"`
+			Total int `json:"total"`
+		} `json:"data"`
+	}
+	if response.StatusCode != http.StatusOK || json.NewDecoder(io.LimitReader(response.Body, 1<<20)).Decode(&listEnvelope) != nil || listEnvelope.Code != http.StatusOK {
+		return dashboardProjectionEvidence{}, fmt.Errorf("dashboard global message list returned status %d", response.StatusCode)
+	}
+	var anchorID string
+	for _, item := range listEnvelope.Data.List {
+		if strings.HasPrefix(item.ID, "msg:"+datasetID+"-MSG-") && item.ArchiveSource == "external" && strings.HasPrefix(item.ArchiveSourceID, "wecom:") {
+			anchorID = item.ID
+			break
+		}
+	}
+	if listEnvelope.Data.Total <= 0 || anchorID == "" {
+		return dashboardProjectionEvidence{}, errors.New("dashboard global message list does not expose the acceptance archive")
+	}
+	detailURL := strings.TrimRight(baseURL, "/") + "/dashboard/workMessage/detail?id=" + url.QueryEscape(anchorID)
+	request, err = http.NewRequestWithContext(ctx, http.MethodGet, detailURL, nil)
+	if err != nil {
+		return dashboardProjectionEvidence{}, err
+	}
+	request.Header.Set("Authorization", "Bearer "+token)
+	response, err = client.Do(request)
+	if err != nil {
+		return dashboardProjectionEvidence{}, err
+	}
+	defer response.Body.Close()
+	var detailEnvelope struct {
+		Code int `json:"code"`
+		Data struct {
+			MessageTotal int `json:"messageTotal"`
+			Messages     []struct {
+				ID            string         `json:"id"`
+				ArchiveSource string         `json:"archiveSource"`
+				Type          int            `json:"type"`
+				Content       map[string]any `json:"content"`
+			} `json:"messages"`
+		} `json:"data"`
+	}
+	if response.StatusCode != http.StatusOK || json.NewDecoder(io.LimitReader(response.Body, 4<<20)).Decode(&detailEnvelope) != nil || detailEnvelope.Code != http.StatusOK {
+		return dashboardProjectionEvidence{}, fmt.Errorf("dashboard global message detail returned status %d", response.StatusCode)
+	}
+	foundTypes := map[string]bool{}
+	foundMessageTypes := map[int]bool{}
+	for _, message := range detailEnvelope.Data.Messages {
+		if !strings.HasPrefix(message.ID, "msg:"+datasetID+"-MSG-") || message.ArchiveSource != "external" {
+			continue
+		}
+		foundMessageTypes[message.Type] = true
+		media, _ := message.Content["media"].(map[string]any)
+		mediaType, _ := media["type"].(string)
+		status, _ := media["status"].(string)
+		mediaURL, _ := media["url"].(string)
+		if status == "ready" && strings.HasPrefix(mediaURL, "/dashboard/archive/media/") && strings.HasSuffix(mediaURL, "/content") {
+			foundTypes[mediaType] = true
+		}
+	}
+	requiredTypes := []string{"image", "voice", "video", "file"}
+	for _, mediaType := range requiredTypes {
+		if !foundTypes[mediaType] {
+			return dashboardProjectionEvidence{}, fmt.Errorf("dashboard global message detail missing ready %s projection", mediaType)
+		}
+	}
+	requiredMessageTypes := []int{1, 2, 3, 4, 5, 9}
+	for _, messageType := range requiredMessageTypes {
+		if !foundMessageTypes[messageType] {
+			return dashboardProjectionEvidence{}, fmt.Errorf("dashboard global message detail missing message type %d", messageType)
+		}
+	}
+	if detailEnvelope.Data.MessageTotal < 9 || len(detailEnvelope.Data.Messages) < 9 {
+		return dashboardProjectionEvidence{}, fmt.Errorf("dashboard global message detail count=%d messages=%d", detailEnvelope.Data.MessageTotal, len(detailEnvelope.Data.Messages))
+	}
+	return dashboardProjectionEvidence{MessageCount: detailEnvelope.Data.MessageTotal, MediaTypes: requiredTypes, MessageTypes: requiredMessageTypes}, nil
 }
 
 func cleanupStatements() []string {

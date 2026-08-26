@@ -19,6 +19,7 @@ done
 for name in \
   0127_dashboard_page_rbac.up.sql \
   0129_identity_realms_single_corp_schema.up.sql \
+  0133_archive_simulation_registry.up.sql \
   0138_archive_source_sync.up.sql \
   0143_group_conversation_workspace.up.sql \
   0166_wecom_integration_and_archive_media.up.sql

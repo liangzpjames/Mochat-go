@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -122,10 +123,10 @@ func TestDatasetObjectPathAcceptsStoredAbsolutePathWithinArchiveMediaRoot(t *tes
 	}
 }
 
-func TestVerifyDashboardMediaHTTPUsesRealLoginAndRejectsUnauthenticatedRead(t *testing.T) {
+func TestVerifyDashboardMediaHTTPUsesRealLoginAndProjectsGlobalArchiveMedia(t *testing.T) {
 	payload := []byte("fixture-media")
 	digest := sha256.Sum256(payload)
-	var unauthenticated, authenticated bool
+	var unauthenticated, authenticated, missingRead, corruptRead, globalListRead, globalDetailRead bool
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
 		switch request.URL.Path {
 		case "/dashboard/user/auth":
@@ -141,16 +142,57 @@ func TestVerifyDashboardMediaHTTPUsesRealLoginAndRejectsUnauthenticatedRead(t *t
 			}
 			authenticated = true
 			_, _ = w.Write(payload)
+		case "/dashboard/archive/media/missing-id/content":
+			missingRead = true
+			w.WriteHeader(http.StatusNotFound)
+		case "/dashboard/archive/media/corrupt-id/content":
+			corruptRead = true
+			w.WriteHeader(http.StatusNotFound)
+		case "/dashboard/workMessage/toUsers":
+			if request.Header.Get("Authorization") != "Bearer opaque-dashboard-token" || request.URL.Query().Get("view") != "global" || request.URL.Query().Get("corpId") != "820827" {
+				t.Fatalf("global list request=%s auth=%q", request.URL.String(), request.Header.Get("Authorization"))
+			}
+			globalListRead = true
+			_ = json.NewEncoder(w).Encode(map[string]any{"code": 200, "data": map[string]any{
+				"list":  []map[string]any{{"id": "msg:" + datasetID + "-MSG-09", "archiveSource": "external", "archiveSourceId": "wecom:ww-local-acceptance"}},
+				"total": 1, "page": 1, "pageSize": 100,
+			}})
+		case "/dashboard/workMessage/detail":
+			if request.Header.Get("Authorization") != "Bearer opaque-dashboard-token" || request.URL.Query().Get("id") != "msg:"+datasetID+"-MSG-09" {
+				t.Fatalf("global detail request=%s auth=%q", request.URL.String(), request.Header.Get("Authorization"))
+			}
+			globalDetailRead = true
+			messages := make([]map[string]any, 0, 4)
+			for index, mediaType := range []string{"image", "voice", "video", "file"} {
+				messages = append(messages, map[string]any{
+					"id": fmt.Sprintf("msg:%s-MSG-%02d", datasetID, index+2), "archiveSource": "external", "type": index + 2,
+					"content": map[string]any{"media": map[string]any{"id": fmt.Sprintf("media-%d", index), "type": mediaType, "status": "ready", "url": fmt.Sprintf("/dashboard/archive/media/media-%d/content", index)}},
+				})
+			}
+			for _, fixture := range []struct{ sequence, messageType int }{{1, 1}, {6, 6}, {7, 7}, {8, 9}, {9, 100}} {
+				messages = append(messages, map[string]any{
+					"id": fmt.Sprintf("msg:%s-MSG-%02d", datasetID, fixture.sequence), "archiveSource": "external", "type": fixture.messageType,
+					"content": map[string]any{"value": datasetID},
+				})
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"code": 200, "data": map[string]any{"messages": messages, "messageTotal": 9}})
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
 	}))
 	defer server.Close()
-	if err := verifyDashboardMediaHTTP(context.Background(), server.Client(), server.URL, "19008208270", "local-password", "8ff7bf2d-5604-43bc-a600-3ec91d575085", fmt.Sprintf("%x", digest)); err != nil {
+	evidence, err := verifyDashboardMediaHTTP(context.Background(), server.Client(), server.URL, "19008208270", "local-password", "8ff7bf2d-5604-43bc-a600-3ec91d575085", fmt.Sprintf("%x", digest), map[string]string{"missing": "missing-id", "corrupt": "corrupt-id"})
+	if err != nil {
 		t.Fatal(err)
 	}
-	if !unauthenticated || !authenticated {
-		t.Fatalf("unauthenticated=%t authenticated=%t", unauthenticated, authenticated)
+	if evidence.MessageCount != 9 || strings.Join(evidence.MediaTypes, ",") != "image,voice,video,file" {
+		t.Fatalf("evidence=%+v", evidence)
+	}
+	if !reflect.DeepEqual(evidence.MessageTypes, []int{1, 2, 3, 4, 5, 9}) {
+		t.Fatalf("message types=%v", evidence.MessageTypes)
+	}
+	if !unauthenticated || !authenticated || !missingRead || !corruptRead || !globalListRead || !globalDetailRead {
+		t.Fatalf("unauthenticated=%t authenticated=%t missing=%t corrupt=%t globalList=%t globalDetail=%t", unauthenticated, authenticated, missingRead, corruptRead, globalListRead, globalDetailRead)
 	}
 }
 
