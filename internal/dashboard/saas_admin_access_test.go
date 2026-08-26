@@ -143,6 +143,22 @@ func TestSaaSAdminAccessWildcardPermissionAuthorizesWithoutLegacySuperAdminFlag(
 	}
 }
 
+func TestWeComIntegrationUsesCanonicalPermissionConstants(t *testing.T) {
+	_, currentFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("resolve current test file")
+	}
+	body, err := os.ReadFile(filepath.Join(filepath.Dir(currentFile), "..", "dashboardadmin", "wecom_integration.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, duplicate := range []string{"PermissionIntegrationsRead", "PermissionIntegrationsManage"} {
+		if strings.Contains(string(body), duplicate) {
+			t.Fatalf("dashboardadmin duplicates canonical permission constant %q", duplicate)
+		}
+	}
+}
+
 func TestEverySaaSAdminRuntimeRouteHasPermissionClassification(t *testing.T) {
 	_, currentFile, _, ok := runtime.Caller(0)
 	if !ok {

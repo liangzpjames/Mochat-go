@@ -12,8 +12,6 @@ import (
 )
 
 const (
-	PermissionIntegrationsRead     = "platform.integrations.read"
-	PermissionIntegrationsManage   = "platform.integrations.manage"
 	WeComVerificationLocalContract = "local_contract"
 )
 

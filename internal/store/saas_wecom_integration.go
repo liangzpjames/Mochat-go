@@ -33,7 +33,7 @@ func (s *MySQLStore) WeComIntegration(ctx context.Context, actor dashboardadmin.
 		return dashboardadmin.WeComIntegrationView{}, err
 	}
 	defer tx.Rollback()
-	if err = lockSaaSActorPermissionTx(ctx, tx, actor.UserID, dashboardadmin.PermissionIntegrationsRead); err != nil {
+	if err = lockSaaSActorPermissionTx(ctx, tx, actor.UserID, dashboard.SaaSAdminPermissionIntegrationsRead); err != nil {
 		return dashboardadmin.WeComIntegrationView{}, err
 	}
 	binding, err := lockWeComBindingTx(ctx, tx, tenantID)
@@ -59,7 +59,7 @@ func (s *MySQLStore) SaveWeComIntegrationCandidate(ctx context.Context, actor da
 		return dashboardadmin.WeComIntegration{}, err
 	}
 	defer tx.Rollback()
-	if err = lockSaaSActorPermissionTx(ctx, tx, actor.UserID, dashboardadmin.PermissionIntegrationsManage); err != nil {
+	if err = lockSaaSActorPermissionTx(ctx, tx, actor.UserID, dashboard.SaaSAdminPermissionIntegrationsManage); err != nil {
 		return dashboardadmin.WeComIntegration{}, err
 	}
 	binding, err := lockWeComBindingTx(ctx, tx, tenantID)
@@ -169,7 +169,7 @@ func (s *MySQLStore) WeComIntegrationVerificationCandidate(ctx context.Context, 
 		return dashboardadmin.WeComVerificationCandidate{}, err
 	}
 	defer tx.Rollback()
-	if err = lockSaaSActorPermissionTx(ctx, tx, actor.UserID, dashboardadmin.PermissionIntegrationsManage); err != nil {
+	if err = lockSaaSActorPermissionTx(ctx, tx, actor.UserID, dashboard.SaaSAdminPermissionIntegrationsManage); err != nil {
 		return dashboardadmin.WeComVerificationCandidate{}, err
 	}
 	binding, err := lockWeComBindingTx(ctx, tx, tenantID)
@@ -205,7 +205,7 @@ func (s *MySQLStore) CompleteWeComIntegrationVerification(ctx context.Context, a
 		return dashboardadmin.WeComIntegration{}, err
 	}
 	defer tx.Rollback()
-	if err = lockSaaSActorPermissionTx(ctx, tx, actor.UserID, dashboardadmin.PermissionIntegrationsManage); err != nil {
+	if err = lockSaaSActorPermissionTx(ctx, tx, actor.UserID, dashboard.SaaSAdminPermissionIntegrationsManage); err != nil {
 		return dashboardadmin.WeComIntegration{}, err
 	}
 	binding, err := lockWeComBindingTx(ctx, tx, tenantID)
@@ -222,10 +222,12 @@ func (s *MySQLStore) CompleteWeComIntegrationVerification(ctx context.Context, a
 	if before.Version != version {
 		return dashboardadmin.WeComIntegration{}, dashboardadmin.ErrVersionConflict
 	}
-	status := "active"
+	status, err := weComIntegrationVerificationStatus(verification, errorCode)
+	if err != nil {
+		return dashboardadmin.WeComIntegration{}, err
+	}
 	verifiedAt := "NOW(6)"
 	if errorCode != "" {
-		status = "failed"
 		verifiedAt = "NULL"
 		verification = dashboardadmin.WeComVerificationResult{}
 	}
@@ -269,7 +271,7 @@ func (s *MySQLStore) swapWeComIntegration(ctx context.Context, actor dashboardad
 		return dashboardadmin.WeComIntegrationView{}, err
 	}
 	defer tx.Rollback()
-	if err = lockSaaSActorPermissionTx(ctx, tx, actor.UserID, dashboardadmin.PermissionIntegrationsManage); err != nil {
+	if err = lockSaaSActorPermissionTx(ctx, tx, actor.UserID, dashboard.SaaSAdminPermissionIntegrationsManage); err != nil {
 		return dashboardadmin.WeComIntegrationView{}, err
 	}
 	binding, err := lockWeComBindingTx(ctx, tx, tenantID)
@@ -338,7 +340,7 @@ func (s *MySQLStore) WeComIntegrationAudits(ctx context.Context, actor dashboard
 		return nil, err
 	}
 	defer tx.Rollback()
-	if err = lockSaaSActorPermissionTx(ctx, tx, actor.UserID, dashboardadmin.PermissionIntegrationsRead); err != nil {
+	if err = lockSaaSActorPermissionTx(ctx, tx, actor.UserID, dashboard.SaaSAdminPermissionIntegrationsRead); err != nil {
 		return nil, err
 	}
 	if _, err = lockWeComBindingTx(ctx, tx, tenantID); err != nil {
@@ -459,10 +461,10 @@ func nextWeComIntegrationGeneration(left, right uint64) uint64 {
 }
 
 func validateWeComIntegrationSwap(binding weComBinding, current, candidate dashboardadmin.WeComIntegration, version uint64, activeLeases int, decryptErr error) (uint64, error) {
-	if current.Version != version {
+	if candidate.Version != version {
 		return 0, dashboardadmin.ErrVersionConflict
 	}
-	if candidate.Status != "active" || candidate.VerifiedAt == "" {
+	if candidate.Status != "active" || candidate.VerifiedAt == "" || candidate.VerificationLevel != dashboardadmin.WeComVerificationLocalContract {
 		return 0, dashboardadmin.ErrWeComCandidateNotVerified
 	}
 	if candidate.VerifiedWXCorpID != binding.WXCorpID {
@@ -478,6 +480,16 @@ func validateWeComIntegrationSwap(binding weComBinding, current, candidate dashb
 		return 0, dashboardadmin.ErrWeComActiveMediaLease
 	}
 	return nextWeComIntegrationGeneration(current.Generation, candidate.Generation), nil
+}
+
+func weComIntegrationVerificationStatus(verification dashboardadmin.WeComVerificationResult, errorCode string) (string, error) {
+	if strings.TrimSpace(errorCode) != "" {
+		return "failed", nil
+	}
+	if verification.VerificationLevel != dashboardadmin.WeComVerificationLocalContract {
+		return "", dashboardadmin.ErrInvalidRequest
+	}
+	return "active", nil
 }
 func weComCredentialHint(c wecomcredentials.AuthorizationCredential) string {
 	names := []string{}

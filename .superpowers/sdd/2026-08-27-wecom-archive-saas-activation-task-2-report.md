@@ -54,3 +54,31 @@
 ## Concerns
 
 - brief 指定测试及额外 server 路由测试均已通过；本轮未连接真实 MySQL 或真实企业微信。真实企微调用被设计为显式不启用，MySQL 事务语义由单元/合同测试和现有 schema 约束覆盖。
+
+## 独立审查修复（2026-08-27）
+
+### RED 证据
+
+- 增加 candidate version 流程、store verification-level 门禁和权威权限常量测试后，执行 `go test ./internal/dashboardadmin ./internal/store ./internal/dashboard -run 'WeComIntegration|SaaSAdminAccess' -count=1`：
+  - store 测试因 `weComIntegrationVerificationStatus` 尚不存在而构建失败；
+  - dashboard 测试发现 `dashboardadmin` 仍重复声明 `PermissionIntegrationsRead/Manage`；
+  - candidate version 流程用例明确建模 current v1、save candidate v1、verify candidate v2、switch request v2，以及陈旧 request v1 必须冲突。
+
+### 修复说明
+
+- switch 与 rollback 的 optimistic locking 改为比较即将提升的 `candidate.Version`，不再错误比较 `current.Version`。
+- 新增 sqlmock 真实 store 流程测试，依次执行 `SaveWeComIntegrationCandidate`、`VerifyCandidate`、`Switch`，证明 candidate v1 验证后成为 v2，switch request v2 可成功提升且新 current 为 v3；独立 guard 用例证明陈旧 v1 被 `ErrVersionConflict` 拒绝。
+- `CompleteWeComIntegrationVerification` 在 store 层强制成功结果的 `verificationLevel` 必须精确为 `local_contract`；空值、带额外空白、`online` 和未知值不能写成 active。失败结果仍只能写成 failed。
+- switch/rollback 提升门禁同时强制候选记录已持久化 `verificationLevel=local_contract`；空值、online 和未知值统一按未验证拒绝。
+- 删除 `dashboardadmin` 的重复权限字符串；store 直接引用 `dashboard.SaaSAdminPermissionIntegrationsRead/Manage` 权威常量，并加入防漂移源码合同测试。
+
+### GREEN 证据
+
+- `go test ./internal/dashboardadmin ./internal/store ./internal/dashboard -run 'WeComIntegration|SaaSAdminAccess' -count=1`：3 个包通过。
+- `go test ./cmd/mochat-go -run 'SaaS|Approval|Composition' -count=1`：通过。
+- `go test ./internal/migration -run 0166 -count=1`：通过。
+- `git diff --check`：通过，仅有 Windows LF/CRLF 提示，无 whitespace error。
+
+### 审查修复后的 concerns
+
+- 无已知 Important/Minor 遗留；真实企业微信仍按任务约束不调用。完整 store 流程使用 sqlmock 覆盖 SQL 事务交互，未连接外部 MariaDB。
