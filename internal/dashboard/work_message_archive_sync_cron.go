@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -68,6 +69,7 @@ type WorkMessageArchiveSyncClient interface {
 }
 
 type WorkMessageArchiveSyncCron struct {
+	mu     sync.Mutex
 	store  WorkMessageArchiveSyncStore
 	client WorkMessageArchiveSyncClient
 	logger *log.Logger
@@ -97,6 +99,8 @@ func (c *WorkMessageArchiveSyncCron) RunOnce(ctx context.Context) error {
 	if c.store == nil || c.client == nil {
 		return fmt.Errorf("workMessageArchive sync cron dependencies are not configured")
 	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	corps, err := c.store.WorkMessageArchiveEnabledCorps(ctx)
 	if err != nil {
 		return err
@@ -116,6 +120,35 @@ func (c *WorkMessageArchiveSyncCron) RunOnce(ctx context.Context) error {
 	}
 	c.logger.Printf("workMessageArchive sync cron finished: corps=%d fetched=%d inserted=%d skipped=%d failed=%d last_seq=%d", result.CorpsScanned, result.MessagesFetched, result.MessagesInserted, result.ItemsSkipped, result.ItemsFailed, result.LastSeq)
 	return firstErr
+}
+
+func (c *WorkMessageArchiveSyncCron) RunCorp(ctx context.Context, corpID int) error {
+	if c.store == nil || c.client == nil {
+		return fmt.Errorf("workMessageArchive sync cron dependencies are not configured")
+	}
+	if corpID <= 0 {
+		return fmt.Errorf("workMessageArchive sync corp id is required")
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	corps, err := c.store.WorkMessageArchiveEnabledCorps(ctx)
+	if err != nil {
+		return err
+	}
+	limit := c.limit
+	if limit <= 0 {
+		limit = WorkMessageArchiveDefaultSyncLimit
+	}
+	for _, corp := range corps {
+		if corp.CorpID != corpID {
+			continue
+		}
+		result, err := c.syncCorp(ctx, corp, limit)
+		c.logger.Printf("workMessageArchive event sync finished: corp=%d fetched=%d inserted=%d skipped=%d failed=%d last_seq=%d", corpID, result.MessagesFetched, result.MessagesInserted, result.ItemsSkipped, result.ItemsFailed, result.LastSeq)
+		return err
+	}
+	c.logger.Printf("workMessageArchive event sync skipped: corp=%d archive is not enabled", corpID)
+	return nil
 }
 
 func (c *WorkMessageArchiveSyncCron) syncCorp(ctx context.Context, corp WorkMessageArchiveCorp, limit int) (WorkMessageArchiveSyncResult, error) {

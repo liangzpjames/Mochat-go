@@ -127,22 +127,27 @@ type WeWorkCallbackWorkerClient interface {
 	GroupChatDetail(ctx context.Context, credential RoomWelcomeCorpCredential, wxChatID string) (WorkRoomSyncRoom, error)
 }
 
+type WorkMessageArchiveSyncTrigger interface {
+	RunCorp(context.Context, int) error
+}
+
 type WeWorkCallbackWorker struct {
-	queue             WeWorkCallbackWorkerQueue
-	store             WeWorkCallbackWorkerStore
-	client            WeWorkCallbackWorkerClient
-	passwordKey       string
-	pollTimeout       time.Duration
-	maxAttempts       int
-	processingTimeout time.Duration
-	recoveryInterval  time.Duration
-	apiBaseURL        string
-	operationBaseURL  string
-	sidebarBaseURL    string
-	fileStorageRoot   string
-	alertNotifier     SaaSAlertNotifier
-	logger            *log.Logger
-	now               func() time.Time
+	queue              WeWorkCallbackWorkerQueue
+	store              WeWorkCallbackWorkerStore
+	client             WeWorkCallbackWorkerClient
+	passwordKey        string
+	pollTimeout        time.Duration
+	maxAttempts        int
+	processingTimeout  time.Duration
+	recoveryInterval   time.Duration
+	apiBaseURL         string
+	operationBaseURL   string
+	sidebarBaseURL     string
+	fileStorageRoot    string
+	alertNotifier      SaaSAlertNotifier
+	archiveSyncTrigger WorkMessageArchiveSyncTrigger
+	logger             *log.Logger
+	now                func() time.Time
 }
 
 func NewWeWorkCallbackWorker(queue WeWorkCallbackWorkerQueue, store WeWorkCallbackWorkerStore, client WeWorkCallbackWorkerClient, passwordKey string, logger *log.Logger) *WeWorkCallbackWorker {
@@ -195,6 +200,11 @@ func (w *WeWorkCallbackWorker) WithFileStorageRoot(fileStorageRoot string) *WeWo
 
 func (w *WeWorkCallbackWorker) WithSaaSAlertNotifier(notifier SaaSAlertNotifier) *WeWorkCallbackWorker {
 	w.alertNotifier = notifier
+	return w
+}
+
+func (w *WeWorkCallbackWorker) WithArchiveSyncTrigger(trigger WorkMessageArchiveSyncTrigger) *WeWorkCallbackWorker {
+	w.archiveSyncTrigger = trigger
 	return w
 }
 
@@ -279,6 +289,11 @@ func (w *WeWorkCallbackWorker) Process(ctx context.Context, event WeWorkCallback
 		return fmt.Errorf("missing corp id")
 	}
 	switch strings.TrimSpace(event.EventPath) {
+	case "event.msgaudit_notify":
+		if w.archiveSyncTrigger == nil {
+			return nil
+		}
+		return w.archiveSyncTrigger.RunCorp(ctx, corpID)
 	case "event.change_contact.create_user", "event.change_contact.update_user":
 		return w.syncEmployeeFromEvent(ctx, corpID, event)
 	case "event.change_contact.create_party":

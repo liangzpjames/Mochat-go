@@ -2,6 +2,7 @@ package dashboard
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"path/filepath"
@@ -11,6 +12,39 @@ import (
 
 	"jiyi/mochat-go/internal/taskrunner"
 )
+
+func TestWeWorkCallbackWorkerTriggersArchiveSyncForMessageAuditNotification(t *testing.T) {
+	trigger := &fakeWorkMessageArchiveSyncTrigger{}
+	worker := NewWeWorkCallbackWorker(nil, &fakeWeWorkCallbackWorkerStore{}, &fakeWeWorkCallbackWorkerClient{}, "", log.Default()).
+		WithArchiveSyncTrigger(trigger)
+
+	if err := worker.Process(context.Background(), WeWorkCallbackEvent{CorpID: 4, EventPath: "event.msgaudit_notify"}); err != nil {
+		t.Fatal(err)
+	}
+	if len(trigger.corpIDs) != 1 || trigger.corpIDs[0] != 4 {
+		t.Fatalf("triggered corps=%v, want [4]", trigger.corpIDs)
+	}
+
+	trigger.err = errors.New("archive bridge unavailable")
+	if err := worker.Process(context.Background(), WeWorkCallbackEvent{CorpID: 4, EventPath: "event.msgaudit_notify"}); !errors.Is(err, trigger.err) {
+		t.Fatalf("Process error=%v, want trigger error", err)
+	}
+
+	withoutTrigger := NewWeWorkCallbackWorker(nil, &fakeWeWorkCallbackWorkerStore{}, &fakeWeWorkCallbackWorkerClient{}, "", log.Default())
+	if err := withoutTrigger.Process(context.Background(), WeWorkCallbackEvent{CorpID: 4, EventPath: "event.msgaudit_notify"}); err != nil {
+		t.Fatalf("disabled archive trigger error=%v", err)
+	}
+}
+
+type fakeWorkMessageArchiveSyncTrigger struct {
+	corpIDs []int
+	err     error
+}
+
+func (f *fakeWorkMessageArchiveSyncTrigger) RunCorp(_ context.Context, corpID int) error {
+	f.corpIDs = append(f.corpIDs, corpID)
+	return f.err
+}
 
 func TestWeWorkCallbackWorkerSyncsEmployeesForContactChange(t *testing.T) {
 	store := &fakeWeWorkCallbackWorkerStore{

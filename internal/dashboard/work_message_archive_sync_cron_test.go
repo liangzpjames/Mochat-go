@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -49,6 +50,49 @@ func TestWorkMessageArchiveSyncCronRequiresDependencies(t *testing.T) {
 	err := NewWorkMessageArchiveSyncCron(nil, nil, nil).RunOnce(context.Background())
 	if err == nil || !strings.Contains(err.Error(), "dependencies") {
 		t.Fatalf("expected dependency error, got %v", err)
+	}
+}
+
+func TestWorkMessageArchiveSyncCronRunCorpOnlyFetchesRequestedCorp(t *testing.T) {
+	store := &fakeWorkMessageArchiveSyncStore{corps: []WorkMessageArchiveCorp{
+		{CorpID: 4, WXCorpID: "ww-live", ChatSecret: "secret-4", RSAPublicKey: "public-4", RSAPrivateKey: "private-4"},
+		{CorpID: 5, WXCorpID: "ww-other", ChatSecret: "secret-5", RSAPublicKey: "public-5", RSAPrivateKey: "private-5"},
+	}}
+	client := &fakeWorkMessageArchiveSyncClient{}
+	cron := NewWorkMessageArchiveSyncCron(store, client, log.New(io.Discard, "", 0))
+
+	if err := cron.RunCorp(context.Background(), 4); err != nil {
+		t.Fatal(err)
+	}
+	if len(client.corpIDs) != 1 || client.corpIDs[0] != 4 {
+		t.Fatalf("synced corps=%v, want [4]", client.corpIDs)
+	}
+}
+
+func TestWorkMessageArchiveSyncCronSerializesEventAndPeriodicPulls(t *testing.T) {
+	store := &fakeWorkMessageArchiveSyncStore{corps: []WorkMessageArchiveCorp{{
+		CorpID: 4, WXCorpID: "ww-live", ChatSecret: "secret-4", RSAPublicKey: "public-4", RSAPrivateKey: "private-4",
+	}}}
+	client := &fakeWorkMessageArchiveSyncClient{delay: 50 * time.Millisecond}
+	cron := NewWorkMessageArchiveSyncCron(store, client, log.New(io.Discard, "", 0))
+	start := make(chan struct{})
+	errs := make(chan error, 2)
+	go func() {
+		<-start
+		errs <- cron.RunOnce(context.Background())
+	}()
+	go func() {
+		<-start
+		errs <- cron.RunCorp(context.Background(), 4)
+	}()
+	close(start)
+	for range 2 {
+		if err := <-errs; err != nil {
+			t.Fatal(err)
+		}
+	}
+	if client.maxConcurrent != 1 {
+		t.Fatalf("max concurrent archive pulls=%d, want 1", client.maxConcurrent)
 	}
 }
 
@@ -146,13 +190,31 @@ func (s *fakeWorkMessageArchiveSyncStore) UpdateWorkMessageArchiveCursor(_ conte
 }
 
 type fakeWorkMessageArchiveSyncClient struct {
-	messages []WorkMessageArchiveMessage
-	seq      int64
-	limit    int
+	mu            sync.Mutex
+	messages      []WorkMessageArchiveMessage
+	seq           int64
+	limit         int
+	corpIDs       []int
+	delay         time.Duration
+	concurrent    int
+	maxConcurrent int
 }
 
-func (c *fakeWorkMessageArchiveSyncClient) FetchWorkMessageArchive(_ context.Context, _ WorkMessageArchiveCorp, seq int64, limit int) ([]WorkMessageArchiveMessage, error) {
+func (c *fakeWorkMessageArchiveSyncClient) FetchWorkMessageArchive(_ context.Context, corp WorkMessageArchiveCorp, seq int64, limit int) ([]WorkMessageArchiveMessage, error) {
+	c.mu.Lock()
 	c.seq = seq
 	c.limit = limit
+	c.corpIDs = append(c.corpIDs, corp.CorpID)
+	c.concurrent++
+	if c.concurrent > c.maxConcurrent {
+		c.maxConcurrent = c.concurrent
+	}
+	c.mu.Unlock()
+	if c.delay > 0 {
+		time.Sleep(c.delay)
+	}
+	c.mu.Lock()
+	c.concurrent--
+	c.mu.Unlock()
 	return c.messages, nil
 }

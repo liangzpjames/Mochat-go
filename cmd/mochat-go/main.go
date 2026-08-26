@@ -3000,6 +3000,14 @@ func main() {
 		}, cron.RunOnce))
 		log.Printf("go cron enabled: RoomTagPull 标签建群结果同步 interval=%s run_on_start=%v", cfg.RoomTagPullCronInterval, cfg.RoomTagPullCronRunOnStart)
 	}
+	var workMessageArchiveCron *dashboard.WorkMessageArchiveSyncCron
+	if cfg.EnableWorkMessageArchiveSyncCron {
+		workMessageArchiveCron = dashboard.NewWorkMessageArchiveSyncCron(
+			getMySQLStore(),
+			dashboard.NewWorkMessageArchiveBridgeClient(cfg.WorkMessageArchiveBridgeBaseURL, cfg.WorkMessageArchiveBridgeToken),
+			log.Default(),
+		).WithLimit(cfg.WorkMessageArchiveSyncLimit)
+	}
 	if cfg.EnableWeWorkCallbackWorker {
 		worker := dashboard.NewWeWorkCallbackWorker(
 			getRedisStore(),
@@ -3012,6 +3020,9 @@ func main() {
 			WithSidebarBaseURL(cfg.SidebarBaseURL).
 			WithFileStorageRoot(cfg.FileStorageRoot).
 			WithSaaSAlertNotifier(saasAlertNotifier)
+		if workMessageArchiveCron != nil {
+			worker.WithArchiveSyncTrigger(workMessageArchiveCron)
+		}
 		workerGroup.Add("wework-callback", worker.Run)
 		log.Printf("go worker enabled: WeWork callback Redis consumer")
 
@@ -3173,18 +3184,13 @@ func main() {
 		}, cron.RunOnce))
 		log.Printf("go cron enabled: SOP log 个人/群 SOP 提醒生成 interval=%s run_on_start=%v", cfg.SOPLogCronInterval, cfg.SOPLogCronRunOnStart)
 	}
-	if cfg.EnableWorkMessageArchiveSyncCron {
-		cron := dashboard.NewWorkMessageArchiveSyncCron(
-			getMySQLStore(),
-			dashboard.NewWorkMessageArchiveBridgeClient(cfg.WorkMessageArchiveBridgeBaseURL, cfg.WorkMessageArchiveBridgeToken),
-			log.Default(),
-		).WithLimit(cfg.WorkMessageArchiveSyncLimit)
+	if workMessageArchiveCron != nil {
 		workerGroup.Add("cron-work-message-archive-sync", taskrunner.Periodic(taskrunner.PeriodicConfig{
 			Name:       "cron-work-message-archive-sync",
 			Interval:   cfg.WorkMessageArchiveSyncCronInterval,
 			RunOnStart: cfg.WorkMessageArchiveSyncCronRunOnStart,
 			Logger:     log.Default(),
-		}, cron.RunOnce))
+		}, workMessageArchiveCron.RunOnce))
 		log.Printf("go cron enabled: workMessageArchive 会话存档同步 interval=%s run_on_start=%v limit=%d bridge=%s", cfg.WorkMessageArchiveSyncCronInterval, cfg.WorkMessageArchiveSyncCronRunOnStart, cfg.WorkMessageArchiveSyncLimit, cfg.WorkMessageArchiveBridgeBaseURL)
 	}
 	if cfg.EnableSensitiveWordMonitorCron {
