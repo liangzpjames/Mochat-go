@@ -31,6 +31,7 @@ type SyncRequest struct {
 	IdempotencyKey string
 	Limit          int
 	RetryFailed    bool
+	StartCursor    Cursor
 }
 
 type SyncRun struct {
@@ -232,6 +233,9 @@ func syncRunTemplate(source ArchiveSource, request SyncRequest) (SyncRun, error)
 	if strings.TrimSpace(request.IdempotencyKey) == "" {
 		return SyncRun{}, newSyncError("archive.idempotency_key_missing", nil)
 	}
+	if request.StartCursor.Sequence < 0 {
+		return SyncRun{}, newSyncError("archive.cursor_invalid", nil)
+	}
 	sourceID := strings.TrimSpace(source.SourceID())
 	namespace := strings.TrimSpace(source.Namespace())
 	if sourceID == "" || namespace == "" || (source.Kind() != providers.SourceExternal && source.Kind() != providers.SourceSimulated) {
@@ -241,6 +245,7 @@ func syncRunTemplate(source ArchiveSource, request SyncRequest) (SyncRun, error)
 		Scope: request.Scope, Source: source.Kind(), SourceID: sourceID,
 		Namespace: namespace, IdempotencyKey: strings.TrimSpace(request.IdempotencyKey),
 		Status: SyncStatusQueued,
+		Cursor: request.StartCursor,
 	}, nil
 }
 

@@ -77,6 +77,30 @@ func TestAuthorizationCredentialIsTenantAndIntegrationBound(t *testing.T) {
 	}
 }
 
+func TestArchiveMediaCredentialIsTenantAndObjectBound(t *testing.T) {
+	manager, err := NewManager(Config{EncryptionKey: testKey(4), EncryptionKeyID: "wecom-v1", RequireEncryption: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ciphertext, keyID, err := manager.EncryptArchiveMedia(7, "014c1da7-1b2e-4aa1-90aa-a6a0d6f53380", ArchiveMediaCredential{SDKFileID: "private-sdk-file-id"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(ciphertext, "private-sdk-file-id") {
+		t.Fatal("archive media locator leaked in ciphertext envelope")
+	}
+	got, err := manager.DecryptArchiveMedia(7, "014c1da7-1b2e-4aa1-90aa-a6a0d6f53380", keyID, ciphertext)
+	if err != nil || got.SDKFileID != "private-sdk-file-id" {
+		t.Fatalf("credential=%#v err=%v", got, err)
+	}
+	if _, err := manager.DecryptArchiveMedia(8, "014c1da7-1b2e-4aa1-90aa-a6a0d6f53380", keyID, ciphertext); err == nil {
+		t.Fatal("cross-tenant media locator decrypt unexpectedly succeeded")
+	}
+	if _, err := manager.DecryptArchiveMedia(7, "different-object", keyID, ciphertext); err == nil {
+		t.Fatal("cross-object media locator decrypt unexpectedly succeeded")
+	}
+}
+
 func TestManagerReadsHistoricalKeyAndWritesActiveKey(t *testing.T) {
 	ring := `{"wecom-v1":"` + testKey(1) + `","wecom-v2":"` + testKey(2) + `"}`
 	oldManager, err := NewManager(Config{EncryptionKeys: ring, EncryptionKeyID: "wecom-v1"})

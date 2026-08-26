@@ -83,7 +83,7 @@ func TestFromEnvDefaults(t *testing.T) {
 	if cfg.EnableSensitiveWordMonitorCron || cfg.SensitiveWordMonitorCronInterval != time.Minute || cfg.SensitiveWordMonitorCronRunOnStart {
 		t.Fatalf("sensitiveWordsMonitor cron config = enabled %v interval %s runOnStart %v", cfg.EnableSensitiveWordMonitorCron, cfg.SensitiveWordMonitorCronInterval, cfg.SensitiveWordMonitorCronRunOnStart)
 	}
-	if cfg.EnableWorkMessageArchiveSyncCron || cfg.WorkMessageArchiveSyncCronInterval != time.Minute || cfg.WorkMessageArchiveSyncCronRunOnStart || cfg.WorkMessageArchiveSyncLimit != 100 || cfg.WorkMessageArchiveBridgeBaseURL != "" || cfg.WorkMessageArchiveBridgeToken != "" {
+	if cfg.EnableWorkMessageArchiveSyncCron || cfg.EnableDurableWorkMessageArchive || cfg.WorkMessageArchiveSyncCronInterval != time.Minute || cfg.WorkMessageArchiveSyncCronRunOnStart || cfg.WorkMessageArchiveSyncLimit != 100 || cfg.WorkMessageArchiveBridgeBaseURL != "" || cfg.WorkMessageArchiveBridgeToken != "" {
 		t.Fatalf("workMessageArchive sync cron config = enabled %v interval %s runOnStart %v limit %d bridge %q token %q", cfg.EnableWorkMessageArchiveSyncCron, cfg.WorkMessageArchiveSyncCronInterval, cfg.WorkMessageArchiveSyncCronRunOnStart, cfg.WorkMessageArchiveSyncLimit, cfg.WorkMessageArchiveBridgeBaseURL, cfg.WorkMessageArchiveBridgeToken)
 	}
 	if cfg.EnableSaaSStorageReconcileCron || cfg.SaaSStorageReconcileCronInterval != 24*time.Hour || cfg.SaaSStorageReconcileCronRunOnStart {
@@ -3155,6 +3155,30 @@ func TestWorkMessageArchiveSyncCronRequiresMySQLBridgeAndReadsConfig(t *testing.
 	}
 	if !cfg.EnableWorkMessageArchiveSyncCron || cfg.WorkMessageArchiveSyncCronInterval != 45*time.Second || !cfg.WorkMessageArchiveSyncCronRunOnStart || cfg.WorkMessageArchiveSyncLimit != 50 || cfg.WorkMessageArchiveBridgeBaseURL != "https://archive-bridge.example" || cfg.WorkMessageArchiveBridgeToken != "bridge-token" {
 		t.Fatalf("workMessageArchive sync cron config = enabled %v interval %s runOnStart %v limit %d bridge %q token %q", cfg.EnableWorkMessageArchiveSyncCron, cfg.WorkMessageArchiveSyncCronInterval, cfg.WorkMessageArchiveSyncCronRunOnStart, cfg.WorkMessageArchiveSyncLimit, cfg.WorkMessageArchiveBridgeBaseURL, cfg.WorkMessageArchiveBridgeToken)
+	}
+}
+
+func TestDurableWorkMessageArchiveIsDefaultOffAndMutuallyExclusiveWithLegacy(t *testing.T) {
+	cfg, err := FromEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.EnableDurableWorkMessageArchive {
+		t.Fatal("durable work message archive must default off")
+	}
+
+	t.Setenv("MOCHAT_GO_ENABLE_DURABLE_WORK_MESSAGE_ARCHIVE", "1")
+	t.Setenv("MOCHAT_GO_WORK_MESSAGE_ARCHIVE_BRIDGE_BASE_URL", "https://archive-bridge.example")
+	t.Setenv("MOCHAT_GO_WORK_MESSAGE_ARCHIVE_BRIDGE_TOKEN", "MOCHAT-LOCAL-ACCEPTANCE-BEARER-0123456789")
+	t.Setenv("MOCHAT_MYSQL_DSN", "user:pass@tcp(localhost:3306)/mochat")
+	cfg, err = FromEnv()
+	if err != nil || !cfg.EnableDurableWorkMessageArchive {
+		t.Fatalf("durable config=%#v err=%v", cfg.EnableDurableWorkMessageArchive, err)
+	}
+
+	t.Setenv("MOCHAT_GO_ENABLE_WORK_MESSAGE_ARCHIVE_SYNC_CRON", "1")
+	if _, err := FromEnv(); err == nil || !strings.Contains(err.Error(), "mutually exclusive") {
+		t.Fatalf("legacy/durable conflict error=%v", err)
 	}
 }
 

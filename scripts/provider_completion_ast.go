@@ -39,8 +39,9 @@ type method struct {
 }
 
 type kindContract struct {
-	present bool
-	source  string
+	present       bool
+	source        string
+	bridgeFetcher bool
 }
 
 func main() {
@@ -108,6 +109,11 @@ func checkArchiveStatuses(root, goos, goarch string) []string {
 				methodKeys[key] = true
 				methods = append(methods, method{directory: filepath.ToSlash(filepath.Dir(file)), packageName: packageName, receiver: receiver, function: function})
 			}
+			if function.Name.Name == "Fetch" && receiver == "BridgeSource" {
+				contract := kinds[key]
+				contract.bridgeFetcher = functionCallsSelector(function.Body, "fetchMessages")
+				kinds[key] = contract
+			}
 		}
 	}
 	for _, status := range methods {
@@ -127,7 +133,9 @@ func checkArchiveStatuses(root, goos, goarch string) []string {
 			errors = append(errors, "archive/wecom: external Status has no function body")
 			continue
 		}
+		bridgeReadyContract := status.receiver == "BridgeSource" && filepath.Base(status.directory) == "archive" && contract.bridgeFetcher
 		foundUnimplemented := false
+		foundBridgeReady := false
 		ast.Inspect(status.function.Body, func(node ast.Node) bool {
 			returnNode, ok := node.(*ast.ReturnStmt)
 			if !ok {
@@ -144,8 +152,8 @@ func checkArchiveStatuses(root, goos, goarch string) []string {
 			}
 			fields := statusFields(literal)
 			state, ok := fields["State"]
-			if !ok || !isStateLimitedOrUnavailable(state) {
-				errors = append(errors, "archive/wecom: external Status must return StateLimited or StateUnavailable directly")
+			if !ok || (!isStateLimitedOrUnavailable(state) && !(bridgeReadyContract && isSelector(state, "StateReady"))) {
+				errors = append(errors, "archive/wecom: external Status must return a permitted state directly")
 			}
 			code, ok := fields["Code"]
 			if !ok {
@@ -154,10 +162,14 @@ func checkArchiveStatuses(root, goos, goarch string) []string {
 				errors = append(errors, "archive/wecom: external Status Code must be a stable archive.* string literal")
 			} else if value == "archive.getchatdata_unimplemented" {
 				foundUnimplemented = true
+			} else if bridgeReadyContract && value == "archive.bridge_ready" {
+				foundBridgeReady = true
 			}
 			return true
 		})
-		if !foundUnimplemented {
+		if bridgeReadyContract && !foundBridgeReady {
+			errors = append(errors, "archive/bridge: BridgeSource must expose archive.bridge_ready only with a direct bridge fetch path")
+		} else if !bridgeReadyContract && !foundUnimplemented {
 			errors = append(errors, "archive/wecom: external Status must expose archive.getchatdata_unimplemented for the unimplemented source")
 		}
 	}
@@ -165,6 +177,27 @@ func checkArchiveStatuses(root, goos, goarch string) []string {
 		errors = append(errors, "archive: external source has no Status method")
 	}
 	return uniqueErrors(errors)
+}
+
+func functionCallsSelector(body *ast.BlockStmt, selector string) bool {
+	found := false
+	ast.Inspect(body, func(node ast.Node) bool {
+		call, ok := node.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		selected, ok := call.Fun.(*ast.SelectorExpr)
+		if ok && selected.Sel != nil && selected.Sel.Name == selector {
+			found = true
+		}
+		return !found
+	})
+	return found
+}
+
+func isSelector(expression ast.Expr, name string) bool {
+	selector, ok := expression.(*ast.SelectorExpr)
+	return ok && selector.Sel != nil && selector.Sel.Name == name
 }
 
 func scanProductionFiles(directory string, target build.Context, requireDirectory bool) ([]string, error) {

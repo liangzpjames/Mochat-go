@@ -65,6 +65,21 @@ type Message struct {
 	ContentRaw  string
 	ContentText string
 	RawJSON     string
+	// Media is an internal persistence descriptor. SDKFileID must never be
+	// serialized into Dashboard message content, URLs, or logs.
+	Media []MediaDescriptor `json:"-"`
+}
+
+// MediaDescriptor carries the private bridge locator separately from the
+// sanitized message representation. The store encrypts SDKFileID before the
+// message transaction commits.
+type MediaDescriptor struct {
+	Type         string `json:"type"`
+	SDKFileID    string `json:"-"`
+	FileName     string `json:"fileName,omitempty"`
+	MIMEType     string `json:"mimeType,omitempty"`
+	ExpectedSize int64  `json:"expectedSize,omitempty"`
+	ExpectedMD5  string `json:"expectedMd5,omitempty"`
 }
 
 type Page struct {

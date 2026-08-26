@@ -112,9 +112,10 @@ func (s *MySQLStore) EnqueueArchiveSync(ctx context.Context, template archivepro
 
 	result, err := tx.ExecContext(ctx, `
 		INSERT INTO mochat_go_archive_sync_runs
-		(tenant_id, corp_id, source_kind, source_id, namespace, idempotency_key, status, attempt)
-		VALUES (?, ?, ?, ?, ?, ?, 'queued', 1)
-	`, template.Scope.TenantID, template.Scope.CorpID, string(template.Source), template.SourceID, template.Namespace, template.IdempotencyKey)
+		(tenant_id, corp_id, source_kind, source_id, namespace, idempotency_key, status, cursor_sequence, cursor_token, attempt)
+		VALUES (?, ?, ?, ?, ?, ?, 'queued', ?, ?, 1)
+	`, template.Scope.TenantID, template.Scope.CorpID, string(template.Source), template.SourceID, template.Namespace, template.IdempotencyKey,
+		template.Cursor.Sequence, strings.TrimSpace(template.Cursor.Token))
 	if err != nil {
 		if isArchiveDuplicateError(err) {
 			_ = tx.Rollback()
@@ -139,6 +140,52 @@ func (s *MySQLStore) EnqueueArchiveSync(ctx context.Context, template archivepro
 		return archiveprovider.SyncRun{}, err
 	}
 	return queued, nil
+}
+
+func (s *MySQLStore) DurableArchiveBindings(ctx context.Context) ([]archiveprovider.DurableArchiveBinding, error) {
+	if s == nil || s.db == nil {
+		return nil, errors.New("archive sync store unavailable")
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT integration.tenant_id,integration.corp_id,integration.verified_wx_corpid
+		FROM mochat_go_wecom_integrations integration
+		INNER JOIN mc_corp corp ON corp.tenant_id=integration.tenant_id AND corp.id=integration.corp_id AND corp.deleted_at IS NULL
+		INNER JOIN mochat_go_tenant_corp_bindings binding ON binding.tenant_id=integration.tenant_id AND binding.corp_id=integration.corp_id
+		WHERE integration.slot='current' AND integration.status='active' AND integration.verified_wx_corpid<>''
+		  AND binding.status=2 AND binding.verified_wx_corpid=integration.verified_wx_corpid
+		ORDER BY integration.tenant_id,integration.corp_id
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := make([]archiveprovider.DurableArchiveBinding, 0)
+	for rows.Next() {
+		var item archiveprovider.DurableArchiveBinding
+		if err := rows.Scan(&item.Scope.TenantID, &item.Scope.CorpID, &item.WXCorpID); err != nil {
+			return nil, err
+		}
+		result = append(result, item)
+	}
+	return result, rows.Err()
+}
+
+func (s *MySQLStore) LatestArchiveSyncCursor(ctx context.Context, scope archiveprovider.Scope, sourceID string) (archiveprovider.Cursor, error) {
+	if s == nil || s.db == nil || !scopeValid(scope) || strings.TrimSpace(sourceID) == "" {
+		return archiveprovider.Cursor{}, errors.New("archive cursor scope invalid")
+	}
+	var cursor archiveprovider.Cursor
+	err := s.db.QueryRowContext(ctx, `
+		SELECT cursor_sequence,cursor_token
+		FROM mochat_go_archive_sync_runs
+		WHERE tenant_id=? AND corp_id=? AND source_kind='external' AND source_id=?
+		ORDER BY cursor_sequence DESC,updated_at DESC,id DESC
+		LIMIT 1
+	`, scope.TenantID, scope.CorpID, strings.TrimSpace(sourceID)).Scan(&cursor.Sequence, &cursor.Token)
+	if errors.Is(err, sql.ErrNoRows) {
+		return archiveprovider.Cursor{}, nil
+	}
+	return cursor, err
 }
 
 func (s *MySQLStore) MarkArchiveSyncRunning(ctx context.Context, runID string, at time.Time) (archiveprovider.SyncRun, error) {
@@ -224,6 +271,9 @@ func (s *MySQLStore) UpsertArchiveMessage(ctx context.Context, runID string, att
 	}
 	if !messageResult.Resolved {
 		return archiveprovider.UpsertResult{}, errors.New("archive message participants unresolved")
+	}
+	if err = upsertArchiveMediaTx(ctx, tx, s.weComCredentialCipher, scope, message); err != nil {
+		return archiveprovider.UpsertResult{}, err
 	}
 	if err = tx.Commit(); err != nil {
 		return archiveprovider.UpsertResult{}, err
@@ -446,7 +496,7 @@ func requireArchiveSyncRows(result sql.Result) error {
 
 func archiveSyncTemplateValid(run archiveprovider.SyncRun) bool {
 	return scopeValid(run.Scope) && (run.Source == providers.SourceExternal || run.Source == providers.SourceSimulated) &&
-		strings.TrimSpace(run.SourceID) != "" && strings.TrimSpace(run.Namespace) != "" && strings.TrimSpace(run.IdempotencyKey) != ""
+		strings.TrimSpace(run.SourceID) != "" && strings.TrimSpace(run.Namespace) != "" && strings.TrimSpace(run.IdempotencyKey) != "" && run.Cursor.Sequence >= 0
 }
 
 func scopeValid(scope archiveprovider.Scope) bool {

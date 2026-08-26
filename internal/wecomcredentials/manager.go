@@ -57,6 +57,13 @@ type AuthorizationCredential struct {
 	PermanentCode  string `json:"permanentCode,omitempty"`
 }
 
+// ArchiveMediaCredential protects the opaque Finance SDK locator at rest.
+// The media object UUID is part of the AES-GCM additional data, so ciphertext
+// cannot be moved between tenants or media objects.
+type ArchiveMediaCredential struct {
+	SDKFileID string `json:"sdkFileId"`
+}
+
 type ConfigStatus struct {
 	EncryptionConfigured bool   `json:"encryptionConfigured"`
 	RequireEncryption    bool   `json:"requireEncryption"`
@@ -177,6 +184,26 @@ func (m *Manager) DecryptAuthorization(tenantID int, integrationID, keyID, ciphe
 	var credential AuthorizationCredential
 	if err := m.decrypt("integration", tenantID, integrationID, keyID, ciphertext, &credential); err != nil {
 		return AuthorizationCredential{}, err
+	}
+	return credential, nil
+}
+
+func (m *Manager) EncryptArchiveMedia(tenantID int, mediaObjectID string, value ArchiveMediaCredential) (ciphertext, keyID string, err error) {
+	value.SDKFileID = strings.TrimSpace(value.SDKFileID)
+	if value.SDKFileID == "" {
+		return "", "", errors.New("archive media SDK file id is required")
+	}
+	return m.encrypt("archive_media", tenantID, mediaObjectID, value)
+}
+
+func (m *Manager) DecryptArchiveMedia(tenantID int, mediaObjectID, keyID, ciphertext string) (ArchiveMediaCredential, error) {
+	var credential ArchiveMediaCredential
+	if err := m.decrypt("archive_media", tenantID, mediaObjectID, keyID, ciphertext, &credential); err != nil {
+		return ArchiveMediaCredential{}, err
+	}
+	credential.SDKFileID = strings.TrimSpace(credential.SDKFileID)
+	if credential.SDKFileID == "" {
+		return ArchiveMediaCredential{}, errors.New("archive media SDK file id is missing")
 	}
 	return credential, nil
 }

@@ -25,7 +25,8 @@ import (
 	"jiyi/mochat-go/internal/dashboardprincipal"
 	"jiyi/mochat-go/internal/frontend"
 	"jiyi/mochat-go/internal/identitysecurity"
-	archiveprovider "jiyi/mochat-go/internal/modules/providers/archive/wecom"
+	archiveprovider "jiyi/mochat-go/internal/modules/providers/archive"
+	wecomarchiveprovider "jiyi/mochat-go/internal/modules/providers/archive/wecom"
 	audioprovider "jiyi/mochat-go/internal/modules/providers/audio/local"
 	providercatalog "jiyi/mochat-go/internal/modules/providers/catalog"
 	"jiyi/mochat-go/internal/mysqlconn"
@@ -96,6 +97,9 @@ func main() {
 		log.Fatalf("build WeCom credential encryption manager: %v", err)
 	}
 	weComCredentialStatus := weComCredentialManager.ConfigStatus()
+	if cfg.EnableDurableWorkMessageArchive && !weComCredentialStatus.EncryptionConfigured {
+		log.Fatal("durable work message archive requires configured WeCom credential encryption")
+	}
 	log.Printf("WeCom credential protection: encryption_configured=%t require_encryption=%t dedicated_configured=%t active_key_id=%s key_count=%d",
 		weComCredentialStatus.EncryptionConfigured, weComCredentialStatus.RequireEncryption,
 		weComCredentialStatus.DedicatedConfigured, weComCredentialStatus.ActiveKeyID, weComCredentialStatus.KeyCount)
@@ -438,7 +442,7 @@ func main() {
 		if err != nil {
 			log.Fatalf("build audio Provider runtime: %v", err)
 		}
-		archiveRuntime, err := archiveprovider.New(archiveprovider.Config{})
+		archiveRuntime, err := wecomarchiveprovider.New(wecomarchiveprovider.Config{})
 		if err != nil {
 			log.Fatalf("build archive Provider runtime: %v", err)
 		}
@@ -2885,8 +2889,8 @@ func main() {
 		log.Printf("go SaaS tenant domain delivery webhook enabled: POST /webhooks/saas/domain-delivery tolerance=%s signed=true", cfg.SaaSTenantDomainDeliveryCallbackTolerance)
 	}
 
-	backgroundTasksEnabled := cfg.EnableWeWorkCallbackWorker || cfg.EnableEmployeeApplyWorker || cfg.EnableAsyncFileUploadWorker || cfg.EnableMarkTagsWorker || cfg.EnableMessageRemindWorker || cfg.EnableWorkRoomSyncWorker || cfg.EnableWorkContactSyncWorker || cfg.EnableWorkDepartmentListWorker || cfg.EnableMediaIDUpdateWorker || cfg.EnableEmployeeStatisticWorker || cfg.EnablePullAgentCron || cfg.EnableEmployeeStatisticCron || cfg.EnableChannelCodeCron || cfg.EnableContactBatchSendCron || cfg.EnableRoomBatchSendCron || cfg.EnableContactSyncSendResultCron || cfg.EnableRoomSyncSendResultCron || cfg.EnableRoomTagPullCron || cfg.EnableCorpDataCron || cfg.EnableMediaIDUpdateCron || cfg.EnableTransferStateRefreshCron || cfg.EnableSOPLogCron || cfg.EnableSensitiveWordMonitorCron || cfg.EnableWorkMessageArchiveSyncCron || cfg.EnableSaaSStorageReconcileCron || cfg.EnableSaaSAlertNotificationDispatchCron || cfg.EnableSaaSOperationQueueAssignmentReminderCron || cfg.EnableSaaSApprovalReminderCron || cfg.EnableSaaSSystemHealthCron || cfg.EnableSaaSBackupCron || cfg.EnableSaaSComplianceCron || cfg.EnableSaaSIdentityCleanupCron || cfg.EnableSaaSServiceAccountUsageAlertCron || cfg.EnableSaaSAuditIntegrityCron || cfg.EnableSaaSAuditAnchorCron || cfg.EnableSaaSServiceAccountUsageCleanupCron || cfg.EnableSaaSTenantDomainDeliveryCron || cfg.EnableSaaSNotificationHealthRecoveryCron || cfg.EnableSaaSSubscriptionReconcileCron || cfg.EnableSaaSPaymentDunningCron || cfg.EnableSaaSPaymentSettlementSyncCron
-	persistentBackgroundRecorderEnabled := cfg.EnableWeWorkCallbackWorker || cfg.EnableEmployeeApplyWorker || (cfg.EnableAsyncFileUploadWorker && strings.TrimSpace(cfg.MySQLDSN) != "") || cfg.EnableMarkTagsWorker || cfg.EnableMessageRemindWorker || cfg.EnableWorkRoomSyncWorker || cfg.EnableWorkContactSyncWorker || cfg.EnableWorkDepartmentListWorker || cfg.EnableMediaIDUpdateWorker || cfg.EnableEmployeeStatisticWorker || cfg.EnablePullAgentCron || cfg.EnableEmployeeStatisticCron || cfg.EnableChannelCodeCron || cfg.EnableContactBatchSendCron || cfg.EnableRoomBatchSendCron || cfg.EnableContactSyncSendResultCron || cfg.EnableRoomSyncSendResultCron || cfg.EnableRoomTagPullCron || cfg.EnableCorpDataCron || cfg.EnableMediaIDUpdateCron || cfg.EnableTransferStateRefreshCron || cfg.EnableSOPLogCron || cfg.EnableSensitiveWordMonitorCron || cfg.EnableWorkMessageArchiveSyncCron || cfg.EnableSaaSStorageReconcileCron || cfg.EnableSaaSAlertNotificationDispatchCron || cfg.EnableSaaSOperationQueueAssignmentReminderCron || cfg.EnableSaaSApprovalReminderCron || cfg.EnableSaaSSystemHealthCron || cfg.EnableSaaSBackupCron || cfg.EnableSaaSComplianceCron || cfg.EnableSaaSIdentityCleanupCron || cfg.EnableSaaSServiceAccountUsageAlertCron || cfg.EnableSaaSAuditIntegrityCron || cfg.EnableSaaSAuditAnchorCron || cfg.EnableSaaSServiceAccountUsageCleanupCron || cfg.EnableSaaSTenantDomainDeliveryCron || cfg.EnableSaaSNotificationHealthRecoveryCron || cfg.EnableSaaSSubscriptionReconcileCron || cfg.EnableSaaSPaymentDunningCron || cfg.EnableSaaSPaymentSettlementSyncCron
+	backgroundTasksEnabled := cfg.EnableWeWorkCallbackWorker || cfg.EnableEmployeeApplyWorker || cfg.EnableAsyncFileUploadWorker || cfg.EnableMarkTagsWorker || cfg.EnableMessageRemindWorker || cfg.EnableWorkRoomSyncWorker || cfg.EnableWorkContactSyncWorker || cfg.EnableWorkDepartmentListWorker || cfg.EnableMediaIDUpdateWorker || cfg.EnableEmployeeStatisticWorker || cfg.EnablePullAgentCron || cfg.EnableEmployeeStatisticCron || cfg.EnableChannelCodeCron || cfg.EnableContactBatchSendCron || cfg.EnableRoomBatchSendCron || cfg.EnableContactSyncSendResultCron || cfg.EnableRoomSyncSendResultCron || cfg.EnableRoomTagPullCron || cfg.EnableCorpDataCron || cfg.EnableMediaIDUpdateCron || cfg.EnableTransferStateRefreshCron || cfg.EnableSOPLogCron || cfg.EnableSensitiveWordMonitorCron || cfg.EnableWorkMessageArchiveSyncCron || cfg.EnableDurableWorkMessageArchive || cfg.EnableSaaSStorageReconcileCron || cfg.EnableSaaSAlertNotificationDispatchCron || cfg.EnableSaaSOperationQueueAssignmentReminderCron || cfg.EnableSaaSApprovalReminderCron || cfg.EnableSaaSSystemHealthCron || cfg.EnableSaaSBackupCron || cfg.EnableSaaSComplianceCron || cfg.EnableSaaSIdentityCleanupCron || cfg.EnableSaaSServiceAccountUsageAlertCron || cfg.EnableSaaSAuditIntegrityCron || cfg.EnableSaaSAuditAnchorCron || cfg.EnableSaaSServiceAccountUsageCleanupCron || cfg.EnableSaaSTenantDomainDeliveryCron || cfg.EnableSaaSNotificationHealthRecoveryCron || cfg.EnableSaaSSubscriptionReconcileCron || cfg.EnableSaaSPaymentDunningCron || cfg.EnableSaaSPaymentSettlementSyncCron
+	persistentBackgroundRecorderEnabled := cfg.EnableWeWorkCallbackWorker || cfg.EnableEmployeeApplyWorker || (cfg.EnableAsyncFileUploadWorker && strings.TrimSpace(cfg.MySQLDSN) != "") || cfg.EnableMarkTagsWorker || cfg.EnableMessageRemindWorker || cfg.EnableWorkRoomSyncWorker || cfg.EnableWorkContactSyncWorker || cfg.EnableWorkDepartmentListWorker || cfg.EnableMediaIDUpdateWorker || cfg.EnableEmployeeStatisticWorker || cfg.EnablePullAgentCron || cfg.EnableEmployeeStatisticCron || cfg.EnableChannelCodeCron || cfg.EnableContactBatchSendCron || cfg.EnableRoomBatchSendCron || cfg.EnableContactSyncSendResultCron || cfg.EnableRoomSyncSendResultCron || cfg.EnableRoomTagPullCron || cfg.EnableCorpDataCron || cfg.EnableMediaIDUpdateCron || cfg.EnableTransferStateRefreshCron || cfg.EnableSOPLogCron || cfg.EnableSensitiveWordMonitorCron || cfg.EnableWorkMessageArchiveSyncCron || cfg.EnableDurableWorkMessageArchive || cfg.EnableSaaSStorageReconcileCron || cfg.EnableSaaSAlertNotificationDispatchCron || cfg.EnableSaaSOperationQueueAssignmentReminderCron || cfg.EnableSaaSApprovalReminderCron || cfg.EnableSaaSSystemHealthCron || cfg.EnableSaaSBackupCron || cfg.EnableSaaSComplianceCron || cfg.EnableSaaSIdentityCleanupCron || cfg.EnableSaaSServiceAccountUsageAlertCron || cfg.EnableSaaSAuditIntegrityCron || cfg.EnableSaaSAuditAnchorCron || cfg.EnableSaaSServiceAccountUsageCleanupCron || cfg.EnableSaaSTenantDomainDeliveryCron || cfg.EnableSaaSNotificationHealthRecoveryCron || cfg.EnableSaaSSubscriptionReconcileCron || cfg.EnableSaaSPaymentDunningCron || cfg.EnableSaaSPaymentSettlementSyncCron
 	if cfg.EnableConversationExportWorker {
 		backgroundTasksEnabled = true
 		persistentBackgroundRecorderEnabled = true
@@ -2999,6 +3003,40 @@ func main() {
 			Logger:     log.Default(),
 		}, cron.RunOnce))
 		log.Printf("go cron enabled: RoomTagPull 标签建群结果同步 interval=%s run_on_start=%v", cfg.RoomTagPullCronInterval, cfg.RoomTagPullCronRunOnStart)
+	}
+	if cfg.EnableDurableWorkMessageArchive {
+		bridgeClient, err := archiveprovider.NewBridgeArchiveClient(
+			cfg.WorkMessageArchiveBridgeBaseURL,
+			cfg.WorkMessageArchiveBridgeToken,
+			nil,
+		)
+		if err != nil {
+			log.Fatalf("build durable work message archive bridge: %v", err)
+		}
+		durableRunner := archiveprovider.NewDurableBridgeRunner(getMySQLStore(), bridgeClient, cfg.WorkMessageArchiveSyncLimit)
+		mediaRunner := archiveprovider.NewMediaSyncService(getMySQLStore(), bridgeClient, cfg.FileStorageRoot)
+		workerGroup.Add("cron-durable-work-message-archive-sync", taskrunner.Periodic(taskrunner.PeriodicConfig{
+			Name:       "cron-durable-work-message-archive-sync",
+			Interval:   cfg.WorkMessageArchiveSyncCronInterval,
+			RunOnStart: cfg.WorkMessageArchiveSyncCronRunOnStart,
+			Logger:     log.Default(),
+		}, durableRunner.RunOnce))
+		workerGroup.Add("cron-durable-work-message-archive-media", taskrunner.Periodic(taskrunner.PeriodicConfig{
+			Name:       "cron-durable-work-message-archive-media",
+			Interval:   cfg.WorkMessageArchiveSyncCronInterval,
+			RunOnStart: cfg.WorkMessageArchiveSyncCronRunOnStart,
+			Logger:     log.Default(),
+		}, func(ctx context.Context) error {
+			for index := 0; index < cfg.WorkMessageArchiveSyncLimit; index++ {
+				worked, err := mediaRunner.RunOne(ctx)
+				if err != nil || !worked {
+					return err
+				}
+			}
+			return nil
+		}))
+		log.Printf("go durable work message archive enabled: interval=%s run_on_start=%v limit=%d storage_root=%s",
+			cfg.WorkMessageArchiveSyncCronInterval, cfg.WorkMessageArchiveSyncCronRunOnStart, cfg.WorkMessageArchiveSyncLimit, cfg.FileStorageRoot)
 	}
 	var workMessageArchiveCron *dashboard.WorkMessageArchiveSyncCron
 	if cfg.EnableWorkMessageArchiveSyncCron {

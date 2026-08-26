@@ -130,6 +130,7 @@ type Config struct {
 	SensitiveWordMonitorCronInterval                   time.Duration
 	SensitiveWordMonitorCronRunOnStart                 bool
 	EnableWorkMessageArchiveSyncCron                   bool
+	EnableDurableWorkMessageArchive                    bool
 	WorkMessageArchiveSyncCronInterval                 time.Duration
 	WorkMessageArchiveSyncCronRunOnStart               bool
 	WorkMessageArchiveSyncLimit                        int
@@ -1372,6 +1373,7 @@ func FromEnv() (Config, error) {
 		SensitiveWordMonitorCronInterval:                   time.Duration(sensitiveWordMonitorCronInterval) * time.Second,
 		SensitiveWordMonitorCronRunOnStart:                 envBool("MOCHAT_GO_SENSITIVE_WORD_MONITOR_CRON_RUN_ON_START"),
 		EnableWorkMessageArchiveSyncCron:                   envBool("MOCHAT_GO_ENABLE_WORK_MESSAGE_ARCHIVE_SYNC_CRON"),
+		EnableDurableWorkMessageArchive:                    envBool("MOCHAT_GO_ENABLE_DURABLE_WORK_MESSAGE_ARCHIVE"),
 		WorkMessageArchiveSyncCronInterval:                 time.Duration(workMessageArchiveSyncCronInterval) * time.Second,
 		WorkMessageArchiveSyncCronRunOnStart:               envBool("MOCHAT_GO_WORK_MESSAGE_ARCHIVE_SYNC_CRON_RUN_ON_START"),
 		WorkMessageArchiveSyncLimit:                        workMessageArchiveSyncLimit,
@@ -2018,6 +2020,15 @@ func FromEnv() (Config, error) {
 	if cfg.EnableWorkMessageArchiveSyncCron && strings.TrimSpace(cfg.WorkMessageArchiveBridgeBaseURL) == "" {
 		return Config{}, fmt.Errorf("MOCHAT_GO_WORK_MESSAGE_ARCHIVE_BRIDGE_BASE_URL is required when work message archive sync cron is enabled")
 	}
+	if cfg.EnableDurableWorkMessageArchive && strings.TrimSpace(cfg.WorkMessageArchiveBridgeBaseURL) == "" {
+		return Config{}, fmt.Errorf("MOCHAT_GO_WORK_MESSAGE_ARCHIVE_BRIDGE_BASE_URL is required when durable work message archive is enabled")
+	}
+	if cfg.EnableDurableWorkMessageArchive && len(strings.TrimSpace(cfg.WorkMessageArchiveBridgeToken)) < 40 {
+		return Config{}, fmt.Errorf("MOCHAT_GO_WORK_MESSAGE_ARCHIVE_BRIDGE_TOKEN must contain at least 40 characters when durable work message archive is enabled")
+	}
+	if cfg.EnableDurableWorkMessageArchive && cfg.EnableWorkMessageArchiveSyncCron {
+		return Config{}, fmt.Errorf("legacy and durable work message archive pipelines are mutually exclusive")
+	}
 	settlementBridgeConfigured := strings.TrimSpace(cfg.SaaSPaymentSettlementBridgeBaseURL) != "" || len(cfg.SaaSPaymentSettlementProviders) > 0
 	if settlementBridgeConfigured {
 		if strings.TrimSpace(cfg.SaaSPaymentSettlementBridgeBaseURL) == "" || len(cfg.SaaSPaymentSettlementProviders) == 0 {
@@ -2124,7 +2135,7 @@ func FromEnv() (Config, error) {
 	jwtWorkerEnabled := cfg.EnableWeWorkCallbackWorker || cfg.EnableEmployeeApplyWorker || cfg.EnableWorkDepartmentListWorker
 	mysqlWorkerEnabled := jwtWorkerEnabled || cfg.EnableMarkTagsWorker || cfg.EnableMessageRemindWorker || cfg.EnableWorkRoomSyncWorker || cfg.EnableWorkContactSyncWorker || cfg.EnableMediaIDUpdateWorker || cfg.EnableEmployeeStatisticWorker
 	redisWorkerEnabled := mysqlWorkerEnabled || cfg.EnableAsyncFileUploadWorker
-	cronEnabled := cfg.EnablePullAgentCron || cfg.EnableEmployeeStatisticCron || cfg.EnableChannelCodeCron || cfg.EnableContactBatchSendCron || cfg.EnableRoomBatchSendCron || cfg.EnableContactSyncSendResultCron || cfg.EnableRoomSyncSendResultCron || cfg.EnableRoomTagPullCron || cfg.EnableCorpDataCron || cfg.EnableMediaIDUpdateCron || cfg.EnableTransferStateRefreshCron || cfg.EnableSOPLogCron || cfg.EnableSensitiveWordMonitorCron || cfg.EnableWorkMessageArchiveSyncCron || cfg.EnableConversationExportWorker || cfg.EnableSaaSStorageReconcileCron || cfg.EnableSaaSPaymentSettlementSyncCron
+	cronEnabled := cfg.EnablePullAgentCron || cfg.EnableEmployeeStatisticCron || cfg.EnableChannelCodeCron || cfg.EnableContactBatchSendCron || cfg.EnableRoomBatchSendCron || cfg.EnableContactSyncSendResultCron || cfg.EnableRoomSyncSendResultCron || cfg.EnableRoomTagPullCron || cfg.EnableCorpDataCron || cfg.EnableMediaIDUpdateCron || cfg.EnableTransferStateRefreshCron || cfg.EnableSOPLogCron || cfg.EnableSensitiveWordMonitorCron || cfg.EnableWorkMessageArchiveSyncCron || cfg.EnableDurableWorkMessageArchive || cfg.EnableConversationExportWorker || cfg.EnableSaaSStorageReconcileCron || cfg.EnableSaaSPaymentSettlementSyncCron
 	if (mysqlBacked || mysqlWorkerEnabled || cronEnabled) && cfg.MySQLDSN == "" {
 		return Config{}, fmt.Errorf("MOCHAT_MYSQL_DSN is required when migrated MySQL-backed routes, MySQL-backed Go workers, or Go cron tasks are enabled")
 	}
@@ -2277,6 +2288,7 @@ func (cfg *Config) applyRuntimeRole() {
 		cfg.EnableSOPLogCron = false
 		cfg.EnableSensitiveWordMonitorCron = false
 		cfg.EnableWorkMessageArchiveSyncCron = false
+		cfg.EnableDurableWorkMessageArchive = false
 		cfg.EnableSaaSStorageReconcileCron = false
 		cfg.EnableSaaSAlertNotificationDispatchCron = false
 		cfg.EnableSaaSOperationQueueAssignmentReminderCron = false

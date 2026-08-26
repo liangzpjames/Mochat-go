@@ -59,6 +59,31 @@ func NewRegistry() *providers.Registry {
   assert.equal(result.ok, true, result.errors.join('\n'));
 });
 
+test('accepts bridge archive ready status only with a direct bridge fetch path', async () => {
+  const root = await writeFixture({
+    'internal/modules/providers/archive/bridge_source.go': `package archive
+import "jiyi/mochat-go/internal/modules/providers"
+type BridgeSource struct { client *BridgeArchiveClient }
+type BridgeArchiveClient struct{}
+func (BridgeSource) Kind() providers.Source { return providers.SourceExternal }
+func (s BridgeSource) Status() providers.Status { return providers.Status{Kind: "wecom_archive", Source: providers.SourceExternal, State: providers.StateReady, Code: "archive.bridge_ready"} }
+func (s BridgeSource) Fetch() { s.client.fetchMessages() }
+func (BridgeArchiveClient) fetchMessages() {}
+`,
+    'internal/modules/providers/catalog/catalog.go': `package catalog
+import "jiyi/mochat-go/internal/modules/providers"
+func NewRegistry() *providers.Registry {
+  registry := providers.NewRegistry()
+  registration := providers.Registration{Kind: "wecom_archive", Source: providers.SourceExternal}
+  _ = registry.Register(registration)
+  return registry
+}
+`,
+  });
+  const result = await checkProviderCompletion(root);
+  assert.equal(result.ok, true, result.errors.join('\n'));
+});
+
 test('fails when external archive status hides state or code behind helpers', async () => {
   const root = await writeFixture({
     'internal/modules/providers/archive/wecom/archive.go': `package wecom
