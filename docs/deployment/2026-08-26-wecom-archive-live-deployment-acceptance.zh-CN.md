@@ -59,6 +59,7 @@
 | `/index`、`/login`、`/saas-admin/`、`/contact`、`/workFission` | 200 |
 | bridge 管理口 | 未鉴权 401；服务器本机携带受保护 Token 为 200；不公开管理 Token |
 | 专用 callback GET | 伪造签名返回 `400 text/plain`，不再返回 SPA HTML |
+| 企业微信真实 URL 校验 | 2026-08-26 20:27:30（CST）真实 GET 返回 200、响应 19 字节；证明 URL、Token 签名与 EncodingAESKey 解密/原文回包匹配，证据仅保留时间、方法、状态和字节数 |
 | callback POST | 非法 XML 返回 400，证明进入回调处理器 |
 | callback 子路径 / PUT | 均为 404 |
 | 定时同步 | 每 15 秒正常执行，当前 `corps=0`、`failed=0` |
@@ -96,7 +97,8 @@
 
 - 真实：服务器容器、MySQL/Redis、迁移、Nginx、健康端点、生产静态资源、现有 Dashboard 会话和 RBAC、bridge 内网鉴权、专用回调路由。
 - 合成：非法 GET 签名、非法 POST XML、cron fake bridge smoke 和 SDK 自检，仅证明失败关闭、路由和内部数据合同。
-- 尚无真实证据：企业微信后台真实 GET challenge、`msgaudit_notify`、真实 `GetChatData/DecryptData`、真实消息游标推进、真实客户/群/员工消息回写、真实 Sidebar 员工 OAuth/JSSDK。
+- 已有真实证据：企业微信后台真实 GET challenge 返回 200；该项只证明 URL、Token/AES 校验链路，不等于会话内容存档已拉取。
+- 尚无真实证据：`msgaudit_notify`、真实 `GetChatData/DecryptData`、真实消息游标推进、真实客户/群/员工消息回写、真实 Sidebar 员工 OAuth/JSSDK。
 - 当前企业记录仍为 CorpID 未验证、会话存档未配置，因此 cron 的 `corps=0` 是正确的受限状态，而不是已同步 0 条消息。
 
 ## 8. 回滚步骤

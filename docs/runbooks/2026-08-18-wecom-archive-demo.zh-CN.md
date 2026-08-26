@@ -8,7 +8,7 @@
 
 该地址已经通过公网路由、失败关闭和重启后验证，并在 Dashboard“唯一企业资料 → 会话存档配置”中以只读字段展示。企业微信后台的 Token、EncodingAESKey 必须与 MoChat 当前企业回调配置一致；会话存档 Secret 和 RSA 私钥只在受保护的服务端配置中使用，不得填写到 URL、文档或普通请求。
 
-当前 bridge 镜像为 `mochat/wecom-archive-demo:d0c9409df11a`，只允许主应用通过 Docker 内网调用；管理口仍仅绑定 `127.0.0.1:19091` 且必须鉴权。真实 CorpID/Secret、RSA 公钥、允许 IP、测试员工范围和真实消息配置完成前，只能验证技术入口，不能宣称真实拉取成功。
+当前 bridge 镜像为 `mochat/wecom-archive-demo:d0c9409df11a`，只允许主应用通过 Docker 内网调用；管理口仍仅绑定 `127.0.0.1:19091` 且必须鉴权。2026-08-26 20:27:30（CST）企业微信真实 GET URL 校验已返回 200；这只证明 URL、Token/AES 链路。真实 CorpID/会话存档 Secret、RSA 公钥、允许 IP、测试员工范围和真实消息配置完成前，不能宣称真实拉取成功。
 
 下文 `19090/wecom/callback` 是 2026-08-18 原隔离 Demo 的历史操作说明，保留用于回滚和对照，不应与当前 MoChat 集成入口混用。
 

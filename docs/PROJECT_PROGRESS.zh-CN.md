@@ -20,12 +20,12 @@
 
 真实验收边界：
 
-- 当前企业 CorpID 尚未验证、会话存档未配置，定时任务如实报告 `corps=0`；尚未收到真实企微 challenge、`msgaudit_notify` 或真实 `GetChatData/DecryptData` 消息。
+- 2026-08-26 20:27:30（CST）企业微信向专用地址发起真实 GET URL 校验并获得 200，证明公网 URL、Token 签名和 EncodingAESKey 解密/回包链路匹配；请求参数和凭据未写入证据。当前企业 CorpID 仍未验证、会话存档 Secret/RSA 仍未配置，定时任务如实报告 `corps=0`；尚未收到 `msgaudit_notify` 或真实 `GetChatData/DecryptData` 消息。
 - 当前 Dashboard 账号仅有“唯一企业资料”权限，数据概览、AI 设置和 AI 洞察会被 RBAC 重定向；SaaS Admin 没有现成登录态，均不能冒充验收通过。
 - Sidebar 12 条路由的登录/失败状态可达，但用当前 AgentID 发起授权返回“应用不存在”；企业资料中的应用配置尚未闭合到 Sidebar 应用记录和员工 OAuth/JSSDK。
 - 应用内浏览器本轮未实际得到 390×844 viewport，因此生产移动视觉项保持跳过；代码门禁不替代真实企微客户端验收。
 
-下一步必须由真实企微配置驱动：完成 CorpID 验证、会话存档试用/RSA 公钥/允许 IP/测试范围，生成真实消息；同时修复 Sidebar 应用记录链路并准备 SaaS Admin 与 Dashboard 完整角色登录态。只有真实 callback、SDK 拉取、数据库落库和三端回读证据闭合后，Phase 7 才能标记为生产通过。
+下一步必须由真实企微配置驱动：完成 CorpID 验证、会话存档试用/Secret/RSA 公钥/允许 IP/测试范围，生成真实消息；同时修复 Sidebar 应用记录链路并准备 SaaS Admin 与 Dashboard 完整角色登录态。只有真实事件 POST、SDK 拉取、数据库落库和三端回读证据闭合后，Phase 7 才能标记为生产通过。
 
 ## 超时预警与客户流失菜单实施范围纠偏（2026-08-21）
 

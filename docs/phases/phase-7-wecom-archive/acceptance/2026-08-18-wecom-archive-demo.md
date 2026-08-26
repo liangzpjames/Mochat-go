@@ -46,4 +46,4 @@
 
 合成非法签名 GET 返回 `400 text/plain`，不再返回 Dashboard HTML；POST 非法 XML 返回 400，子路径和 PUT 返回 404。app/bridge 重启后均 healthy，bridge 管理口未鉴权 401、服务器本机鉴权 200，MySQL/Redis 未重建。
 
-企业配置页已显示上述地址并提供复制反馈。当前企业仍为 CorpID 待验证、会话存档未配置，定时同步如实为 `corps=0`；真实企微 challenge、事件、SDK 消息拉取和数据库/Dashboard 回读继续标记为 `WAITING_EXTERNAL_CONFIG`。完整证据见 [2026-08-26 部署与三端验收报告](../../../deployment/2026-08-26-wecom-archive-live-deployment-acceptance.zh-CN.md)。
+企业配置页已显示上述地址并提供复制反馈。2026-08-26 20:27:30（CST）企业微信真实 GET URL 校验返回 200，URL、Token 签名与 EncodingAESKey 解密/回包已闭合；凭据和请求参数未进入证据。当前企业仍为 CorpID 待验证、会话存档 Secret/RSA 未配置，定时同步如实为 `corps=0`；真实事件 POST、SDK 消息拉取和数据库/Dashboard 回读继续标记为 `WAITING_EXTERNAL_CONFIG`。完整证据见 [2026-08-26 部署与三端验收报告](../../../deployment/2026-08-26-wecom-archive-live-deployment-acceptance.zh-CN.md)。
