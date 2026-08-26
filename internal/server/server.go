@@ -4510,6 +4510,14 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	if strings.HasPrefix(r.URL.Path, "/wecom/archive/callback") {
+		if r.URL.Path == "/wecom/archive/callback" && (r.Method == http.MethodGet || r.Method == http.MethodPost) && s.weWorkCallback != nil {
+			s.weWorkCallback.ServeHTTP(w, r)
+			return
+		}
+		http.NotFound(w, r)
+		return
+	}
 	if strings.HasPrefix(r.URL.Path, "/dashboard/") && !isDashboardSaaSRequestPath(r.URL.Path) && !nilcheck.IsNil(s.dashboardRequestGuard) {
 		if !s.dashboardRequestGuard.Authorize(w, r) {
 			return
@@ -4634,10 +4642,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.userPasswordUpdate.ServeHTTP(w, r)
 	case r.URL.Path == "/dashboard/role/permissionByUser" && r.Method == http.MethodGet && s.permissionByUser != nil:
 		s.permissionByUser.ServeHTTP(w, r)
-	case (r.URL.Path == "/weWork/callback" || r.URL.Path == "/dashboard/corp/weWorkCallback" || r.URL.Path == "/wecom/archive/callback") && (r.Method == http.MethodGet || r.Method == http.MethodPost) && s.weWorkCallback != nil:
+	case (r.URL.Path == "/weWork/callback" || r.URL.Path == "/dashboard/corp/weWorkCallback") && (r.Method == http.MethodGet || r.Method == http.MethodPost) && s.weWorkCallback != nil:
 		s.weWorkCallback.ServeHTTP(w, r)
-	case strings.HasPrefix(r.URL.Path, "/wecom/archive/callback"):
-		http.NotFound(w, r)
 	case r.URL.Path == "/dashboard/corpData/index" && r.Method == http.MethodGet && s.corpDataIndex != nil:
 		s.corpDataIndex.ServeHTTP(w, r)
 	case r.URL.Path == "/dashboard/corpData/lineChat" && r.Method == http.MethodGet && s.corpDataLineChat != nil:

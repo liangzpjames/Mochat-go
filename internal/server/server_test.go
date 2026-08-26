@@ -2858,6 +2858,41 @@ func TestCorpCallbackRoutesRemainAvailableAfterLegacyCutover(t *testing.T) {
 	}
 }
 
+func TestDedicatedArchiveCallbackTakesPriorityOverModuleRouter(t *testing.T) {
+	callback := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("archive callback"))
+	})
+	spa := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("dashboard spa"))
+	})
+	srv, err := New(config.Config{},
+		WithWeWorkCallbackHandler(callback),
+		WithModuleRouter(&fixedModuleRouter{handler: spa, matched: true}),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, method := range []string{http.MethodGet, http.MethodPost} {
+		rec := httptest.NewRecorder()
+		srv.ServeHTTP(rec, httptest.NewRequest(method, "/wecom/archive/callback?cid=4", nil))
+		if rec.Code != http.StatusOK || rec.Body.String() != "archive callback" {
+			t.Fatalf("%s callback status=%d body=%q", method, rec.Code, rec.Body.String())
+		}
+	}
+
+	for _, request := range []*http.Request{
+		httptest.NewRequest(http.MethodPut, "/wecom/archive/callback?cid=4", nil),
+		httptest.NewRequest(http.MethodGet, "/wecom/archive/callback/extra?cid=4", nil),
+	} {
+		rec := httptest.NewRecorder()
+		srv.ServeHTTP(rec, request)
+		if rec.Code != http.StatusNotFound {
+			t.Fatalf("%s %s status=%d body=%q", request.Method, request.URL.Path, rec.Code, rec.Body.String())
+		}
+	}
+}
+
 func TestCorpDataRoutesFallBackWhenNotMigrated(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
