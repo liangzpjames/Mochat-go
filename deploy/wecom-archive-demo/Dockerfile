@@ -1,5 +1,5 @@
-# syntax=docker/dockerfile:1.7
-FROM debian:bookworm-slim
+# syntax=docker/dockerfile:1.7@sha256:a57df69d0ea827fb7266491f2813635de6f17269be881f696fbfdf2d83dda33e
+FROM debian:bookworm-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171
 
 ARG WECOM_SDK_URL=https://wwcdn.weixin.qq.com/node/wwcomm/sdk_x86_v3_20250205.tgz
 RUN apt-get update \
@@ -13,7 +13,8 @@ RUN mkdir -p /opt/wecom-sdk \
 
 COPY .tmp-wecom-archive-demo-build/wecom-archive-demo /usr/local/bin/wecom-archive-demo
 COPY deploy/wecom-archive-demo/entrypoint.sh /usr/local/bin/wecom-archive-demo-entrypoint
-RUN chmod 0755 /usr/local/bin/wecom-archive-demo /usr/local/bin/wecom-archive-demo-entrypoint
+RUN sed -i 's/\r$//' /usr/local/bin/wecom-archive-demo-entrypoint \
+    && chmod 0755 /usr/local/bin/wecom-archive-demo /usr/local/bin/wecom-archive-demo-entrypoint
 ENV WECOM_FINANCE_SDK_PATH=/opt/wecom-sdk/libWeWorkFinanceSdk_C.so
 USER 65532:65532
 EXPOSE 8080 9091

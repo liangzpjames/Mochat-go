@@ -28,6 +28,9 @@ foreach ($value in $forbiddenDeploy) {
 if (-not $configure.Contains('read -r -s')) { throw 'configuration script must hide the archive Secret while typing' }
 if (-not $deploy.Contains('install -m 0600 secrets/wecom-fill.txt')) { throw 'callback Token/AES delivery file must be installed with mode 0600' }
 if (-not $dockerfile.Contains('afa8c017da2994ad2215933f2fcc6042d40d935663ad42d6e1e9d7716652f0d8')) { throw 'Dockerfile must pin the official SDK checksum' }
+if (-not $dockerfile.Contains('debian:bookworm-slim@sha256:')) { throw 'Dockerfile must pin the Linux base image digest' }
+if (-not $dockerfile.Contains('docker/dockerfile:1.7@sha256:')) { throw 'Dockerfile must pin the frontend digest' }
+if (-not $dockerfile.Contains("sed -i 's/\r$//' /usr/local/bin/wecom-archive-demo-entrypoint")) { throw 'Dockerfile must normalize the entrypoint to LF for Linux images' }
 foreach ($value in @('/admin/status', '19091', 'admin HTTP endpoint on port 19091 is reachable')) {
     if (-not $verify.Contains($value)) { throw "verification script is missing isolation check: $value" }
 }
