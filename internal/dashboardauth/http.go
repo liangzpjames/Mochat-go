@@ -28,6 +28,7 @@ const (
 	CodePasswordChangeRequired    = "PASSWORD_CHANGE_REQUIRED"
 	CodePasswordChangeInvalid     = "PASSWORD_CHANGE_INVALID"
 	CodeActivationInvalid         = "ACTIVATION_INVALID"
+	CodeActivationStatus          = "ACTIVATION_STATUS"
 	CodeTenantAccessDenied        = "TENANT_ACCESS_DENIED"
 	CodeCorpConfigurationRequired = "CORP_CONFIGURATION_REQUIRED"
 )
@@ -115,6 +116,8 @@ func (handler *HTTPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		handler.mfaComplete(w, r)
 	case r.URL.Path == "/dashboard/auth/activate" && r.Method == http.MethodPost:
 		handler.activate(w, r)
+	case r.URL.Path == "/dashboard/auth/activation/status" && r.Method == http.MethodPost:
+		handler.activationStatus(w, r)
 	case r.URL.Path == "/dashboard/auth/password/reset-request" && r.Method == http.MethodPost:
 		handler.resetRequest(w, r)
 	case r.URL.Path == "/dashboard/auth/password/reset" && r.Method == http.MethodPost:
@@ -143,6 +146,29 @@ type dashboardMFARequest struct {
 type dashboardActivationRequest struct {
 	ActivationToken string `json:"activationToken"`
 	Password        string `json:"password"`
+}
+
+type dashboardActivationStatusRequest struct {
+	ActivationToken string `json:"activationToken"`
+}
+
+func (handler *HTTPHandler) activationStatus(w http.ResponseWriter, r *http.Request) {
+	var request dashboardActivationStatusRequest
+	if err := decodeDashboardAuthJSON(r, &request); err != nil || strings.TrimSpace(request.ActivationToken) == "" {
+		writeDashboardAuthEnvelope(w, http.StatusBadRequest, CodeInvalidRequest, "invalid activation status request", nil)
+		return
+	}
+	store, ok := any(handler.persistence).(DashboardActivationStatusStore)
+	if !ok {
+		writeDashboardAuthEnvelope(w, http.StatusServiceUnavailable, CodeAuthUnavailable, "authentication unavailable", nil)
+		return
+	}
+	status, err := store.DashboardActivationStatus(r.Context(), sha256.Sum256([]byte(strings.TrimSpace(request.ActivationToken))), handler.currentTime())
+	if err != nil {
+		writeDashboardAuthEnvelope(w, http.StatusServiceUnavailable, CodeAuthUnavailable, "authentication unavailable", nil)
+		return
+	}
+	writeDashboardAuthEnvelope(w, http.StatusOK, CodeActivationStatus, "success", status)
 }
 
 type dashboardPasswordResetRequest struct {
@@ -470,6 +496,7 @@ var dashboardIdentityPublicRouteContracts = []string{
 	"POST /dashboard/user/auth",
 	"POST /dashboard/user/authMFA",
 	"POST /dashboard/auth/activate",
+	"POST /dashboard/auth/activation/status",
 	"POST /dashboard/auth/password/reset",
 }
 

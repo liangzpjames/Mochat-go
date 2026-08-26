@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
+	"time"
 )
 
 type recordingStore struct {
@@ -140,6 +142,52 @@ func TestProvisionIdempotencyDoesNotReplayActivationToken(t *testing.T) {
 	}
 	if store.provisionCalls != 2 {
 		t.Fatalf("store calls=%d, want two durable idempotency lookups", store.provisionCalls)
+	}
+}
+
+func TestProvisionActivationBuildsFragmentPathOnlyForFirstDelivery(t *testing.T) {
+	expiresAt := time.Date(2026, 8, 27, 12, 0, 0, 0, time.UTC)
+	store := &recordingStore{provision: ProvisionResult{TenantID: 41, DashboardUserID: 52, ActivationToken: "opaque +/token", ActivationExpiresAt: expiresAt}}
+	service := NewService(store)
+	result, err := service.ProvisionDashboardTenant(context.Background(), validActor(), validProvisionInput())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.ActivationPath != "/activate#token=opaque+%2B%2Ftoken" || !result.ActivationExpiresAt.Equal(expiresAt) {
+		t.Fatalf("result=%+v", result)
+	}
+	if strings.Contains(result.ActivationPath, "?token=") {
+		t.Fatal("activation path put token in query")
+	}
+	store.provision.Idempotent = true
+	replay, err := service.ProvisionDashboardTenant(context.Background(), validActor(), validProvisionInput())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if replay.ActivationToken != "" || replay.ActivationPath != "" || !replay.ActivationExpiresAt.IsZero() {
+		t.Fatalf("replay leaked delivery: %+v", replay)
+	}
+}
+
+func TestResendActivationBuildsFragmentPathAndClearsReplay(t *testing.T) {
+	expiresAt := time.Date(2026, 8, 27, 12, 0, 0, 0, time.UTC)
+	store := &recordingStore{resend: ResendActivationResult{TenantID: 41, DashboardUserID: 52, Version: 4, ActivationToken: "resend-token", ActivationExpiresAt: expiresAt}}
+	service := NewService(store)
+	input := ResendActivationInput{TenantID: 41, TargetUserID: 52, ExpectedVersion: 3, RequestID: "resend-request"}
+	result, err := service.ResendActivation(context.Background(), validActor(), input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.ActivationPath != "/activate#token=resend-token" || !result.ActivationExpiresAt.Equal(expiresAt) {
+		t.Fatalf("result=%+v", result)
+	}
+	store.resend.Idempotent = true
+	replay, err := service.ResendActivation(context.Background(), validActor(), input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if replay.ActivationToken != "" || replay.ActivationPath != "" || !replay.ActivationExpiresAt.IsZero() {
+		t.Fatalf("replay leaked delivery: %+v", replay)
 	}
 }
 

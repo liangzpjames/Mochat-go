@@ -1,6 +1,7 @@
+import { ApiError } from '@mochat/api-client';
 import { describe, expect, it, vi } from 'vitest';
 
-import { activate, authenticate, completeMFA, logout } from './auth-api';
+import { activate, authenticate, completeMFA, inspectDashboardActivation, logout } from './auth-api';
 
 describe('authenticate', () => {
   it('posts only the audited login fields and maps the token lifetime', async () => {
@@ -119,5 +120,23 @@ describe('logout', () => {
     expect(request).toHaveBeenCalledWith('/user/logout', {
       method: 'PUT',
     });
+  });
+});
+
+describe('inspectDashboardActivation', () => {
+  it('posts the token in a strict body and returns the safe status fields', async () => {
+    const safe = { status: 'valid' as const, tenantName: '安全租户', accountHint: '138****8000', expiresAt: 1780000000, primaryAction: 'activate' as const };
+    const request = vi.fn(() => Promise.resolve(safe));
+    await expect(inspectDashboardActivation({ request }, 'raw-token')).resolves.toEqual(safe);
+    expect(request).toHaveBeenCalledWith('/auth/activation/status', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ activationToken: 'raw-token' }),
+    });
+  });
+
+  it('preserves a stable error code without including the token', async () => {
+	  const request = vi.fn(() => Promise.reject(new ApiError('server', 'failed raw-token', { machineCode: 'AUTH_UNAVAILABLE' })));
+    const error = await inspectDashboardActivation({ request }, 'raw-token').catch((reason: unknown) => reason) as Error & { errorCode?: string };
+    expect(error.errorCode).toBe('AUTH_UNAVAILABLE');
+    expect(error.message).not.toContain('raw-token');
   });
 });

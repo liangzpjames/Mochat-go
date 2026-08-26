@@ -14,6 +14,7 @@ var exactExemptDashboardRouteContracts = []string{
 	"POST /dashboard/user/auth",
 	"POST /dashboard/user/authMFA",
 	"POST /dashboard/auth/activate",
+	"POST /dashboard/auth/activation/status",
 	"POST /dashboard/auth/password/reset",
 	"POST /dashboard/auth/password/reset-request",
 	"GET /dashboard/auth/session",
@@ -41,6 +42,7 @@ var publicDashboardRouteContracts = []string{
 	"POST /dashboard/user/auth",
 	"POST /dashboard/user/authMFA",
 	"POST /dashboard/auth/activate",
+	"POST /dashboard/auth/activation/status",
 	"POST /dashboard/auth/password/reset",
 }
 

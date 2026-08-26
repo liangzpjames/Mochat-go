@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -202,11 +203,13 @@ type ProvisionDashboardTenant struct {
 }
 
 type ProvisionResult struct {
-	TenantID        int
-	DashboardUserID int
-	BindingCorpID   int
-	ActivationToken string
-	Idempotent      bool
+	TenantID            int
+	DashboardUserID     int
+	BindingCorpID       int
+	ActivationToken     string
+	ActivationPath      string
+	ActivationExpiresAt time.Time
+	Idempotent          bool
 }
 
 type ResendActivationInput struct {
@@ -221,11 +224,13 @@ type ResendActivationInput struct {
 }
 
 type ResendActivationResult struct {
-	TenantID        int
-	DashboardUserID int
-	Version         uint64
-	ActivationToken string
-	Idempotent      bool
+	TenantID            int
+	DashboardUserID     int
+	Version             uint64
+	ActivationToken     string
+	ActivationPath      string
+	ActivationExpiresAt time.Time
+	Idempotent          bool
 }
 
 type ReplaceSuperAdminInput struct {
@@ -420,7 +425,7 @@ func (service *Service) ExecuteApproval(ctx context.Context, actor Actor, action
 		if err != nil {
 			return nil, err
 		}
-		return map[string]any{"tenantId": result.TenantID, "dashboardUserId": result.DashboardUserID, "bindingCorpId": result.BindingCorpID, "activationToken": result.ActivationToken, "idempotent": result.Idempotent}, nil
+		return activationDeliveryMap(map[string]any{"tenantId": result.TenantID, "dashboardUserId": result.DashboardUserID, "bindingCorpId": result.BindingCorpID, "activationToken": result.ActivationToken, "idempotent": result.Idempotent}, result.ActivationPath, result.ActivationExpiresAt), nil
 	case ApprovalActionActivationResend:
 		var payload dashboardActivationResendApprovalPayload
 		if err := decodeApprovalJSON(plan.NormalizedJSON, &payload); err != nil {
@@ -430,7 +435,7 @@ func (service *Service) ExecuteApproval(ctx context.Context, actor Actor, action
 		if err != nil {
 			return nil, err
 		}
-		return map[string]any{"tenantId": result.TenantID, "dashboardUserId": result.DashboardUserID, "version": result.Version, "activationToken": result.ActivationToken, "idempotent": result.Idempotent}, nil
+		return activationDeliveryMap(map[string]any{"tenantId": result.TenantID, "dashboardUserId": result.DashboardUserID, "version": result.Version, "activationToken": result.ActivationToken, "idempotent": result.Idempotent}, result.ActivationPath, result.ActivationExpiresAt), nil
 	case ApprovalActionSuperAdminReplace:
 		var payload dashboardSuperAdminReplaceApprovalPayload
 		if err := decodeApprovalJSON(plan.NormalizedJSON, &payload); err != nil {
@@ -474,6 +479,10 @@ func (service *Service) ProvisionDashboardTenant(ctx context.Context, actor Acto
 		// A durable idempotency receipt contains only the business result and
 		// token digest. The original opaque token is never replayable.
 		result.ActivationToken = ""
+		result.ActivationPath = ""
+		result.ActivationExpiresAt = time.Time{}
+	} else if result.ActivationToken != "" {
+		result.ActivationPath = "/activate#token=" + url.QueryEscape(result.ActivationToken)
 	}
 	return result, nil
 }
@@ -504,7 +513,26 @@ func (service *Service) ResendActivation(ctx context.Context, actor Actor, input
 	if service == nil || service.store == nil {
 		return ResendActivationResult{}, ErrStoreUnavailable
 	}
-	return service.store.ResendDashboardActivation(ctx, actor, input)
+	result, err := service.store.ResendDashboardActivation(ctx, actor, input)
+	if err != nil {
+		return ResendActivationResult{}, err
+	}
+	if result.Idempotent {
+		result.ActivationToken, result.ActivationPath, result.ActivationExpiresAt = "", "", time.Time{}
+	} else if result.ActivationToken != "" {
+		result.ActivationPath = "/activate#token=" + url.QueryEscape(result.ActivationToken)
+	}
+	return result, nil
+}
+
+func activationDeliveryMap(result map[string]any, path string, expiresAt time.Time) map[string]any {
+	result["activationPath"] = path
+	if expiresAt.IsZero() {
+		result["activationExpiresAt"] = ""
+	} else {
+		result["activationExpiresAt"] = expiresAt.UTC().Format(time.RFC3339)
+	}
+	return result
 }
 
 func (service *Service) ReplaceDashboardSuperAdmin(ctx context.Context, actor Actor, input ReplaceSuperAdminInput) (GovernanceResult, error) {

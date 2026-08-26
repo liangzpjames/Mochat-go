@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -819,6 +820,26 @@ func TestDashboardAuthHandlerUsesDedicatedIdentityRoute(t *testing.T) {
 	srv.ServeHTTP(response, request)
 	if response.Code != http.StatusOK || response.Body.String() != "dashboard identity auth" {
 		t.Fatalf("status=%d body=%q", response.Code, response.Body.String())
+	}
+}
+
+func TestDashboardActivationStatusUsesExactPublicRoute(t *testing.T) {
+	migrated := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
+	srv, err := New(config.Config{Standalone: true}, WithDashboardAuthHandler(migrated))
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := httptest.NewRecorder()
+	srv.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/dashboard/auth/activation/status", strings.NewReader(`{"activationToken":"opaque"}`)))
+	if response.Code != http.StatusOK {
+		t.Fatalf("status=%d", response.Code)
+	}
+	for _, target := range []struct{ method, path string }{{http.MethodGet, "/dashboard/auth/activation/status"}, {http.MethodPost, "/dashboard/auth/activation/status/extra"}} {
+		blocked := httptest.NewRecorder()
+		srv.ServeHTTP(blocked, httptest.NewRequest(target.method, target.path, nil))
+		if blocked.Code == http.StatusOK && blocked.Body.Len() == 0 {
+			t.Fatalf("non-exact route exposed: %s %s", target.method, target.path)
+		}
 	}
 }
 

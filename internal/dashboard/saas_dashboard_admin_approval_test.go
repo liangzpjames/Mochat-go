@@ -12,6 +12,7 @@ import (
 
 func TestDashboardAdminApprovalExecuteReturnsNestedOneTimeTokenButPersistsOnlyDeliveryMarker(t *testing.T) {
 	const oneTimeFixture = "fixture-activation-token"
+	const oneTimePath = "/activate#token=" + oneTimeFixture
 	store := &fakeSaaSAdminApprovalStore{
 		fakeSaaSAdminAccessStore: &fakeSaaSAdminAccessStore{
 			fakeSaaSAdminStore: &fakeSaaSAdminStore{users: map[int]User{
@@ -31,7 +32,7 @@ func TestDashboardAdminApprovalExecuteReturnsNestedOneTimeTokenButPersistsOnlyDe
 	var callbackPayload json.RawMessage
 	handler := NewSaaSAdminHandler(store, HeaderUserIDResolver{}, 1).WithDashboardAdminApprovalExecutor(func(_ context.Context, actorUserID int, approvalID int64, approvalVersion int, actionType string, payload json.RawMessage) (map[string]any, error) {
 		callbackActor, callbackApprovalID, callbackVersion, callbackAction, callbackPayload = actorUserID, approvalID, approvalVersion, actionType, append(json.RawMessage(nil), payload...)
-		return map[string]any{"tenantId": 41, "activationToken": oneTimeFixture, "version": 5}, nil
+		return map[string]any{"tenantId": 41, "activationToken": oneTimeFixture, "activationPath": oneTimePath, "version": 5}, nil
 	})
 	req := httptest.NewRequest(http.MethodPost, "/dashboard/saasAdmin/approvalExecute", strings.NewReader(`{"approvalId":81,"expectedVersion":5}`))
 	req.Header.Set("X-Mochat-Go-User-ID", "9")
@@ -50,9 +51,10 @@ func TestDashboardAdminApprovalExecuteReturnsNestedOneTimeTokenButPersistsOnlyDe
 		t.Fatal("first execution response did not contain the one-time result")
 	}
 	persistentToken := strings.Contains(store.finishInput.ResultJSON, oneTimeFixture)
+	persistentPath := strings.Contains(store.finishInput.ResultJSON, "activationPath")
 	deliveryMarker := strings.Contains(store.finishInput.ResultJSON, `"activationTokenDelivered":true`)
-	if persistentToken || !deliveryMarker {
-		t.Fatalf("persistent result tokenPresent=%t deliveryMarker=%t", persistentToken, deliveryMarker)
+	if persistentToken || persistentPath || !deliveryMarker {
+		t.Fatalf("persistent result tokenPresent=%t pathPresent=%t deliveryMarker=%t", persistentToken, persistentPath, deliveryMarker)
 	}
 	if !store.finishInput.Success || store.finishCalls != 1 {
 		t.Fatalf("finish=%+v calls=%d, want one successful durable completion", store.finishInput, store.finishCalls)

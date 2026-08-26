@@ -209,11 +209,12 @@ func (s *MySQLStore) resendDashboardActivationTx(ctx context.Context, actor dash
 	}
 	activationToken := base64.RawURLEncoding.EncodeToString(randomValue)
 	activationDigest := sha256.Sum256([]byte(activationToken))
+	activationExpiresAt := time.Now().Add(dashboardAdminActivationLifetime)
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO mochat_go_dashboard_identity_activations
 			(user_id, token_digest, expires_at, consumed_at, created_by_saas_user_id, request_id, created_at)
 		VALUES (?, ?, ?, NULL, ?, ?, NOW())
-	`, input.TargetUserID, activationDigest[:], time.Now().Add(dashboardAdminActivationLifetime), actor.UserID, dashboardResendAuditRequestID(input.RequestID)); err != nil {
+	`, input.TargetUserID, activationDigest[:], activationExpiresAt, actor.UserID, dashboardResendAuditRequestID(input.RequestID)); err != nil {
 		return dashboardadmin.ResendActivationResult{}, err
 	}
 	resultVersion, err := advanceDashboardBindingTx(ctx, tx, input.TenantID, input.ExpectedVersion)
@@ -248,7 +249,7 @@ func (s *MySQLStore) resendDashboardActivationTx(ctx context.Context, actor dash
 	}
 	return dashboardadmin.ResendActivationResult{
 		TenantID: input.TenantID, DashboardUserID: input.TargetUserID,
-		Version: resultVersion, ActivationToken: activationToken,
+		Version: resultVersion, ActivationToken: activationToken, ActivationExpiresAt: activationExpiresAt,
 	}, nil
 }
 
@@ -656,6 +657,7 @@ func insertDashboardProvisionArtifactsTx(ctx context.Context, tx *sql.Tx, actorU
 	}
 	activationToken := base64.RawURLEncoding.EncodeToString(randomValue)
 	activationDigest := sha256.Sum256([]byte(activationToken))
+	activationExpiresAt := time.Now().Add(dashboardAdminActivationLifetime)
 	requestID := strings.TrimSpace(input.RequestID)
 	if requestID == "" {
 		requestID = strings.TrimSpace(input.IdempotencyKey)
@@ -665,7 +667,7 @@ func insertDashboardProvisionArtifactsTx(ctx context.Context, tx *sql.Tx, actorU
 		INSERT INTO mochat_go_dashboard_identity_activations
 			(user_id, token_digest, expires_at, consumed_at, created_by_saas_user_id, request_id, created_at)
 		VALUES (?, ?, ?, NULL, ?, ?, NOW())
-	`, userID, activationDigest[:], time.Now().Add(dashboardAdminActivationLifetime), actorUserID, requestID); err != nil {
+	`, userID, activationDigest[:], activationExpiresAt, actorUserID, requestID); err != nil {
 		return dashboardadmin.ProvisionResult{}, err
 	}
 	if _, err := tx.ExecContext(ctx, `
@@ -713,7 +715,7 @@ func insertDashboardProvisionArtifactsTx(ctx context.Context, tx *sql.Tx, actorU
 	if err := markDashboardAdminApprovalEffectTx(ctx, tx, input.ApprovalExecutionID, input.ApprovalExecutionVersion, actorUserID, operationID); err != nil {
 		return dashboardadmin.ProvisionResult{}, err
 	}
-	return dashboardadmin.ProvisionResult{TenantID: tenantID, DashboardUserID: userID, BindingCorpID: corpID, ActivationToken: activationToken}, nil
+	return dashboardadmin.ProvisionResult{TenantID: tenantID, DashboardUserID: userID, BindingCorpID: corpID, ActivationToken: activationToken, ActivationExpiresAt: activationExpiresAt}, nil
 }
 
 func dashboardAdminProvisionTime(raw string) (any, error) {

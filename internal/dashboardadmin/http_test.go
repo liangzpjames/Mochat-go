@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"jiyi/mochat-go/internal/saasauth"
 )
@@ -73,10 +74,11 @@ func (store *dashboardAdminHTTPStore) SetDashboardSuperAdminStatus(_ context.Con
 
 func TestDashboardAdminHTTPProvisionUsesSaaSPrincipalAndReturnsActivationOnce(t *testing.T) {
 	store := &dashboardAdminHTTPStore{provisionResult: ProvisionResult{
-		TenantID:        41,
-		DashboardUserID: 52,
-		BindingCorpID:   63,
-		ActivationToken: "opaque-activation-value",
+		TenantID:            41,
+		DashboardUserID:     52,
+		BindingCorpID:       63,
+		ActivationToken:     "opaque-activation-value",
+		ActivationExpiresAt: time.Date(2026, 8, 27, 12, 0, 0, 0, time.UTC),
 	}}
 	handler := NewHTTPHandler(NewService(store))
 	body, err := json.Marshal(validProvisionInput())
@@ -99,10 +101,12 @@ func TestDashboardAdminHTTPProvisionUsesSaaSPrincipalAndReturnsActivationOnce(t 
 	var envelope struct {
 		Code int `json:"code"`
 		Data struct {
-			TenantID        int    `json:"tenantId"`
-			DashboardUserID int    `json:"dashboardUserId"`
-			BindingCorpID   int    `json:"bindingCorpId"`
-			ActivationToken string `json:"activationToken"`
+			TenantID            int    `json:"tenantId"`
+			DashboardUserID     int    `json:"dashboardUserId"`
+			BindingCorpID       int    `json:"bindingCorpId"`
+			ActivationToken     string `json:"activationToken"`
+			ActivationPath      string `json:"activationPath"`
+			ActivationExpiresAt string `json:"activationExpiresAt"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(response.Body.Bytes(), &envelope); err != nil {
@@ -110,6 +114,9 @@ func TestDashboardAdminHTTPProvisionUsesSaaSPrincipalAndReturnsActivationOnce(t 
 	}
 	if envelope.Code != http.StatusCreated || envelope.Data.TenantID != 41 || envelope.Data.DashboardUserID != 52 || envelope.Data.BindingCorpID != 63 || envelope.Data.ActivationToken == "" {
 		t.Fatalf("provision response code=%d tenant=%d user=%d corp=%d activationPresent=%t, want business result with one activation value", envelope.Code, envelope.Data.TenantID, envelope.Data.DashboardUserID, envelope.Data.BindingCorpID, envelope.Data.ActivationToken != "")
+	}
+	if envelope.Data.ActivationPath != "/activate#token=opaque-activation-value" || envelope.Data.ActivationExpiresAt != "2026-08-27T12:00:00Z" {
+		t.Fatalf("activation delivery=%+v", envelope.Data)
 	}
 }
 
@@ -199,6 +206,7 @@ func TestDashboardAdminHTTPProvisionMapsIdempotencyConflictWithoutToken(t *testi
 func TestDashboardAdminHTTPResendReturnsTokenOnceAndUsesHeaderRequestID(t *testing.T) {
 	store := &dashboardAdminHTTPStore{resendResult: ResendActivationResult{
 		TenantID: 41, DashboardUserID: 52, Version: 4, ActivationToken: "one-time-resend-token",
+		ActivationExpiresAt: time.Date(2026, 8, 27, 12, 0, 0, 0, time.UTC),
 	}}
 	handler := NewHTTPHandler(NewService(store))
 	request := httptest.NewRequest(http.MethodPost, "/dashboard/saasAdmin/tenants/41/activation/resend", bytes.NewBufferString(`{"targetUserId":52,"expectedVersion":3}`))
@@ -211,10 +219,12 @@ func TestDashboardAdminHTTPResendReturnsTokenOnceAndUsesHeaderRequestID(t *testi
 	}
 	var envelope struct {
 		Data struct {
-			TenantID        int    `json:"tenantId"`
-			DashboardUserID int    `json:"dashboardUserId"`
-			Version         uint64 `json:"version"`
-			ActivationToken string `json:"activationToken"`
+			TenantID            int    `json:"tenantId"`
+			DashboardUserID     int    `json:"dashboardUserId"`
+			Version             uint64 `json:"version"`
+			ActivationToken     string `json:"activationToken"`
+			ActivationPath      string `json:"activationPath"`
+			ActivationExpiresAt string `json:"activationExpiresAt"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(response.Body.Bytes(), &envelope); err != nil {
@@ -222,6 +232,9 @@ func TestDashboardAdminHTTPResendReturnsTokenOnceAndUsesHeaderRequestID(t *testi
 	}
 	if envelope.Data.TenantID != 41 || envelope.Data.DashboardUserID != 52 || envelope.Data.Version != 4 || envelope.Data.ActivationToken != "one-time-resend-token" {
 		t.Fatalf("resend response tenant=%d user=%d version=%d activationPresent=%t, want one-time activation data", envelope.Data.TenantID, envelope.Data.DashboardUserID, envelope.Data.Version, envelope.Data.ActivationToken != "")
+	}
+	if envelope.Data.ActivationPath != "/activate#token=one-time-resend-token" || envelope.Data.ActivationExpiresAt != "2026-08-27T12:00:00Z" {
+		t.Fatalf("resend delivery=%+v", envelope.Data)
 	}
 
 	store.resendResult = ResendActivationResult{TenantID: 41, DashboardUserID: 52, Version: 4, Idempotent: true}

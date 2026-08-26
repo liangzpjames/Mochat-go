@@ -43,6 +43,31 @@ type DashboardIdentity struct {
 	MFARequired        int
 }
 
+type ActivationStatusValue string
+
+const (
+	ActivationStatusValid               ActivationStatusValue = "valid"
+	ActivationStatusExpired             ActivationStatusValue = "expired"
+	ActivationStatusActivated           ActivationStatusValue = "activated"
+	ActivationStatusRevoked             ActivationStatusValue = "revoked"
+	ActivationStatusInvalid             ActivationStatusValue = "invalid"
+	ActivationPrimaryActionActivate                           = "activate"
+	ActivationPrimaryActionLogin                              = "login"
+	ActivationPrimaryActionContactAdmin                       = "contact_admin"
+)
+
+type DashboardActivationStatus struct {
+	Status        ActivationStatusValue `json:"status"`
+	TenantName    string                `json:"tenantName"`
+	AccountHint   string                `json:"accountHint"`
+	ExpiresAt     int64                 `json:"expiresAt"`
+	PrimaryAction string                `json:"primaryAction"`
+}
+
+type DashboardActivationStatusStore interface {
+	DashboardActivationStatus(context.Context, [32]byte, time.Time) (DashboardActivationStatus, error)
+}
+
 type DashboardIdentityStore interface {
 	Authenticate(ctx context.Context, loginIdentifier string) (DashboardIdentity, error)
 	Activate(ctx context.Context, tokenDigest [32]byte, passwordHash string) error

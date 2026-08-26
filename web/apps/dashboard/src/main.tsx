@@ -17,6 +17,7 @@ import {
   activate,
   authenticate,
   completeMFA,
+  inspectDashboardActivation,
   logout as invalidateServerSession,
 } from './features/auth/auth-api';
 import {
@@ -154,6 +155,7 @@ const performLogout = createLogoutAction({
 const router = createDashboardRouter({
   accessLoader,
   activate: (input) => activate(loginClient, input),
+  inspectActivation: (token) => inspectDashboardActivation(loginClient, token),
   authenticate: (input) => authenticate(loginClient, input),
   completeMFA: (input) => completeMFA(loginClient, input),
   getSession: () => authStore.getSession(),

@@ -814,8 +814,11 @@ func saasAdminApprovalPersistentResult(actionType string, result map[string]any)
 		persistent := make(map[string]any, len(result)+1)
 		delivered := false
 		for key, value := range result {
-			if key != "activationToken" {
+			if key != "activationToken" && key != "activationPath" {
 				persistent[key] = value
+				continue
+			}
+			if key == "activationPath" {
 				continue
 			}
 			if token, ok := value.(string); ok && strings.TrimSpace(token) != "" {

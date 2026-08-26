@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"jiyi/mochat-go/internal/saasauth"
 )
@@ -293,11 +294,13 @@ func (handler *HTTPHandler) resendActivation(w http.ResponseWriter, r *http.Requ
 		status = http.StatusOK
 	}
 	writeDashboardAdminJSON(w, status, map[string]any{
-		"tenantId":        result.TenantID,
-		"dashboardUserId": result.DashboardUserID,
-		"version":         result.Version,
-		"activationToken": result.ActivationToken,
-		"idempotent":      result.Idempotent,
+		"tenantId":            result.TenantID,
+		"dashboardUserId":     result.DashboardUserID,
+		"version":             result.Version,
+		"activationToken":     result.ActivationToken,
+		"activationPath":      result.ActivationPath,
+		"activationExpiresAt": dashboardActivationExpiry(result.ActivationExpiresAt),
+		"idempotent":          result.Idempotent,
 	})
 }
 
@@ -339,12 +342,21 @@ func (handler *HTTPHandler) provision(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeDashboardAdminJSON(w, http.StatusCreated, map[string]any{
-		"tenantId":        result.TenantID,
-		"dashboardUserId": result.DashboardUserID,
-		"bindingCorpId":   result.BindingCorpID,
-		"activationToken": result.ActivationToken,
-		"idempotent":      result.Idempotent,
+		"tenantId":            result.TenantID,
+		"dashboardUserId":     result.DashboardUserID,
+		"bindingCorpId":       result.BindingCorpID,
+		"activationToken":     result.ActivationToken,
+		"activationPath":      result.ActivationPath,
+		"activationExpiresAt": dashboardActivationExpiry(result.ActivationExpiresAt),
+		"idempotent":          result.Idempotent,
 	})
+}
+
+func dashboardActivationExpiry(value time.Time) string {
+	if value.IsZero() {
+		return ""
+	}
+	return value.UTC().Format(time.RFC3339)
 }
 
 func decodeDashboardAdminJSON(r *http.Request, target any) error {

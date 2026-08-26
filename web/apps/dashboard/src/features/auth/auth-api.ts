@@ -52,6 +52,42 @@ export type ActivationInput = {
   password: string;
 };
 
+export type DashboardActivationStatus = {
+  status: 'valid' | 'expired' | 'activated' | 'revoked' | 'invalid';
+  tenantName: string;
+  accountHint: string;
+  expiresAt: number;
+  primaryAction: 'activate' | 'login' | 'contact_admin';
+};
+
+export async function inspectDashboardActivation(
+  client: ApiClient,
+  activationToken: string,
+): Promise<DashboardActivationStatus> {
+  try {
+    return await client.request('/auth/activation/status', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ activationToken }),
+    }) as DashboardActivationStatus;
+  } catch (reason) {
+    const reasonMachineCode = typeof reason === 'object' && reason !== null && 'machineCode' in reason
+      ? reason.machineCode
+      : undefined;
+    const reasonErrorCode = typeof reason === 'object' && reason !== null && 'errorCode' in reason
+      ? reason.errorCode
+      : undefined;
+    const errorCode = typeof reasonMachineCode === 'string' && reasonMachineCode !== ''
+      ? reasonMachineCode
+      : typeof reasonErrorCode === 'string' && reasonErrorCode !== ''
+        ? reasonErrorCode
+        : 'ACTIVATION_STATUS_FAILED';
+    const error = new Error('无法检查激活入口，请重试') as Error & { errorCode: string };
+    error.errorCode = errorCode;
+    throw error;
+  }
+}
+
 function tokenUserId(token: string): string {
   const compactToken = token.replace(/^Bearer\s+/i, '');
   const payload = compactToken.split('.')[1];

@@ -23,6 +23,7 @@ import { RoutedActivationPage } from '../features/auth/activation-page';
 import { RoutedLoginPage } from '../features/auth/login-page';
 import type {
   ActivationInput,
+  DashboardActivationStatus,
   DashboardAuthResult,
   LoginInput,
   MFAInput,
@@ -38,6 +39,7 @@ export type DashboardRouterDeps = {
   authenticate?: (input: LoginInput) => Promise<DashboardAuthResult>;
   completeMFA?: (input: MFAInput) => Promise<DashboardAuthResult>;
   activate?: (input: ActivationInput) => Promise<void>;
+  inspectActivation?: (token: string) => Promise<DashboardActivationStatus>;
   setSession?: (session: Session) => void;
   accessLoader?: (args: { request: Request }) => Promise<AccessContext>;
   renderAccess?: (
@@ -112,6 +114,13 @@ export function createDashboardRouter(deps: DashboardRouterDeps) {
           activate={deps.activate ?? (() => Promise.reject(
             new Error('Dashboard activation is not configured'),
           ))}
+          inspect={deps.inspectActivation ?? (() => Promise.resolve({
+            status: 'invalid',
+            tenantName: '',
+            accountHint: '',
+            expiresAt: 0,
+            primaryAction: 'contact_admin',
+          }))}
         />
       ),
     },

@@ -4600,6 +4600,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.dashboardAuth.ServeHTTP(w, r)
 	case s.dashboardAuth != nil && r.URL.Path == "/dashboard/auth/activate" && r.Method == http.MethodPost:
 		s.dashboardAuth.ServeHTTP(w, r)
+	case s.dashboardAuth != nil && r.URL.Path == "/dashboard/auth/activation/status" && r.Method == http.MethodPost:
+		s.dashboardAuth.ServeHTTP(w, r)
 	case s.dashboardAuth != nil && r.URL.Path == "/dashboard/auth/password/reset-request" && r.Method == http.MethodPost:
 		s.dashboardAuth.ServeHTTP(w, r)
 	case s.dashboardAuth != nil && r.URL.Path == "/dashboard/auth/password/reset" && r.Method == http.MethodPost:
@@ -6175,6 +6177,7 @@ func (s *Server) migratedRoutes() []string {
 			"POST /dashboard/user/auth",
 			"POST /dashboard/user/authMFA",
 			"POST /dashboard/auth/activate",
+			"POST /dashboard/auth/activation/status",
 			"POST /dashboard/auth/password/reset-request",
 			"POST /dashboard/auth/password/reset",
 			"GET /dashboard/auth/session",

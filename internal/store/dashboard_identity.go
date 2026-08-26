@@ -171,6 +171,62 @@ func (store *DashboardIdentityStore) Activate(ctx context.Context, tokenDigest [
 	return nil
 }
 
+func (store *DashboardIdentityStore) DashboardActivationStatus(ctx context.Context, tokenDigest [32]byte, now time.Time) (dashboardauth.DashboardActivationStatus, error) {
+	invalid := dashboardauth.DashboardActivationStatus{Status: dashboardauth.ActivationStatusInvalid, PrimaryAction: dashboardauth.ActivationPrimaryActionContactAdmin}
+	if store == nil || tokenDigest == ([32]byte{}) {
+		return invalid, nil
+	}
+	row, err := store.query(ctx, `
+		SELECT COALESCE(tenant.name, ''), identity_row.login_identifier,
+		       activation.expires_at, activation.consumed_at, identity_row.activated_at,
+		       identity_row.status, dashboard_user.status, tenant.status
+		FROM mochat_go_dashboard_identity_activations activation
+		INNER JOIN mochat_go_dashboard_identities identity_row ON identity_row.user_id = activation.user_id
+		INNER JOIN mc_user dashboard_user ON dashboard_user.id = identity_row.user_id AND dashboard_user.deleted_at IS NULL
+		INNER JOIN mc_tenant tenant ON tenant.id = dashboard_user.tenant_id AND tenant.deleted_at IS NULL
+		WHERE activation.token_digest = ?
+		LIMIT 1
+	`, tokenDigest[:])
+	if err != nil {
+		return dashboardauth.DashboardActivationStatus{}, err
+	}
+	var tenantName, loginIdentifier string
+	var expiresAt time.Time
+	var consumedAt, activatedAt sql.NullTime
+	var identityStatus, userStatus, tenantStatus int
+	if err := row.Scan(&tenantName, &loginIdentifier, &expiresAt, &consumedAt, &activatedAt, &identityStatus, &userStatus, &tenantStatus); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return invalid, nil
+		}
+		return dashboardauth.DashboardActivationStatus{}, err
+	}
+	result := dashboardauth.DashboardActivationStatus{TenantName: strings.TrimSpace(tenantName), AccountHint: maskDashboardAccount(loginIdentifier), ExpiresAt: expiresAt.Unix()}
+	switch {
+	case identityStatus != dashboardauth.DashboardIdentityStatusActive || userStatus != 1 || tenantStatus != 1:
+		result.Status, result.PrimaryAction = dashboardauth.ActivationStatusRevoked, dashboardauth.ActivationPrimaryActionContactAdmin
+	case consumedAt.Valid && activatedAt.Valid:
+		result.Status, result.PrimaryAction = dashboardauth.ActivationStatusActivated, dashboardauth.ActivationPrimaryActionLogin
+	case consumedAt.Valid:
+		result.Status, result.PrimaryAction = dashboardauth.ActivationStatusRevoked, dashboardauth.ActivationPrimaryActionContactAdmin
+	case !expiresAt.After(now):
+		result.Status, result.PrimaryAction = dashboardauth.ActivationStatusExpired, dashboardauth.ActivationPrimaryActionContactAdmin
+	default:
+		result.Status, result.PrimaryAction = dashboardauth.ActivationStatusValid, dashboardauth.ActivationPrimaryActionActivate
+	}
+	return result, nil
+}
+
+func maskDashboardAccount(value string) string {
+	runes := []rune(strings.TrimSpace(value))
+	if len(runes) <= 4 {
+		return strings.Repeat("*", len(runes))
+	}
+	if len(runes) >= 7 {
+		return string(runes[:3]) + "****" + string(runes[len(runes)-4:])
+	}
+	return string(runes[:1]) + strings.Repeat("*", len(runes)-2) + string(runes[len(runes)-1:])
+}
+
 // ResolveIdentity returns only the authenticated Dashboard identity facts
 // needed by the principal resolver. Corp ownership is deliberately resolved
 // by TenantCorpBindingStore after the SaaS tenant gate, not by this query.

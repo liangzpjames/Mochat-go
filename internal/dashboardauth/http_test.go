@@ -29,6 +29,8 @@ type dashboardHTTPTestPersistence struct {
 	passwordChangeCalls int
 	mfaStatus           int
 	mfaStatusSet        bool
+	activationStatus    DashboardActivationStatus
+	statusDigest        [32]byte
 }
 
 type dashboardHTTPTestPrincipalResolver struct {
@@ -60,6 +62,57 @@ func (p *dashboardHTTPTestPersistence) Activate(_ context.Context, digest [32]by
 		return ErrActivationInvalid
 	}
 	return nil
+}
+
+func (p *dashboardHTTPTestPersistence) DashboardActivationStatus(_ context.Context, digest [32]byte, _ time.Time) (DashboardActivationStatus, error) {
+	p.statusDigest = digest
+	return p.activationStatus, nil
+}
+
+func TestDashboardActivationStatusHTTPUsesStrictPOSTBodyAndNeverEchoesToken(t *testing.T) {
+	const rawToken = "raw-status-token-never-echo"
+	p := &dashboardHTTPTestPersistence{activationStatus: DashboardActivationStatus{Status: ActivationStatusValid, TenantName: "安全租户", AccountHint: "138****8000", ExpiresAt: 1780000000, PrimaryAction: ActivationPrimaryActionActivate}}
+	handler, err := NewHTTPHandler(dashboardHTTPTestConfig(p))
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodPost, "/dashboard/auth/activation/status", strings.NewReader(`{"activationToken":"`+rawToken+`"}`))
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	if p.statusDigest != sha256.Sum256([]byte(rawToken)) {
+		t.Fatal("status did not digest token before persistence")
+	}
+	if strings.Contains(response.Body.String(), rawToken) {
+		t.Fatal("status response echoed raw token")
+	}
+	var envelope struct {
+		ErrorCode string                    `json:"errorCode"`
+		Data      DashboardActivationStatus `json:"data"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if envelope.ErrorCode != CodeActivationStatus || envelope.Data.Status != ActivationStatusValid {
+		t.Fatalf("unexpected envelope: %+v", envelope)
+	}
+
+	for _, body := range []string{`{}`, `{"activationToken":""}`, `{"activationToken":"x","extra":true}`} {
+		bad := httptest.NewRecorder()
+		handler.ServeHTTP(bad, httptest.NewRequest(http.MethodPost, "/dashboard/auth/activation/status", strings.NewReader(body)))
+		if bad.Code != http.StatusBadRequest {
+			t.Fatalf("body=%s status=%d", body, bad.Code)
+		}
+	}
+	for _, target := range []struct{ method, path string }{{http.MethodGet, "/dashboard/auth/activation/status"}, {http.MethodPost, "/dashboard/auth/activation/status/extra"}} {
+		notFound := httptest.NewRecorder()
+		handler.ServeHTTP(notFound, httptest.NewRequest(target.method, target.path, nil))
+		if notFound.Code != http.StatusNotFound {
+			t.Fatalf("%s %s exposed with %d", target.method, target.path, notFound.Code)
+		}
+	}
 }
 
 func (p *dashboardHTTPTestPersistence) CheckSession(context.Context, int, uint64) error {
@@ -419,6 +472,7 @@ func TestDashboardRequestGuardSeparatesPublicAndAuthenticatedIdentityRoutes(t *t
 		{method: http.MethodPost, path: "/dashboard/user/auth", public: true},
 		{method: http.MethodPost, path: "/dashboard/user/authMFA", public: true},
 		{method: http.MethodPost, path: "/dashboard/auth/activate", public: true},
+		{method: http.MethodPost, path: "/dashboard/auth/activation/status", public: true},
 		{method: http.MethodPost, path: "/dashboard/auth/password/reset", public: true},
 		{method: http.MethodPost, path: "/dashboard/auth/password/reset-request", public: false},
 		{method: http.MethodGet, path: "/dashboard/auth/session", public: false},
@@ -461,6 +515,7 @@ func TestDashboardRequestGuardUsesExplicitPublicDashboardContracts(t *testing.T)
 		method string
 		path   string
 	}{
+		{method: http.MethodPost, path: "/dashboard/auth/activation/status"},
 		{method: http.MethodGet, path: "/dashboard/corp/weWorkCallback"},
 		{method: http.MethodPost, path: "/dashboard/corp/weWorkCallback"},
 		{method: http.MethodGet, path: "/dashboard/officialAccount/authEventCallback"},
