@@ -40,6 +40,7 @@ const (
 	acceptanceWXCorp        = "ww-MOCHAT-LOCAL-ACCEPTANCE-20260827"
 	acceptanceSource        = "wecom:" + acceptanceWXCorp
 	acceptanceRunKey        = "archive:MOCHAT-LOCAL-ACCEPTANCE-20260827:cursor:0"
+	acceptanceWorkerRunLike = "archive:820827:820827:wecom:ww-MOCHAT-LOCAL-ACCEPTANCE-20260827:%"
 	acceptanceIntegrationID = "a2080827-0000-4000-8000-000000000001"
 	acceptanceLimitsJSON    = `{"maxCorps":1,"maxUsers":10,"maxContacts":100,"maxRooms":10,"maxAgents":10,"channelCodes":10,"shopCodes":10,"radars":10,"lotteries":10,"roomInfinitePulls":10,"roomFissions":10,"roomClockIns":10,"roomQualities":10,"roomCalendars":10,"roomReminds":10,"contactSops":10,"roomSops":10,"sensitiveWords":10,"storageMb":100,"contactMessageBatches":10,"roomMessageBatches":10,"roomTagPulls":10,"workRoomAutoPulls":10,"workFissions":10,"officialAccounts":10,"asyncExecutions":10}`
 )
@@ -683,8 +684,8 @@ func cleanupStatements() []string {
 	return []string{
 		`DELETE FROM mochat_go_archive_media_objects WHERE tenant_id=? AND corp_id=? AND msgid LIKE ?`,
 		`DELETE FROM mochat_go_archive_message_sources WHERE tenant_id=? AND corp_id=? AND msgid LIKE ?`,
-		`DELETE FROM mochat_go_archive_sync_audits WHERE tenant_id=? AND corp_id=? AND source_id=?`,
-		`DELETE FROM mochat_go_archive_sync_runs WHERE tenant_id=? AND corp_id=? AND source_id=?`,
+		`DELETE FROM mochat_go_archive_sync_audits WHERE tenant_id=? AND corp_id=? AND source_id=? AND run_id IN (SELECT owned.id FROM mochat_go_archive_sync_runs owned WHERE owned.tenant_id=? AND owned.corp_id=? AND owned.source_id=? AND (owned.idempotency_key=? OR owned.idempotency_key LIKE ?))`,
+		`DELETE FROM mochat_go_archive_sync_runs WHERE tenant_id=? AND corp_id=? AND source_id=? AND (idempotency_key=? OR idempotency_key LIKE ?)`,
 		`DELETE FROM mochat_go_wecom_integrations WHERE tenant_id=? AND corp_id=? AND id=?`,
 		`DELETE FROM mochat_go_tenant_corp_bindings WHERE tenant_id=? AND corp_id=?`,
 		`DELETE FROM mochat_go_dashboard_sessions WHERE user_id=?`,
@@ -735,7 +736,8 @@ func cleanup(ctx context.Context, output io.Writer, values options) error {
 	statements := cleanupStatements()
 	arguments := [][]any{
 		{acceptanceTenant, acceptanceCorp, datasetID + "-MSG-%"}, {acceptanceTenant, acceptanceCorp, datasetID + "-MSG-%"},
-		{acceptanceTenant, acceptanceCorp, acceptanceSource}, {acceptanceTenant, acceptanceCorp, acceptanceSource},
+		{acceptanceTenant, acceptanceCorp, acceptanceSource, acceptanceTenant, acceptanceCorp, acceptanceSource, acceptanceRunKey, acceptanceWorkerRunLike},
+		{acceptanceTenant, acceptanceCorp, acceptanceSource, acceptanceRunKey, acceptanceWorkerRunLike},
 		{acceptanceTenant, acceptanceCorp, acceptanceIntegrationID}, {acceptanceTenant, acceptanceCorp},
 		{acceptanceUser}, {acceptanceUser}, {acceptanceUser, "19008208270"},
 		{acceptanceTenant, datasetID}, {acceptanceTenant, datasetID},
@@ -765,7 +767,55 @@ func cleanup(ctx context.Context, output io.Writer, values options) error {
 			}
 		}
 	}
+	if err := verifyCleanupOrphans(ctx, db, paths, values.StorageRoot); err != nil {
+		return err
+	}
 	return json.NewEncoder(output).Encode(map[string]any{"dataset": datasetID, "action": "cleanup", "status": "PASS", "objectsRemoved": removed, "countsBefore": counts})
+}
+
+func verifyCleanupOrphans(ctx context.Context, db *sql.DB, storagePaths []string, storageRoot string) error {
+	checks := []struct {
+		name  string
+		query string
+		args  []any
+	}{
+		{"media", `SELECT COUNT(*) FROM mochat_go_archive_media_objects WHERE tenant_id=? AND corp_id=? AND msgid LIKE ?`, []any{acceptanceTenant, acceptanceCorp, datasetID + "-MSG-%"}},
+		{"sources", `SELECT COUNT(*) FROM mochat_go_archive_message_sources WHERE tenant_id=? AND corp_id=? AND msgid LIKE ?`, []any{acceptanceTenant, acceptanceCorp, datasetID + "-MSG-%"}},
+		{"runs", `SELECT COUNT(*) FROM mochat_go_archive_sync_runs WHERE tenant_id=? AND corp_id=? AND source_id=? AND (idempotency_key=? OR idempotency_key LIKE ?)`, []any{acceptanceTenant, acceptanceCorp, acceptanceSource, acceptanceRunKey, acceptanceWorkerRunLike}},
+		{"integration", `SELECT COUNT(*) FROM mochat_go_wecom_integrations WHERE tenant_id=? AND corp_id=?`, []any{acceptanceTenant, acceptanceCorp}},
+		{"participant identities", `SELECT COUNT(*) FROM mochat_go_work_message_participant_identity WHERE corp_id=? AND msgid LIKE ?`, []any{acceptanceCorp, datasetID + "-MSG-%"}},
+		{"tenant", `SELECT COUNT(*) FROM mc_tenant WHERE id=? AND name=?`, []any{acceptanceTenant, datasetID + " 本地验收租户（非生产）"}},
+	}
+	for _, check := range checks {
+		var count int
+		if err := db.QueryRowContext(ctx, check.query, check.args...).Scan(&count); err != nil {
+			return err
+		}
+		if count != 0 {
+			return fmt.Errorf("cleanup left %d acceptance %s orphan(s)", count, check.name)
+		}
+	}
+	for shard := 1; shard <= 10; shard++ {
+		var count int
+		if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM mc_work_message_`+strconv.Itoa(shard)+` WHERE corp_id=? AND msgid LIKE ?`, acceptanceCorp, datasetID+"-MSG-%").Scan(&count); err != nil {
+			return err
+		}
+		if count != 0 {
+			return fmt.Errorf("cleanup left %d acceptance message shard orphan(s)", count)
+		}
+	}
+	for _, storedPath := range storagePaths {
+		target, ok := datasetObjectPath(storageRoot, storedPath)
+		if !ok {
+			return errors.New("cleanup storage path escaped acceptance root")
+		}
+		if _, err := os.Stat(target); err == nil {
+			return fmt.Errorf("cleanup left acceptance media file %s", filepath.Base(target))
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+	}
+	return nil
 }
 
 func datasetStoragePaths(ctx context.Context, db *sql.DB) ([]string, error) {

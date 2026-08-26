@@ -33,6 +33,34 @@ function New-HexKey {
     return -join ((New-RandomBytes 32) | ForEach-Object { $_.ToString('x2') })
 }
 
+function Protect-RuntimePath([string]$Path) {
+    if ($env:OS -ne 'Windows_NT') {
+        return
+    }
+    $identity = [Security.Principal.WindowsIdentity]::GetCurrent().Name
+    & icacls.exe $Path '/inheritance:r' '/grant:r' "${identity}:(OI)(CI)(F)" '*S-1-5-18:(OI)(CI)(F)' '*S-1-5-32-544:(OI)(CI)(F)' | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        throw "failed to restrict runtime ACL grants"
+    }
+    & icacls.exe $Path '/remove:g' '*S-1-5-11' '*S-1-5-32-545' | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        throw "failed to remove inherited runtime ACL groups"
+    }
+    foreach ($item in Get-ChildItem -LiteralPath $Path -Recurse -Force) {
+        $grant = if ($item.PSIsContainer) { "${identity}:(OI)(CI)(F)" } else { "${identity}:(F)" }
+        $systemGrant = if ($item.PSIsContainer) { '*S-1-5-18:(OI)(CI)(F)' } else { '*S-1-5-18:(F)' }
+        $adminGrant = if ($item.PSIsContainer) { '*S-1-5-32-544:(OI)(CI)(F)' } else { '*S-1-5-32-544:(F)' }
+        & icacls.exe $item.FullName '/inheritance:r' '/grant:r' $grant $systemGrant $adminGrant | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            throw "failed to restrict child runtime ACL grants"
+        }
+        & icacls.exe $item.FullName '/remove:g' '*S-1-5-11' '*S-1-5-32-545' | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            throw "failed to remove child runtime ACL groups"
+        }
+    }
+}
+
 function Initialize-RuntimeFiles {
     New-Item -ItemType Directory -Force -Path $RuntimeDirectory | Out-Null
     $saasMfaPath = Join-Path $RuntimeDirectory 'saas-mfa.key'
@@ -66,6 +94,7 @@ function Initialize-RuntimeFiles {
         )
         [IO.File]::WriteAllLines($EnvironmentFile, $lines, [Text.Encoding]::ASCII)
     }
+    Protect-RuntimePath $RuntimeDirectory
 }
 
 function Invoke-Compose([string[]]$Arguments) {
@@ -78,6 +107,7 @@ function Invoke-Compose([string[]]$Arguments) {
 function Start-AcceptanceServices {
     $arguments = @('up', '-d')
     if (-not $NoBuild) {
+		Invoke-Compose @('build', 'acceptance')
         $arguments += '--build'
     }
     $arguments += @('mysql', 'redis', 'bridge', 'app')
@@ -92,9 +122,12 @@ switch ($Action) {
         Start-AcceptanceServices
         Invoke-Compose @('--profile', 'tools', 'run', '--rm', 'bootstrap')
         Invoke-Compose @('--profile', 'tools', 'run', '--rm', 'acceptance', 'seed')
+		Invoke-Compose @('up', '-d', 'worker')
         Invoke-Compose @('ps')
     }
     'verify' {
+		Invoke-Compose @('up', '-d', 'worker')
+		Invoke-Compose @('restart', 'worker')
         Invoke-Compose @('--profile', 'tools', 'run', '--rm', 'acceptance', 'verify')
     }
     'cleanup' {

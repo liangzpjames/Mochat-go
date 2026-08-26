@@ -120,6 +120,29 @@ services:
       retries: 60
       start_period: 15s
 
+  worker:
+    image: mochat-wecom-acceptance-20260827-acceptance
+    restart: unless-stopped
+    environment:
+      <<: *app-environment
+      MOCHAT_GO_RUNTIME_ROLE: worker
+      MOCHAT_GO_ENABLE_FRONTEND_SERVERS: "0"
+      MOCHAT_GO_ENABLE_DURABLE_WORK_MESSAGE_ARCHIVE: "1"
+      MOCHAT_GO_WORK_MESSAGE_ARCHIVE_SYNC_CRON_INTERVAL_SECONDS: "5"
+      MOCHAT_GO_WORK_MESSAGE_ARCHIVE_SYNC_CRON_RUN_ON_START: "1"
+    volumes:
+      - app-storage:/app/storage
+      - audit-anchor-storage:/app/audit-anchors
+      - ${MOCHAT_ACCEPTANCE_RUNTIME_DIR:-./.runtime-placeholder}/saas-mfa.key:/run/secrets/saas-mfa.key:ro
+      - ${MOCHAT_ACCEPTANCE_RUNTIME_DIR:-./.runtime-placeholder}/dashboard-mfa.key:/run/secrets/dashboard-mfa.key:ro
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      bridge:
+        condition: service_healthy
+
   acceptance:
     profiles: ["tools"]
     build:
