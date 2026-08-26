@@ -15,25 +15,35 @@ const (
 )
 
 type DashboardAccessContext struct {
-	UserID             int
-	UserName           string
-	TenantID           int
-	CorpID             int
-	WorkEmployeeID     int
-	PermissionCode     string
-	PermissionCodes    []string
-	Scope              DataScope
-	ScopeRequired      bool
-	DepartmentIDs      []int
-	AllowedEmployeeIDs []int
-	IsSuperAdmin       bool
+	UserID                int
+	UserName              string
+	TenantID              int
+	CorpID                int
+	WorkEmployeeID        int
+	PermissionCode        string
+	PermissionCodes       []string
+	PermissionScopes      map[string]DataScope
+	Scope                 DataScope
+	ScopeRequired         bool
+	DepartmentIDs         []int
+	DepartmentEmployeeIDs []int
+	AllowedEmployeeIDs    []int
+	IsSuperAdmin          bool
 }
 
 type dashboardAccessContextKey struct{}
 
 func WithDashboardAccessContext(ctx context.Context, access DashboardAccessContext) context.Context {
 	access.PermissionCodes = append([]string(nil), access.PermissionCodes...)
+	if access.PermissionScopes != nil {
+		permissionScopes := make(map[string]DataScope, len(access.PermissionScopes))
+		for code, scope := range access.PermissionScopes {
+			permissionScopes[code] = scope
+		}
+		access.PermissionScopes = permissionScopes
+	}
 	access.DepartmentIDs = append([]int(nil), access.DepartmentIDs...)
+	access.DepartmentEmployeeIDs = append([]int(nil), access.DepartmentEmployeeIDs...)
 	access.AllowedEmployeeIDs = append([]int(nil), access.AllowedEmployeeIDs...)
 	return context.WithValue(ctx, dashboardAccessContextKey{}, access)
 }
@@ -223,6 +233,7 @@ func dashboardContextForMatches(profile DashboardAccessProfile, matches []Dashbo
 		permissionByCode[permission.Code] = permission
 	}
 	codes := make([]string, 0, len(matches))
+	permissionScopes := make(map[string]DataScope, len(matches))
 	scope := DataScope("")
 	scopeRequired := false
 	for _, resource := range matches {
@@ -231,6 +242,7 @@ func dashboardContextForMatches(profile DashboardAccessProfile, matches []Dashbo
 			continue
 		}
 		codes = append(codes, resource.PermissionCode)
+		permissionScopes[resource.PermissionCode] = permission.Scope
 		scope = MergeDataScopes(scope, permission.Scope)
 		scopeRequired = scopeRequired || resource.ScopeRequired
 	}
@@ -263,9 +275,10 @@ func dashboardContextForMatches(profile DashboardAccessProfile, matches []Dashbo
 	return DashboardAccessContext{
 		UserID: profile.UserID, UserName: profile.UserName, TenantID: profile.TenantID,
 		CorpID: profile.CorpID, WorkEmployeeID: profile.WorkEmployeeID,
-		PermissionCode: codes[0], PermissionCodes: codes, Scope: scope, ScopeRequired: scopeRequired,
-		DepartmentIDs:      append([]int(nil), profile.DepartmentIDs...),
-		AllowedEmployeeIDs: allowedEmployeeIDs, IsSuperAdmin: profile.IsSuperAdmin,
+		PermissionCode: codes[0], PermissionCodes: codes, PermissionScopes: permissionScopes, Scope: scope, ScopeRequired: scopeRequired,
+		DepartmentIDs:         append([]int(nil), profile.DepartmentIDs...),
+		DepartmentEmployeeIDs: append([]int(nil), profile.DepartmentEmployeeIDs...),
+		AllowedEmployeeIDs:    allowedEmployeeIDs, IsSuperAdmin: profile.IsSuperAdmin,
 	}, true
 }
 

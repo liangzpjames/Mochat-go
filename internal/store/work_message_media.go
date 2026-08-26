@@ -178,7 +178,8 @@ func (s *MySQLStore) ArchiveMediaContent(ctx context.Context, filter dashboard.A
 	if len(conversationTypes) == 0 {
 		return dashboard.ArchiveMediaContentObject{}, false, nil
 	}
-	if filter.RestrictEmployeeIDs && len(uniquePositiveInts(filter.AllowedEmployeeIDs)) == 0 {
+	conversationScopes, ok := archiveMediaConversationScopes(conversationTypes, filter.ConversationScopes)
+	if !ok {
 		return dashboard.ArchiveMediaContentObject{}, false, nil
 	}
 	messageUnion := make([]string, 0, dashboard.WorkMessageArchiveMessageTableCount)
@@ -188,11 +189,18 @@ func (s *MySQLStore) ArchiveMediaContent(ctx context.Context, filter dashboard.A
 	where := []string{"message.to_user_type IN (" + placeholders(len(conversationTypes)) + ")"}
 	args := []any{filter.ID, filter.TenantID, filter.CorpID}
 	args = append(args, intsToAny(conversationTypes)...)
-	if filter.RestrictEmployeeIDs {
-		ids := uniquePositiveInts(filter.AllowedEmployeeIDs)
-		where = append(where, "message.work_employee_id IN ("+placeholders(len(ids))+")")
-		args = append(args, intsToAny(ids)...)
+	scopeWhere := make([]string, 0, len(conversationScopes))
+	for _, scope := range conversationScopes {
+		if !scope.RestrictEmployeeIDs {
+			scopeWhere = append(scopeWhere, "message.to_user_type=?")
+			args = append(args, scope.ConversationType)
+			continue
+		}
+		scopeWhere = append(scopeWhere, "(message.to_user_type=? AND message.work_employee_id IN ("+placeholders(len(scope.AllowedEmployeeIDs))+"))")
+		args = append(args, scope.ConversationType)
+		args = append(args, intsToAny(scope.AllowedEmployeeIDs)...)
 	}
+	where = append(where, "("+strings.Join(scopeWhere, " OR ")+")")
 	var object dashboard.ArchiveMediaContentObject
 	err := s.db.QueryRowContext(ctx, `
 		SELECT media.id,media.media_type,media.media_name,media.mime_type,media.bytes_received,media.status,media.storage_path,media.sha256
@@ -214,6 +222,43 @@ func (s *MySQLStore) ArchiveMediaContent(ctx context.Context, filter dashboard.A
 		return dashboard.ArchiveMediaContentObject{}, false, err
 	}
 	return object, true, nil
+}
+
+func archiveMediaConversationScopes(conversationTypes []int, input []dashboard.ArchiveMediaConversationScope) ([]dashboard.ArchiveMediaConversationScope, bool) {
+	allowed := make(map[int]bool, len(conversationTypes))
+	for _, conversationType := range conversationTypes {
+		allowed[conversationType] = true
+	}
+	byType := make(map[int]dashboard.ArchiveMediaConversationScope, len(conversationTypes))
+	for _, scope := range input {
+		if !allowed[scope.ConversationType] {
+			continue
+		}
+		current, exists := byType[scope.ConversationType]
+		if !scope.RestrictEmployeeIDs {
+			byType[scope.ConversationType] = dashboard.ArchiveMediaConversationScope{ConversationType: scope.ConversationType}
+			continue
+		}
+		if exists && !current.RestrictEmployeeIDs {
+			continue
+		}
+		ids := uniquePositiveInts(append(current.AllowedEmployeeIDs, scope.AllowedEmployeeIDs...))
+		if len(ids) == 0 {
+			continue
+		}
+		byType[scope.ConversationType] = dashboard.ArchiveMediaConversationScope{
+			ConversationType: scope.ConversationType, RestrictEmployeeIDs: true, AllowedEmployeeIDs: ids,
+		}
+	}
+	result := make([]dashboard.ArchiveMediaConversationScope, 0, len(conversationTypes))
+	for _, conversationType := range conversationTypes {
+		scope, exists := byType[conversationType]
+		if !exists {
+			return nil, false
+		}
+		result = append(result, scope)
+	}
+	return result, true
 }
 
 func uniqueArchiveMediaConversationTypes(values []int) []int {

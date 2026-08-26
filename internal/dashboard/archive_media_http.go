@@ -22,8 +22,15 @@ type ArchiveMediaContentFilter struct {
 	TenantID                 int
 	CorpID                   int
 	AllowedConversationTypes []int
+	ConversationScopes       []ArchiveMediaConversationScope
 	RestrictEmployeeIDs      bool
 	AllowedEmployeeIDs       []int
+}
+
+type ArchiveMediaConversationScope struct {
+	ConversationType    int
+	RestrictEmployeeIDs bool
+	AllowedEmployeeIDs  []int
 }
 
 type ArchiveMediaContentObject struct {
@@ -80,10 +87,14 @@ func (handler *ArchiveMediaContentHandler) ServeHTTP(w http.ResponseWriter, requ
 		return
 	}
 	filter := ArchiveMediaContentFilter{ID: id, TenantID: principal.TenantID, CorpID: principal.CorpID}
-	filter.AllowedConversationTypes = archiveMediaConversationTypes(access.PermissionCodes)
-	if len(filter.AllowedConversationTypes) == 0 {
+	filter.ConversationScopes = archiveMediaConversationScopes(access)
+	if len(filter.ConversationScopes) == 0 {
 		http.NotFound(w, request)
 		return
+	}
+	filter.AllowedConversationTypes = make([]int, 0, len(filter.ConversationScopes))
+	for _, scope := range filter.ConversationScopes {
+		filter.AllowedConversationTypes = append(filter.AllowedConversationTypes, scope.ConversationType)
 	}
 	if access.Scope != DataScopeTenant {
 		filter.RestrictEmployeeIDs = true
@@ -136,6 +147,11 @@ func (handler *ArchiveMediaContentHandler) ServeHTTP(w http.ResponseWriter, requ
 		http.NotFound(w, request)
 		return
 	}
+	if !handler.acquireArchiveMediaSnapshotSlot(request.Context()) {
+		http.NotFound(w, request)
+		return
+	}
+	defer func() { <-handler.hashSlots }()
 	snapshot, snapshotName, snapshotInfo, ok := handler.validatedArchiveMediaSnapshot(request.Context(), confinedRoot, source, info, object.Size, object.SHA256)
 	if !ok {
 		http.NotFound(w, request)
@@ -162,27 +178,79 @@ func (handler *ArchiveMediaContentHandler) ServeHTTP(w http.ResponseWriter, requ
 	serveArchiveMediaRange(w, request, snapshot, snapshotInfo.Size())
 }
 
-func archiveMediaConversationTypes(permissionCodes []string) []int {
-	allowed := map[int]bool{}
-	for _, code := range permissionCodes {
+func archiveMediaConversationScopes(access DashboardAccessContext) []ArchiveMediaConversationScope {
+	byType := map[int]ArchiveMediaConversationScope{}
+	for _, code := range access.PermissionCodes {
+		var conversationTypes []int
 		switch code {
 		case "dashboard.chat.v2_all":
-			return []int{0, 1, 2}
+			conversationTypes = []int{0, 1, 2}
 		case "dashboard.chat.v2_staff":
-			allowed[0] = true
+			conversationTypes = []int{0}
 		case "dashboard.chat.v2_customer":
-			allowed[1] = true
+			conversationTypes = []int{1}
 		case "dashboard.chat.v2_group":
-			allowed[2] = true
+			conversationTypes = []int{2}
+		default:
+			continue
+		}
+		permissionScope, exists := access.PermissionScopes[code]
+		if !exists {
+			continue
+		}
+		employeeIDs, restrict, usable := archiveMediaEmployeeScope(access, permissionScope)
+		if !usable {
+			continue
+		}
+		for _, conversationType := range conversationTypes {
+			current, found := byType[conversationType]
+			if !restrict {
+				byType[conversationType] = ArchiveMediaConversationScope{ConversationType: conversationType}
+				continue
+			}
+			if found && !current.RestrictEmployeeIDs {
+				continue
+			}
+			current.ConversationType = conversationType
+			current.RestrictEmployeeIDs = true
+			current.AllowedEmployeeIDs = uniquePositiveInts(append(current.AllowedEmployeeIDs, employeeIDs...))
+			byType[conversationType] = current
 		}
 	}
-	result := make([]int, 0, len(allowed))
-	for _, value := range []int{0, 1, 2} {
-		if allowed[value] {
-			result = append(result, value)
+	result := make([]ArchiveMediaConversationScope, 0, len(byType))
+	for _, conversationType := range []int{0, 1, 2} {
+		if scope, ok := byType[conversationType]; ok {
+			result = append(result, scope)
 		}
 	}
 	return result
+}
+
+func archiveMediaEmployeeScope(access DashboardAccessContext, scope DataScope) ([]int, bool, bool) {
+	switch scope {
+	case DataScopeTenant:
+		return nil, false, true
+	case DataScopeDepartment:
+		ids := uniquePositiveInts(access.DepartmentEmployeeIDs)
+		return ids, true, len(ids) > 0
+	case DataScopeSelf:
+		if access.WorkEmployeeID > 0 {
+			return []int{access.WorkEmployeeID}, true, true
+		}
+	}
+	return nil, false, false
+}
+
+func (handler *ArchiveMediaContentHandler) acquireArchiveMediaSnapshotSlot(ctx context.Context) bool {
+	if handler == nil || handler.hashSlots == nil {
+		return false
+	}
+	select {
+	case handler.hashSlots <- struct{}{}:
+		return true
+	case <-ctx.Done():
+		return false
+	}
 }
 
 func (handler *ArchiveMediaContentHandler) validatedArchiveMediaSnapshot(ctx context.Context, root *os.Root, source *os.File, sourceInfo os.FileInfo, expectedSize int64, expected string) (*os.File, string, os.FileInfo, bool) {
@@ -191,13 +259,7 @@ func (handler *ArchiveMediaContentHandler) validatedArchiveMediaSnapshot(ctx con
 	if err != nil || len(decoded) != sha256.Size {
 		return nil, "", nil, false
 	}
-	if handler == nil || handler.hashSlots == nil || root == nil || source == nil || sourceInfo == nil || expectedSize <= 0 {
-		return nil, "", nil, false
-	}
-	select {
-	case handler.hashSlots <- struct{}{}:
-		defer func() { <-handler.hashSlots }()
-	case <-ctx.Done():
+	if handler == nil || root == nil || source == nil || sourceInfo == nil || expectedSize <= 0 {
 		return nil, "", nil, false
 	}
 	if _, err := source.Seek(0, io.SeekStart); err != nil {
@@ -217,8 +279,8 @@ func (handler *ArchiveMediaContentHandler) validatedArchiveMediaSnapshot(ctx con
 	if copySnapshot == nil {
 		copySnapshot = io.Copy
 	}
-	written, err := copySnapshot(io.MultiWriter(snapshot, hash), source)
-	if err != nil || written != expectedSize || written != sourceInfo.Size() || !strings.EqualFold(hex.EncodeToString(hash.Sum(nil)), expected) {
+	written, err := copySnapshot(io.MultiWriter(snapshot, hash), archiveMediaContextReader{ctx: ctx, reader: source})
+	if err != nil || ctx.Err() != nil || written != expectedSize || written != sourceInfo.Size() || !strings.EqualFold(hex.EncodeToString(hash.Sum(nil)), expected) {
 		cleanup()
 		return nil, "", nil, false
 	}
@@ -241,6 +303,20 @@ func (handler *ArchiveMediaContentHandler) validatedArchiveMediaSnapshot(ctx con
 		return nil, "", nil, false
 	}
 	return snapshot, snapshotName, snapshotInfo, true
+}
+
+type archiveMediaContextReader struct {
+	ctx    context.Context
+	reader io.Reader
+}
+
+func (reader archiveMediaContextReader) Read(payload []byte) (int, error) {
+	select {
+	case <-reader.ctx.Done():
+		return 0, reader.ctx.Err()
+	default:
+		return reader.reader.Read(payload)
+	}
 }
 
 func archiveMediaSHA256(reader io.Reader) ([sha256.Size]byte, error) {

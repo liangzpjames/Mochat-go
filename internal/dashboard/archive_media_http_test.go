@@ -30,6 +30,7 @@ type fakeArchiveMediaContentStore struct {
 	filter                 ArchiveMediaContentFilter
 	calls                  int
 	objectConversationType *int
+	objectEmployeeID       int
 }
 
 func (store *fakeArchiveMediaContentStore) ArchiveMediaContent(_ context.Context, filter ArchiveMediaContentFilter) (ArchiveMediaContentObject, bool, error) {
@@ -37,8 +38,16 @@ func (store *fakeArchiveMediaContentStore) ArchiveMediaContent(_ context.Context
 	defer store.mu.Unlock()
 	store.calls++
 	store.filter = filter
-	if store.objectConversationType != nil && !containsArchiveMediaConversationType(filter.AllowedConversationTypes, *store.objectConversationType) {
-		return ArchiveMediaContentObject{}, false, nil
+	if store.objectConversationType != nil {
+		allowed := false
+		for _, scope := range filter.ConversationScopes {
+			if scope.ConversationType == *store.objectConversationType && (!scope.RestrictEmployeeIDs || containsArchiveMediaConversationType(scope.AllowedEmployeeIDs, store.objectEmployeeID)) {
+				allowed = true
+			}
+		}
+		if !allowed {
+			return ArchiveMediaContentObject{}, false, nil
+		}
 	}
 	return store.object, store.found, nil
 }
@@ -127,7 +136,7 @@ func TestArchiveMediaContentScopesEveryConversationPermissionForGETAndHEAD(t *te
 				name := method + "/" + permission.code + "/" + strconv.Itoa(conversationType)
 				t.Run(name, func(t *testing.T) {
 					objectType := conversationType
-					store := &fakeArchiveMediaContentStore{found: true, objectConversationType: &objectType, object: ArchiveMediaContentObject{
+					store := &fakeArchiveMediaContentStore{found: true, objectConversationType: &objectType, objectEmployeeID: 31, object: ArchiveMediaContentObject{
 						ID: archiveMediaTestID, MediaType: "file", Name: "payload.bin", MIMEType: "application/octet-stream",
 						Size: 7, Status: "ready", StoragePath: path, SHA256: archiveMediaTestSHA256([]byte("payload")),
 					}}
@@ -135,6 +144,7 @@ func TestArchiveMediaContentScopesEveryConversationPermissionForGETAndHEAD(t *te
 					access, _ := DashboardAccessFromContext(request.Context())
 					access.PermissionCode = permission.code
 					access.PermissionCodes = []string{permission.code}
+					access.PermissionScopes = map[string]DataScope{permission.code: DataScopeDepartment}
 					request = request.WithContext(WithDashboardAccessContext(request.Context(), access))
 					response := httptest.NewRecorder()
 					NewArchiveMediaContentHandler(store, root).ServeHTTP(response, request)
@@ -150,6 +160,47 @@ func TestArchiveMediaContentScopesEveryConversationPermissionForGETAndHEAD(t *te
 					}
 				})
 			}
+		}
+	}
+}
+
+func TestArchiveMediaContentDoesNotMergeDifferentPermissionDataScopes(t *testing.T) {
+	root := t.TempDir()
+	path := writeArchiveMediaTestFile(t, root, []byte("payload"))
+	for _, method := range []string{http.MethodGet, http.MethodHead} {
+		for _, test := range []struct {
+			name             string
+			conversationType int
+			employeeID       int
+			want             int
+		}{
+			{name: "own staff", conversationType: 0, employeeID: 31, want: http.StatusOK},
+			{name: "other staff remains hidden", conversationType: 0, employeeID: 999, want: http.StatusNotFound},
+			{name: "group tenant scope", conversationType: 2, employeeID: 999, want: http.StatusOK},
+			{name: "customer permission absent", conversationType: 1, employeeID: 31, want: http.StatusNotFound},
+		} {
+			t.Run(method+"/"+test.name, func(t *testing.T) {
+				objectType := test.conversationType
+				store := &fakeArchiveMediaContentStore{found: true, objectConversationType: &objectType, objectEmployeeID: test.employeeID, object: ArchiveMediaContentObject{
+					ID: archiveMediaTestID, MediaType: "file", Name: "payload.bin", MIMEType: "application/octet-stream",
+					Size: 7, Status: "ready", StoragePath: path, SHA256: archiveMediaTestSHA256([]byte("payload")),
+				}}
+				request := archiveMediaRequest(method, "")
+				access, _ := DashboardAccessFromContext(request.Context())
+				access.Scope = DataScopeTenant
+				access.PermissionCode = "dashboard.chat.v2_group"
+				access.PermissionCodes = []string{"dashboard.chat.v2_group", "dashboard.chat.v2_staff"}
+				access.PermissionScopes = map[string]DataScope{
+					"dashboard.chat.v2_staff": DataScopeSelf,
+					"dashboard.chat.v2_group": DataScopeTenant,
+				}
+				request = request.WithContext(WithDashboardAccessContext(request.Context(), access))
+				response := httptest.NewRecorder()
+				NewArchiveMediaContentHandler(store, root).ServeHTTP(response, request)
+				if response.Code != test.want {
+					t.Fatalf("status=%d want=%d filter=%+v", response.Code, test.want, store.filter)
+				}
+			})
 		}
 	}
 }
@@ -241,6 +292,66 @@ func TestArchiveMediaSnapshotConcurrencyCoversCopyAndHash(t *testing.T) {
 	}
 }
 
+type blockingArchiveMediaResponseWriter struct {
+	header  http.Header
+	started chan<- struct{}
+	release <-chan struct{}
+}
+
+func (writer *blockingArchiveMediaResponseWriter) Header() http.Header { return writer.header }
+func (writer *blockingArchiveMediaResponseWriter) WriteHeader(int)     {}
+func (writer *blockingArchiveMediaResponseWriter) Write(payload []byte) (int, error) {
+	writer.started <- struct{}{}
+	<-writer.release
+	return len(payload), nil
+}
+
+func TestArchiveMediaSnapshotConcurrencyRemainsBoundedUntilResponseCleanup(t *testing.T) {
+	root := t.TempDir()
+	path := writeArchiveMediaTestFile(t, root, []byte("payload"))
+	store := &fakeArchiveMediaContentStore{found: true, object: ArchiveMediaContentObject{
+		ID: archiveMediaTestID, MediaType: "file", Name: "payload.bin", MIMEType: "application/octet-stream",
+		Size: 7, Status: "ready", StoragePath: path, SHA256: archiveMediaTestSHA256([]byte("payload")),
+	}}
+	handler := NewArchiveMediaContentHandler(store, root)
+	started, release := make(chan struct{}, archiveMediaHashConcurrency+1), make(chan struct{})
+	var wait sync.WaitGroup
+	for index := 0; index < archiveMediaHashConcurrency+1; index++ {
+		wait.Add(1)
+		go func() {
+			defer wait.Done()
+			handler.ServeHTTP(&blockingArchiveMediaResponseWriter{header: http.Header{}, started: started, release: release}, archiveMediaRequest(http.MethodGet, ""))
+		}()
+	}
+	for index := 0; index < archiveMediaHashConcurrency; index++ {
+		select {
+		case <-started:
+		case <-time.After(time.Second):
+			t.Fatal("bounded response did not start")
+		}
+	}
+	fifthStarted := false
+	select {
+	case <-started:
+		fifthStarted = true
+	case <-time.After(50 * time.Millisecond):
+	}
+	entries, err := os.ReadDir(filepath.Join(root, "archive-media"))
+	if err != nil {
+		close(release)
+		wait.Wait()
+		t.Fatal(err)
+	}
+	close(release)
+	wait.Wait()
+	if fifthStarted {
+		t.Fatal("fifth response retained an additional live snapshot before earlier cleanup")
+	}
+	if len(entries) != archiveMediaHashConcurrency+1 {
+		t.Fatalf("live archive files=%d want source+%d snapshots", len(entries), archiveMediaHashConcurrency)
+	}
+}
+
 func TestArchiveMediaContentRejectsUnsupportedMethod(t *testing.T) {
 	response := httptest.NewRecorder()
 	NewArchiveMediaContentHandler(&fakeArchiveMediaContentStore{}, t.TempDir()).ServeHTTP(response, archiveMediaRequest(http.MethodPost, ""))
@@ -253,7 +364,7 @@ func TestArchiveMediaContentFailsClosedBeforeLookup(t *testing.T) {
 	store := &fakeArchiveMediaContentStore{}
 	handler := NewArchiveMediaContentHandler(store, t.TempDir())
 	principal := dashboardprincipal.DashboardPrincipal{UserID: 5, TenantID: 11, CorpID: 27, CorpStatus: dashboardprincipal.CorpBindingStatusActive, AuthVersion: 1}
-	access := DashboardAccessContext{UserID: 5, TenantID: 11, CorpID: 27, PermissionCodes: []string{"dashboard.chat.v2_all"}, Scope: DataScopeDepartment, ScopeRequired: true, AllowedEmployeeIDs: []int{31}}
+	access := DashboardAccessContext{UserID: 5, TenantID: 11, CorpID: 27, PermissionCodes: []string{"dashboard.chat.v2_all"}, PermissionScopes: map[string]DataScope{"dashboard.chat.v2_all": DataScopeDepartment}, Scope: DataScopeDepartment, ScopeRequired: true, DepartmentEmployeeIDs: []int{31}, AllowedEmployeeIDs: []int{31}}
 	tests := []struct {
 		name string
 		p    *dashboardprincipal.DashboardPrincipal
@@ -456,6 +567,6 @@ func archiveMediaRequest(method, rangeHeader string) *http.Request {
 	}
 	principal := dashboardprincipal.DashboardPrincipal{UserID: 5, TenantID: 11, CorpID: 27, CorpStatus: dashboardprincipal.CorpBindingStatusActive, AuthVersion: 1}
 	ctx := dashboardprincipal.WithPrincipal(req.Context(), principal)
-	ctx = WithDashboardAccessContext(ctx, DashboardAccessContext{UserID: 5, TenantID: 11, CorpID: 27, WorkEmployeeID: 31, PermissionCode: "dashboard.chat.v2_all", PermissionCodes: []string{"dashboard.chat.v2_all"}, Scope: DataScopeDepartment, ScopeRequired: true, AllowedEmployeeIDs: []int{31, 32}})
+	ctx = WithDashboardAccessContext(ctx, DashboardAccessContext{UserID: 5, TenantID: 11, CorpID: 27, WorkEmployeeID: 31, PermissionCode: "dashboard.chat.v2_all", PermissionCodes: []string{"dashboard.chat.v2_all"}, PermissionScopes: map[string]DataScope{"dashboard.chat.v2_all": DataScopeDepartment}, Scope: DataScopeDepartment, ScopeRequired: true, DepartmentEmployeeIDs: []int{31, 32}, AllowedEmployeeIDs: []int{31, 32}})
 	return req.WithContext(ctx)
 }

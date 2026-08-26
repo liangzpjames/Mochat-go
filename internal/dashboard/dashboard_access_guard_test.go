@@ -95,6 +95,30 @@ func TestDashboardAccessGuardAuthenticatesUnsupportedArchiveMediaMethodWithoutPe
 	}
 }
 
+func TestDashboardContextPreservesEachMatchedPermissionScope(t *testing.T) {
+	profile := DashboardAccessProfile{
+		UserID: 7, TenantID: 9, CorpID: 12, WorkEmployeeID: 31,
+		DepartmentEmployeeIDs: []int{31, 32},
+		EffectivePermissions: []EffectivePermission{
+			{Code: "dashboard.chat.v2_staff", Scope: DataScopeSelf},
+			{Code: "dashboard.chat.v2_group", Scope: DataScopeTenant},
+		},
+	}
+	access, ok := dashboardContextForMatches(profile, []DashboardPermissionResource{
+		{PermissionCode: "dashboard.chat.v2_staff", ScopeRequired: true},
+		{PermissionCode: "dashboard.chat.v2_group", ScopeRequired: true},
+	})
+	if !ok {
+		t.Fatal("mixed-scope permissions were rejected")
+	}
+	if access.Scope != DataScopeTenant || access.PermissionScopes["dashboard.chat.v2_staff"] != DataScopeSelf || access.PermissionScopes["dashboard.chat.v2_group"] != DataScopeTenant {
+		t.Fatalf("merged/per-permission scopes=%q/%v", access.Scope, access.PermissionScopes)
+	}
+	if len(access.DepartmentEmployeeIDs) != 2 {
+		t.Fatalf("department employee scope=%v", access.DepartmentEmployeeIDs)
+	}
+}
+
 func TestDashboardAccessGuardManualAIInsightRunIsSuperadminDenyOnly(t *testing.T) {
 	for _, test := range []struct {
 		name       string
