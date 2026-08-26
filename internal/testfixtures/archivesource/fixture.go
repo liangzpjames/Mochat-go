@@ -41,6 +41,8 @@ func (e FixtureError) Error() string {
 	return "local archive fixture failure: " + e.Code
 }
 
+func (e FixtureError) MediaErrorCode() string { return e.Code }
+
 type fixtureMessage struct {
 	seq        uint64
 	msgID      string

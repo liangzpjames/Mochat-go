@@ -156,6 +156,29 @@ func TestAdminHandlerSanitizesArchiveMediaSDKError(t *testing.T) {
 	}
 }
 
+func TestSanitizeArchiveMediaErrorUsesStrictTypedAllowlist(t *testing.T) {
+	for _, test := range []struct {
+		code       string
+		wantCode   string
+		wantStatus int
+	}{
+		{code: "MEDIA_MISSING", wantCode: "ARCHIVE_MEDIA_MISSING", wantStatus: http.StatusNotFound},
+		{code: "MEDIA_CORRUPT", wantCode: "ARCHIVE_MEDIA_CORRUPT", wantStatus: http.StatusUnprocessableEntity},
+		{code: "MEDIA_SDK_ERROR", wantCode: "ARCHIVE_MEDIA_SDK_ERROR", wantStatus: http.StatusBadGateway},
+		{code: "SECRET_LOCATOR_DO_NOT_REFLECT", wantCode: "ARCHIVE_MEDIA_REQUEST_FAILED", wantStatus: http.StatusBadGateway},
+	} {
+		gotCode, gotStatus := sanitizeArchiveMediaError(testMediaCodedError{code: test.code})
+		if gotCode != test.wantCode || gotStatus != test.wantStatus || strings.Contains(gotCode, "SECRET_LOCATOR") {
+			t.Fatalf("code=%q status=%d", gotCode, gotStatus)
+		}
+	}
+}
+
+type testMediaCodedError struct{ code string }
+
+func (e testMediaCodedError) Error() string          { return "untrusted: " + e.code }
+func (e testMediaCodedError) MediaErrorCode() string { return e.code }
+
 func TestAdminHandlerRequiresBearerToken(t *testing.T) {
 	config := Config{AdminToken: "admin-secret-with-at-least-forty-characters-123456"}
 	store, err := NewEvidenceStore(t.TempDir())

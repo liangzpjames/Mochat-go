@@ -6,13 +6,129 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"jiyi/mochat-go/internal/testfixtures/archivesource"
+	"jiyi/mochat-go/internal/wecomarchivedemo"
 )
+
+func TestArchiveFixtureMediaFailuresReachWorkerTerminalStates(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		mode      archivesource.MediaMode
+		wantState ArchiveMediaStatus
+	}{
+		{name: "missing", mode: archivesource.MediaMissing, wantState: ArchiveMediaMissing},
+		{name: "corrupt", mode: archivesource.MediaCorrupt, wantState: ArchiveMediaCorrupt},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fixture, err := archivesource.NewArchiveFixture()
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer fixture.Close()
+			sdkFileID := fixture.MediaFileIDs()["image"]
+			payload := fixture.ExpectedMedia(sdkFileID)
+			md5Value := md5.Sum(payload)
+			fixture.SetMediaMode(sdkFileID, test.mode)
+			evidence, err := wecomarchivedemo.NewEvidenceStore(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			archiveService, err := wecomarchivedemo.NewArchiveService(fixture, fixture.PrivateKeyPEM(), evidence, 100, 5)
+			if err != nil {
+				t.Fatal(err)
+			}
+			const token = "MOCHAT-LOCAL-ACCEPTANCE-BEARER-0123456789"
+			const wxCorpID = "ww-local-acceptance"
+			server := httptest.NewServer(wecomarchivedemo.NewAdminHandler(wecomarchivedemo.Config{
+				AdminToken: token, CorpID: wxCorpID, PullLimit: 100, TimeoutSeconds: 5,
+			}, evidence, archiveService))
+			defer server.Close()
+			client, err := NewBridgeArchiveClient(server.URL, token, server.Client())
+			if err != nil {
+				t.Fatal(err)
+			}
+			store := &fakeArchiveMediaStore{object: ArchiveMediaObject{
+				ID: "f5e247fc-7c99-45de-b75d-85b3be77841e", Scope: Scope{TenantID: 11, CorpID: 27},
+				WXCorpID: wxCorpID, SDKFileID: sdkFileID, ExpectedSize: int64(len(payload)), ExpectedMD5: hex.EncodeToString(md5Value[:]), Status: ArchiveMediaPending,
+			}}
+			root := t.TempDir()
+			worked, runErr := NewMediaSyncService(store, client, root).RunOne(context.Background())
+			if !worked || runErr == nil {
+				t.Fatalf("worked=%v err=%v", worked, runErr)
+			}
+			if store.object.Status != test.wantState {
+				t.Fatalf("status=%s want=%s err=%v", store.object.Status, test.wantState, runErr)
+			}
+			parts, err := filepath.Glob(filepath.Join(root, "archive-media", store.object.ID+".attempt-*.part"))
+			if err != nil || len(parts) != 0 {
+				t.Fatalf("terminal attempt files=%v err=%v", parts, err)
+			}
+		})
+	}
+}
+
+func TestMediaAttemptCleanupPreservesOnlyDatabaseReferencedCheckpoint(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "archive-media")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	id := "301c5572-0cd6-457d-a750-9b26f94e3f9c"
+	fetchingID := "dc941ae0-df92-4fe4-99f4-57ecefe9b785"
+	otherID := "196e9abf-51cf-4f68-b092-a08243c02db5"
+	for _, path := range []string{
+		filepath.Join(dir, id+".attempt-1.part"),
+		filepath.Join(dir, id+".attempt-2.part"),
+		filepath.Join(dir, fetchingID+".attempt-2.part"),
+		filepath.Join(dir, fetchingID+".attempt-3.part"),
+		filepath.Join(dir, fetchingID+".attempt-4.part"),
+		filepath.Join(dir, otherID+".attempt-9.part"),
+		filepath.Join(dir, "not-a-uuid.attempt-1.part"),
+	} {
+		if err := os.WriteFile(path, []byte("local"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	store := &fakeArchiveMediaStore{
+		object: ArchiveMediaObject{ID: id, Status: ArchiveMediaFailed, CheckpointAttempt: 1, Attempt: 2},
+		references: []ArchiveMediaAttemptReference{
+			{ID: id, Status: ArchiveMediaFailed, CheckpointAttempt: 1},
+			{ID: fetchingID, Status: ArchiveMediaFetching, CheckpointAttempt: 3, ActiveAttempt: 4},
+		},
+	}
+	service := NewMediaSyncService(store, &fakeArchiveMediaClient{}, root)
+	removed, err := service.CleanupStaleAttempts(context.Background())
+	if err != nil || removed != 2 {
+		t.Fatalf("removed=%d err=%v", removed, err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, id+".attempt-1.part")); err != nil {
+		t.Fatalf("referenced failed checkpoint removed: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, id+".attempt-2.part")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("orphan attempt remains: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, fetchingID+".attempt-2.part")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("fetching orphan attempt remains: %v", err)
+	}
+	for _, attempt := range []int{3, 4} {
+		if _, err := os.Stat(archiveMediaAttemptPath(dir, fetchingID, attempt)); err != nil {
+			t.Fatalf("fetching referenced attempt %d removed: %v", attempt, err)
+		}
+	}
+	for _, path := range []string{filepath.Join(dir, otherID+".attempt-9.part"), filepath.Join(dir, "not-a-uuid.attempt-1.part")} {
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("cross-object or unsafe path was removed: %s: %v", path, err)
+		}
+	}
+}
 
 func TestMediaSyncCommitsFinishedCheckpointWithoutRefetchOrDuplicate(t *testing.T) {
 	for _, test := range []struct {
@@ -80,6 +196,9 @@ func TestMediaSyncTakeoverIsolatesAttemptFilesAndFencesOldResponse(t *testing.T)
 	if err := <-oldResult; !errors.Is(err, errTestMediaFence) {
 		t.Fatalf("old worker error=%v", err)
 	}
+	if _, err := service.CleanupStaleAttempts(context.Background()); err != nil {
+		t.Fatalf("cleanup after old worker release: %v", err)
+	}
 	finalPath := filepath.Join(root, "archive-media", store.object.ID)
 	got, err := os.ReadFile(finalPath)
 	if err != nil || string(got) != "new-claim-bytes" {
@@ -91,6 +210,9 @@ func TestMediaSyncTakeoverIsolatesAttemptFilesAndFencesOldResponse(t *testing.T)
 	}
 	if err := store.CompleteArchiveMedia(context.Background(), ArchiveMediaCompletion{ID: store.object.ID, Attempt: 1, LeaseToken: "lease-1", BytesReceived: 9, SHA256: strings.Repeat("a", 64), StoragePath: finalPath}, time.Now()); !errors.Is(err, errTestMediaFence) {
 		t.Fatalf("old complete error=%v", err)
+	}
+	if parts, err := filepath.Glob(finalPath + ".attempt-*.part"); err != nil || len(parts) != 0 {
+		t.Fatalf("takeover attempt files=%v err=%v", parts, err)
 	}
 }
 
@@ -238,6 +360,7 @@ type fakeArchiveMediaStore struct {
 	missing     ArchiveMediaFailure
 	corrupt     ArchiveMediaFailure
 	completeErr error
+	references  []ArchiveMediaAttemptReference
 }
 
 func (s *fakeArchiveMediaStore) ClaimArchiveMedia(context.Context, time.Time) (ArchiveMediaObject, bool, error) {
@@ -263,19 +386,33 @@ func (s *fakeArchiveMediaStore) CheckpointArchiveMedia(_ context.Context, checkp
 }
 func (s *fakeArchiveMediaStore) CompleteArchiveMedia(_ context.Context, value ArchiveMediaCompletion, _ time.Time) error {
 	s.completed = value
+	if s.completeErr == nil {
+		s.object.Status = ArchiveMediaReady
+	}
 	return s.completeErr
 }
 func (s *fakeArchiveMediaStore) FailArchiveMedia(_ context.Context, value ArchiveMediaFailure, _ time.Time) error {
 	s.failed = value
+	s.object.Status = ArchiveMediaFailed
 	return nil
 }
 func (s *fakeArchiveMediaStore) MarkArchiveMediaMissing(_ context.Context, value ArchiveMediaFailure, _ time.Time) error {
 	s.missing = value
+	s.object.Status = ArchiveMediaMissing
 	return nil
 }
 func (s *fakeArchiveMediaStore) MarkArchiveMediaCorrupt(_ context.Context, value ArchiveMediaFailure, _ time.Time) error {
 	s.corrupt = value
+	s.object.Status = ArchiveMediaCorrupt
 	return nil
+}
+func (s *fakeArchiveMediaStore) ArchiveMediaAttemptReferences(context.Context) ([]ArchiveMediaAttemptReference, error) {
+	if s.references != nil {
+		return append([]ArchiveMediaAttemptReference(nil), s.references...), nil
+	}
+	return []ArchiveMediaAttemptReference{{
+		ID: s.object.ID, Status: s.object.Status, CheckpointAttempt: s.object.CheckpointAttempt, ActiveAttempt: s.object.Attempt,
+	}}, nil
 }
 
 type fakeArchiveMediaClient struct {
@@ -352,7 +489,11 @@ func (s *takeoverMediaStore) CheckpointArchiveMedia(_ context.Context, value Arc
 func (s *takeoverMediaStore) CompleteArchiveMedia(_ context.Context, value ArchiveMediaCompletion, _ time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.fenced(value.Attempt, value.LeaseToken)
+	if err := s.fenced(value.Attempt, value.LeaseToken); err != nil {
+		return err
+	}
+	s.object.Status = ArchiveMediaReady
+	return nil
 }
 func (s *takeoverMediaStore) FailArchiveMedia(_ context.Context, value ArchiveMediaFailure, _ time.Time) error {
 	s.mu.Lock()
@@ -364,6 +505,13 @@ func (s *takeoverMediaStore) MarkArchiveMediaMissing(ctx context.Context, value 
 }
 func (s *takeoverMediaStore) MarkArchiveMediaCorrupt(ctx context.Context, value ArchiveMediaFailure, at time.Time) error {
 	return s.FailArchiveMedia(ctx, value, at)
+}
+func (s *takeoverMediaStore) ArchiveMediaAttemptReferences(context.Context) ([]ArchiveMediaAttemptReference, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return []ArchiveMediaAttemptReference{{
+		ID: s.object.ID, Status: s.object.Status, CheckpointAttempt: s.object.CheckpointAttempt, ActiveAttempt: s.activeAttempt,
+	}}, nil
 }
 
 type takeoverMediaClient struct {

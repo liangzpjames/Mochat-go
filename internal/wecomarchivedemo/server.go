@@ -210,7 +210,25 @@ func sanitizeArchiveError(err error) string {
 	return "archive bridge request failed"
 }
 
+// MediaErrorCoder is the narrow cross-package contract used by SDK adapters
+// and local fixtures. The HTTP boundary maps only a fixed allowlist and never
+// exposes Error() text as a protocol code or message.
+type MediaErrorCoder interface {
+	MediaErrorCode() string
+}
+
 func sanitizeArchiveMediaError(err error) (string, int) {
+	var coded MediaErrorCoder
+	if errors.As(err, &coded) {
+		switch strings.TrimSpace(coded.MediaErrorCode()) {
+		case "MEDIA_MISSING", "ARCHIVE_MEDIA_MISSING":
+			return "ARCHIVE_MEDIA_MISSING", http.StatusNotFound
+		case "MEDIA_CORRUPT", "ARCHIVE_MEDIA_CORRUPT":
+			return "ARCHIVE_MEDIA_CORRUPT", http.StatusUnprocessableEntity
+		case "MEDIA_SDK_ERROR", "ARCHIVE_MEDIA_SDK_ERROR":
+			return "ARCHIVE_MEDIA_SDK_ERROR", http.StatusBadGateway
+		}
+	}
 	var sdkErr SDKError
 	if errors.As(err, &sdkErr) {
 		return "ARCHIVE_MEDIA_SDK_ERROR", http.StatusBadGateway

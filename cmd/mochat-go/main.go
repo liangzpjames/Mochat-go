@@ -3027,6 +3027,9 @@ func main() {
 			RunOnStart: cfg.WorkMessageArchiveSyncCronRunOnStart,
 			Logger:     log.Default(),
 		}, func(ctx context.Context) error {
+			if _, err := mediaRunner.CleanupStaleAttempts(ctx); err != nil {
+				return err
+			}
 			for index := 0; index < cfg.WorkMessageArchiveSyncLimit; index++ {
 				worked, err := mediaRunner.RunOne(ctx)
 				if err != nil || !worked {

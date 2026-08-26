@@ -14,6 +14,8 @@ import (
 	"jiyi/mochat-go/internal/wecomarchivedemo"
 )
 
+var _ wecomarchivedemo.MediaErrorCoder = FixtureError{}
+
 type recordingExecutor struct {
 	statements []string
 }

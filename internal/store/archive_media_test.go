@@ -84,6 +84,25 @@ func TestArchiveMediaMutationsCarryAttemptAndTokenFence(t *testing.T) {
 	}
 }
 
+func TestArchiveMediaAttemptReferencesExposeOnlyLedgerOwnership(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	mock.ExpectQuery("(?s)SELECT id,status,checkpoint_attempt,.*CASE WHEN status='fetching' THEN attempt ELSE 0 END AS active_attempt.*FROM mochat_go_archive_media_objects").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "status", "checkpoint_attempt", "active_attempt"}).
+			AddRow("014c1da7-1b2e-4aa1-90aa-a6a0d6f53380", "fetching", 3, 4).
+			AddRow("b12b56cd-4910-4630-a399-aa906894cc76", "failed", 2, 0))
+	items, err := NewMySQLStore(db).ArchiveMediaAttemptReferences(context.Background())
+	if err != nil || len(items) != 2 || items[0].CheckpointAttempt != 3 || items[0].ActiveAttempt != 4 || items[1].Status != archiveprovider.ArchiveMediaFailed || items[1].ActiveAttempt != 0 {
+		t.Fatalf("items=%#v err=%v", items, err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestArchiveMessageMediaOutboxUsesSameTransactionAndDuplicateCannotRegressReady(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {

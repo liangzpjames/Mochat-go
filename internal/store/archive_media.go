@@ -175,6 +175,30 @@ func (s *MySQLStore) MarkArchiveMediaCorrupt(ctx context.Context, value archivep
 	return s.finishArchiveMedia(ctx, value, archiveprovider.ArchiveMediaCorrupt, at)
 }
 
+func (s *MySQLStore) ArchiveMediaAttemptReferences(ctx context.Context) ([]archiveprovider.ArchiveMediaAttemptReference, error) {
+	if s == nil || s.db == nil {
+		return nil, errors.New("archive media store unavailable")
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id,status,checkpoint_attempt,
+		       CASE WHEN status='fetching' THEN attempt ELSE 0 END AS active_attempt
+		FROM mochat_go_archive_media_objects
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := make([]archiveprovider.ArchiveMediaAttemptReference, 0)
+	for rows.Next() {
+		var item archiveprovider.ArchiveMediaAttemptReference
+		if err := rows.Scan(&item.ID, &item.Status, &item.CheckpointAttempt, &item.ActiveAttempt); err != nil {
+			return nil, err
+		}
+		result = append(result, item)
+	}
+	return result, rows.Err()
+}
+
 func (s *MySQLStore) finishArchiveMedia(ctx context.Context, value archiveprovider.ArchiveMediaFailure, status archiveprovider.ArchiveMediaStatus, at time.Time) error {
 	code := strings.TrimSpace(value.ErrorCode)
 	if code == "" {
