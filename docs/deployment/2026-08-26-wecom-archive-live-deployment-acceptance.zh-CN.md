@@ -63,6 +63,10 @@
 | 企业微信真实事件通知 | 2026-08-26 21:23:46、21:24:05（CST）收到两次真实 POST，均返回 200；主应用识别 `corp=4` 后因 Dashboard/主库尚未启用归档凭据而明确跳过主库同步 |
 | Finance SDK 真实直拉 | 官方 `GetChatData` 成功；真实游标从 `seq=0` 推进至 `seq=4`，解密并保存 4 条证据（1 条图片、3 条文本），`publickey_ver=1`，无拉取错误 |
 | 幂等与重启续拉 | `seq=4` 空页复拉为 0；bridge 重启后仍从 `seq=4` 开始且返回 0，JSONL 证据保持 4 行，无重复写入 |
+| Finance SDK 真实群聊 | 2026-08-26 21:44—21:45（CST）从 `seq=4` 拉取至 `seq=6`；新增 1 条图片、1 条文本，具有相同且非空 `roomid`，每条含 2 个接收者标识；随后空页复拉为 0 |
+| 通讯录同步助手可信 IP | 服务器公网 IP 配置生效；错误由 `60020` 变为能力级 `48009`，证明请求已通过 IP 白名单 |
+| 通讯录同步助手 ID 级数据 | `department/simplelist` 成功返回 2 个部门标识；`user/list_id` 成功返回 12 条成员-部门关系、11 个唯一成员标识 |
+| 通讯录完整成员资料 | `department/list`、`user/get` 均返回 `48009 api forbidden for contact assistant`，姓名、手机号、头像等未取得，未写入主库或构造占位数据 |
 | callback POST | 非法 XML 返回 400，证明进入回调处理器 |
 | callback 子路径 / PUT | 均为 404 |
 | 定时同步 | 每 15 秒正常执行，当前 `corps=0`、`failed=0` |
@@ -100,10 +104,11 @@
 
 - 真实：服务器容器、MySQL/Redis、迁移、Nginx、健康端点、生产静态资源、现有 Dashboard 会话和 RBAC、bridge 内网鉴权、专用回调路由。
 - 合成：非法 GET 签名、非法 POST XML、cron fake bridge smoke 和 SDK 自检，仅证明失败关闭、路由和内部数据合同。
-- 已有真实证据：企业微信后台真实 GET challenge、两次真实存档事件 POST、官方 Finance SDK `GetChatData/DecryptData`、`seq=0→4`、4 条脱敏证据、空页幂等和 bridge 重启续拉。
+- 已有真实证据：企业微信后台真实 GET challenge、真实存档事件 POST、官方 Finance SDK `GetChatData/DecryptData`、`seq=0→6`、6 条脱敏证据（包含真实群聊图片与文本）、空页幂等和 bridge 重启续拉；通讯录同步助手还验证了 2 个部门标识和 11 个唯一成员标识。
 - 尚无真实证据：主程序 MySQL 消息落库、Dashboard 会话回读、媒体 `GetMediaData` 文件下载、真实 Sidebar 员工 OAuth/JSSDK。当前图片记录只证明图片类型元数据被拉取和解密，不证明媒体文件已经下载。
-- 当前企业记录仍未在 Dashboard/主库启用完整的会话存档凭据，因此主应用在两次真实事件上均明确记录 `archive is not enabled`，cron 的 `corps=0` 是正确的受限状态；不能把隔离 bridge 的 4 条 JSONL 证据冒充主库数据。
+- 当前企业记录仍未在 Dashboard/主库启用完整的会话存档凭据，因此主应用在真实事件上明确记录 `archive is not enabled`，cron 的 `corps=0` 是正确的受限状态；不能把隔离 bridge 的 6 条 JSONL 证据冒充主库数据。
 - 真实证据回滚点：`/opt/mochat-go/backups/wecom-archive-live-evidence-20260826T212700CST`，目录权限 `0700`、文件权限 `0600`，`SHA256SUMS` 已验证。该目录含受限消息证据，只能留在服务器审计范围内，不得上传到仓库或普通报告。
+- 群聊证据快照：`/opt/mochat-go/backups/wecom-archive-group-evidence-20260826T215501CST`；通讯录助手脱敏摘要：`/opt/mochat-go/backups/wecom-contact-assistant-evidence-20260826T230638CST`。后者明确标记不含凭据与成员 ID，并保存 `SHA256SUMS`。
 
 ## 8. 回滚步骤
 

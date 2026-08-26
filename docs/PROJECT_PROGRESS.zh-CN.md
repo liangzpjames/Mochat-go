@@ -3,7 +3,7 @@
 > 更新时间：2026-08-26
 > 当前分支：`fix/ai-insight-readonly-20260826`（本次服务器部署源码 `cacdc740a14a`；后续验收文档另行提交，用户已有 `.superpowers/sdd/progress.md` 改动保持未触碰，本地产物目录未提交）
 > 主线同步：本地 `main` 与权威远端 `origin/main` 均为 `c696aa66400b5cb7185f18a4152ea6c0ac593834`；本次部署分支尚未合入主线
-> 当前阶段：Phase 7 专用 callback、SDK bridge 和定时同步已部署；真实企微配置、真实消息拉取、Sidebar 应用授权与三端完整角色验收仍受外部条件阻塞
+> 当前阶段：Phase 7 专用 callback、SDK bridge 和定时同步已部署；真实单聊/群聊拉取与存档事件通知已验证；主库落库、完整通讯录/客户数据、Sidebar 应用授权与三端完整角色验收仍受外部条件阻塞
 > 证据入口：[2026-08-26 会话存档部署与三端验收报告](deployment/2026-08-26-wecom-archive-live-deployment-acceptance.zh-CN.md)
 
 ## 会话存档生产接入与三端实测（2026-08-26）
@@ -17,6 +17,8 @@
 - app/bridge 重启后均 healthy，`/healthz`、`/readyz` 和关键静态入口为 200，165 个迁移全部已应用，MySQL/Redis 容器 ID 在 app-only 发布前后不变。
 - 企业配置页已增加会话存档“接收事件服务器 URL”的只读展示和复制反馈，不回显会话存档 Secret 或 RSA 私钥。
 - 本地 Go 全量测试通过；Dashboard lint/typecheck/build 通过，全量 `142` 个测试文件、`918` 项测试通过。
+- 2026-08-26 21:44—21:45（CST）新增真实群聊验收：官方 SDK 拉取 `seq=5..6`，两条记录具有相同且非空 `roomid`，消息类型分别为图片和文本，`tolist` 含两个接收者标识；再次从 `seq=6` 拉取为 0，未重复写入。当前只证明群消息正文/类型解密，不证明群资料、完整群成员或图片媒体文件已下载。
+- 2026-08-26 23:03—23:06（CST）真实通讯录同步助手验收：可信 IP 生效后，旧 `department/list` 与 `user/get` 均由企业微信返回 `48009 api forbidden for contact assistant`；低信息接口 `department/simplelist` 返回 2 个部门标识，`user/list_id` 返回 12 条成员-部门关系、去重后 11 个成员标识。该 Secret 不能取得姓名、手机号、头像等完整成员资料，未向主库写入空名称或伪造占位数据。
 
 真实验收边界：
 
@@ -24,8 +26,9 @@
 - 当前 Dashboard 账号仅有“唯一企业资料”权限，数据概览、AI 设置和 AI 洞察会被 RBAC 重定向；SaaS Admin 没有现成登录态，均不能冒充验收通过。
 - Sidebar 12 条路由的登录/失败状态可达，但用当前 AgentID 发起授权返回“应用不存在”；企业资料中的应用配置尚未闭合到 Sidebar 应用记录和员工 OAuth/JSSDK。
 - 应用内浏览器本轮未实际得到 390×844 viewport，因此生产移动视觉项保持跳过；代码门禁不替代真实企微客户端验收。
+- 当前企业 `corp=4` 在主库仍为待验证，部门/员工均为 0。MoChat 生产员工同步仍调用 `department/list` 与 `user/list`，无法消费通讯录同步助手只开放的 `simplelist/list_id`；并且企业绑定验证把员工 Secret 与客户 Secret 作为一个整体门禁。现状只能证明真实 ID 级组织图可读取，不能宣称 MoChat 已完成员工同步。
 
-下一步必须由真实企微配置驱动：完成 CorpID 验证、会话存档试用/Secret/RSA 公钥/允许 IP/测试范围，生成真实消息；同时修复 Sidebar 应用记录链路并准备 SaaS Admin 与 Dashboard 完整角色登录态。只有真实事件 POST、SDK 拉取、数据库落库和三端回读证据闭合后，Phase 7 才能标记为生产通过。
+下一步必须分能力推进：会话存档继续接入主库游标与 Dashboard 回读；完整员工资料需要具有通讯录读取权限的自建/第三方/代开发应用，而不能把通讯录同步助手的 ID-only 数据冒充员工资料；客户/客户群需要独立客户联系权限；同时修复 Sidebar 应用记录链路并准备 SaaS Admin 与 Dashboard 完整角色登录态。只有真实数据落库和三端回读证据闭合后，Phase 7 才能标记为生产通过。
 
 ## 超时预警与客户流失菜单实施范围纠偏（2026-08-21）
 
