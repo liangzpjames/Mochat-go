@@ -116,10 +116,38 @@ func TestFixtureArchiveMessagesUseProductionSDKShapesAndPreserveUnknown(t *testi
 			}
 			mixedID := fixture.MediaFileIDs()["mixed"]
 			sum := md5.Sum(fixture.ExpectedMedia(mixedID))
-			if len(payload.Item) != 2 || payload.Item[1].Type != "image" || payload.Item[1].Image.SDKFileID != mixedID || payload.Item[1].Image.MD5Sum != hex.EncodeToString(sum[:]) {
+			if len(payload.Item) != 4 || payload.Item[1].Type != "image" || payload.Item[1].Image.SDKFileID != mixedID || payload.Item[1].Image.MD5Sum != hex.EncodeToString(sum[:]) {
 				t.Fatalf("mixed payload does not match SDK nested image shape: %+v", payload)
 			}
+			for index, kind := range []string{"missing", "corrupt"} {
+				mediaID := fixture.MediaFileIDs()[kind]
+				if mediaID == "" || payload.Item[index+2].Type != "image" || payload.Item[index+2].Image.SDKFileID != mediaID {
+					t.Fatalf("mixed %s media contract is missing: %+v", kind, payload)
+				}
+			}
 		}
+	}
+}
+
+func TestFixtureMixedFaultMediaDefaultsToMissingAndCorrupt(t *testing.T) {
+	fixture, err := NewArchiveFixture()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer fixture.Close()
+
+	ids := fixture.MediaFileIDs()
+	_, err = fixture.GetMediaData(context.Background(), ids["missing"], "", 5)
+	var fixtureErr FixtureError
+	if !errors.As(err, &fixtureErr) || fixtureErr.Code != "MEDIA_MISSING" {
+		t.Fatalf("missing media error=%v", err)
+	}
+	corrupt, err := fixture.GetMediaData(context.Background(), ids["corrupt"], "", 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Equal(corrupt.Data, fixture.ExpectedMedia(ids["corrupt"])[:len(corrupt.Data)]) {
+		t.Fatal("corrupt media returned canonical bytes")
 	}
 }
 

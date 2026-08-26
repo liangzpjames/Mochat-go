@@ -1,0 +1,173 @@
+name: mochat-wecom-acceptance-20260827
+
+services:
+  mysql:
+    image: mariadb:10.6
+    environment:
+      MARIADB_DATABASE: mochat_acceptance
+      MARIADB_ROOT_PASSWORD: ${MOCHAT_ACCEPTANCE_MYSQL_ROOT_PASSWORD:-}
+      MARIADB_USER: mochat_acceptance
+      MARIADB_PASSWORD: ${MOCHAT_ACCEPTANCE_MYSQL_PASSWORD:-}
+      TZ: Asia/Shanghai
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    ports:
+      - "127.0.0.1:19016:3306"
+    volumes:
+      - mysql-data-v4:/var/lib/mysql
+      - ../standalone/schema/mochat.sql:/docker-entrypoint-initdb.d/001-mochat.sql:ro
+      - ../standalone/migrations:/mochat-migrations:ro
+      - ./init/099-apply-migrations.sh:/docker-entrypoint-initdb.d/099-apply-migrations.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "mariadb-admin ping -h 127.0.0.1 -umochat_acceptance -p\"$${MARIADB_PASSWORD}\""]
+      interval: 5s
+      timeout: 5s
+      retries: 90
+      start_period: 20s
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "127.0.0.1:29089:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  bridge:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    entrypoint: ["/usr/local/bin/mochat-archive-acceptance"]
+    command: ["bridge", "-addr", "0.0.0.0:9091", "-state-dir", "/acceptance/bridge"]
+    environment:
+      MOCHAT_ACCEPTANCE_BRIDGE_TOKEN: ${MOCHAT_ACCEPTANCE_BRIDGE_TOKEN:-}
+    ports:
+      - "127.0.0.1:19091:9091"
+    volumes:
+      - bridge-state:/acceptance/bridge
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:9091/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  app:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    environment: &app-environment
+      TZ: Asia/Shanghai
+      MOCHAT_GO_RUNTIME_ROLE: all
+      MOCHAT_GO_STANDALONE: "1"
+      MOCHAT_GO_ENABLE_FRONTEND_SERVERS: "1"
+      MOCHAT_GO_ENABLE_ALL_MIGRATED_ROUTES: "1"
+      MOCHAT_GO_ADDR: 0.0.0.0:8080
+      MOCHAT_API_BASE_URL: http://127.0.0.1:19080
+      MOCHAT_SIDEBAR_BASE_URL: http://127.0.0.1:19081
+      MOCHAT_MYSQL_DSN: mochat_acceptance:${MOCHAT_ACCEPTANCE_MYSQL_PASSWORD:-}@tcp(mysql:3306)/mochat_acceptance?parseTime=true&loc=Local
+      MOCHAT_REDIS_ADDR: redis:6379
+      MOCHAT_SIMPLE_JWT_SECRET: ${MOCHAT_ACCEPTANCE_SIMPLE_JWT_SECRET:-}
+      MOCHAT_SAAS_ADMIN_JWT_SECRET: ${MOCHAT_ACCEPTANCE_SAAS_JWT_SECRET:-}
+      MOCHAT_SAAS_ADMIN_JWT_ISSUER: mochat-go/saas-auth
+      MOCHAT_SAAS_ADMIN_JWT_AUDIENCE: mochat-saas-admin
+      MOCHAT_DASHBOARD_JWT_SECRET: ${MOCHAT_ACCEPTANCE_DASHBOARD_JWT_SECRET:-}
+      MOCHAT_DASHBOARD_JWT_ISSUER: mochat-go/dashboard-auth
+      MOCHAT_DASHBOARD_JWT_AUDIENCE: mochat-dashboard
+      MOCHAT_SIDEBAR_JWT_SECRET: ${MOCHAT_ACCEPTANCE_SIDEBAR_JWT_SECRET:-}
+      MOCHAT_SAAS_ADMIN_MFA_ENCRYPTION_KEY_FILE: /run/secrets/saas-mfa.key
+      MOCHAT_SAAS_ADMIN_MFA_ENCRYPTION_KEY_ID: acceptance-saas-v1
+      MOCHAT_SAAS_ADMIN_MFA_REQUIRED: "0"
+      MOCHAT_DASHBOARD_MFA_ENCRYPTION_KEY_FILE: /run/secrets/dashboard-mfa.key
+      MOCHAT_DASHBOARD_MFA_ENCRYPTION_KEY_ID: acceptance-dashboard-v1
+      MOCHAT_DASHBOARD_MFA_REQUIRED: "0"
+      MOCHAT_GO_WECOM_CREDENTIAL_ENCRYPTION_KEY: ${MOCHAT_ACCEPTANCE_WECOM_KEY:-}
+      MOCHAT_GO_WECOM_CREDENTIAL_ENCRYPTION_KEY_ID: acceptance-v1
+      MOCHAT_GO_WECOM_CREDENTIAL_REQUIRE_ENCRYPTION: "1"
+      MOCHAT_GO_WORK_MESSAGE_ARCHIVE_BRIDGE_BASE_URL: http://bridge:9091
+      MOCHAT_GO_WORK_MESSAGE_ARCHIVE_BRIDGE_TOKEN: ${MOCHAT_ACCEPTANCE_BRIDGE_TOKEN:-}
+      MOCHAT_GO_ENABLE_WORK_MESSAGE_ARCHIVE_SYNC_CRON: "0"
+      MOCHAT_GO_ENABLE_DURABLE_WORK_MESSAGE_ARCHIVE: "0"
+      MOCHAT_FILE_STORAGE_ROOT: /app/storage/upload/static
+      MOCHAT_SAAS_ADMIN_DIST: /app/web/apps/saas-admin/dist
+      MOCHAT_GO_ENABLE_SAAS_ADMIN_DASHBOARD: "1"
+      MOCHAT_GO_SAAS_ADMIN_APPROVAL_REQUIRED: "0"
+    ports:
+      - "127.0.0.1:19080:8080"
+      - "127.0.0.1:19081:8081"
+      - "127.0.0.1:19082:8082"
+    volumes:
+      - app-storage:/app/storage
+      - audit-anchor-storage:/app/audit-anchors
+      - ${MOCHAT_ACCEPTANCE_RUNTIME_DIR:-./.runtime-placeholder}/saas-mfa.key:/run/secrets/saas-mfa.key:ro
+      - ${MOCHAT_ACCEPTANCE_RUNTIME_DIR:-./.runtime-placeholder}/dashboard-mfa.key:/run/secrets/dashboard-mfa.key:ro
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      bridge:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:8080/readyz"]
+      interval: 5s
+      timeout: 3s
+      retries: 60
+      start_period: 15s
+
+  acceptance:
+    profiles: ["tools"]
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    entrypoint: ["/usr/local/bin/mochat-archive-acceptance"]
+    environment:
+      <<: *app-environment
+      MOCHAT_ACCEPTANCE_BRIDGE_URL: http://bridge:9091
+      MOCHAT_ACCEPTANCE_BRIDGE_TOKEN: ${MOCHAT_ACCEPTANCE_BRIDGE_TOKEN:-}
+      MOCHAT_ACCEPTANCE_API_BASE_URL: http://app:8080
+      MOCHAT_ACCEPTANCE_STATE_DIR: /acceptance/bridge
+      MOCHAT_ACCEPTANCE_DASHBOARD_PASSWORD_FILE: /run/secrets/dashboard-acceptance-password
+    volumes:
+      - app-storage:/app/storage
+      - ${MOCHAT_ACCEPTANCE_RUNTIME_DIR:-./.runtime-placeholder}/saas-mfa.key:/run/secrets/saas-mfa.key:ro
+      - ${MOCHAT_ACCEPTANCE_RUNTIME_DIR:-./.runtime-placeholder}/dashboard-mfa.key:/run/secrets/dashboard-mfa.key:ro
+      - ${MOCHAT_ACCEPTANCE_RUNTIME_DIR:-./.runtime-placeholder}/dashboard-acceptance-password:/run/secrets/dashboard-acceptance-password:ro
+    depends_on:
+      mysql:
+        condition: service_healthy
+      bridge:
+        condition: service_healthy
+
+  bootstrap:
+    profiles: ["tools"]
+    image: mochat-wecom-acceptance-20260827-acceptance
+    entrypoint: ["/bin/sh", "-ceu"]
+    command:
+      - |
+        cp /run/secrets/saas-admin-password /tmp/saas-admin-password
+        chmod 600 /tmp/saas-admin-password
+        export MOCHAT_BOOTSTRAP_SAAS_ADMIN_PASSWORD_FILE=/tmp/saas-admin-password
+        exec /usr/local/bin/mochat-bootstrap
+    environment:
+      MOCHAT_MYSQL_DSN: mochat_acceptance:${MOCHAT_ACCEPTANCE_MYSQL_PASSWORD:-}@tcp(mysql:3306)/mochat_acceptance?parseTime=true&loc=Local
+      MOCHAT_BOOTSTRAP_REQUEST_KEY: MOCHAT-LOCAL-ACCEPTANCE-20260827-SAAS-ADMIN
+      MOCHAT_BOOTSTRAP_SAAS_ADMIN_LOGIN: mochat-local-acceptance-admin
+      MOCHAT_BOOTSTRAP_SAAS_ADMIN_NAME: MOCHAT-LOCAL-ACCEPTANCE-20260827 本地验收平台管理员
+    volumes:
+      - ${MOCHAT_ACCEPTANCE_RUNTIME_DIR:-./.runtime-placeholder}/saas-admin-password:/run/secrets/saas-admin-password:ro
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+volumes:
+  mysql-data-v4:
+  redis-data:
+  bridge-state:
+  app-storage:
+  audit-anchor-storage:

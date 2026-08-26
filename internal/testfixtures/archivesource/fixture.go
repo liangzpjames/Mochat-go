@@ -72,18 +72,22 @@ func NewArchiveFixture() (*ArchiveFixture, error) {
 	}
 	privateKeyPEM := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(privateKey)})
 	mediaFileIDs := map[string]string{
-		"image": DatasetMarker + "-SDKFILE-IMAGE",
-		"voice": DatasetMarker + "-SDKFILE-VOICE",
-		"video": DatasetMarker + "-SDKFILE-VIDEO",
-		"file":  DatasetMarker + "-SDKFILE-FILE",
-		"mixed": DatasetMarker + "-SDKFILE-MIXED-IMAGE",
+		"image":   DatasetMarker + "-SDKFILE-IMAGE",
+		"voice":   DatasetMarker + "-SDKFILE-VOICE",
+		"video":   DatasetMarker + "-SDKFILE-VIDEO",
+		"file":    DatasetMarker + "-SDKFILE-FILE",
+		"mixed":   DatasetMarker + "-SDKFILE-MIXED-IMAGE",
+		"missing": DatasetMarker + "-SDKFILE-MISSING-IMAGE",
+		"corrupt": DatasetMarker + "-SDKFILE-CORRUPT-IMAGE",
 	}
 	media := map[string][]byte{
-		mediaFileIDs["image"]: append([]byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'}, []byte(DatasetMarker+"-IMAGE")...),
-		mediaFileIDs["voice"]: append([]byte("RIFF"), []byte(DatasetMarker+"-WAVEfmt ")...),
-		mediaFileIDs["video"]: append([]byte{0, 0, 0, 24}, []byte("ftypmp42"+DatasetMarker+"-VIDEO")...),
-		mediaFileIDs["file"]:  []byte("%PDF-1.4\n% " + DatasetMarker + " FILE\n%%EOF\n"),
-		mediaFileIDs["mixed"]: append([]byte{0x89, 'P', 'N', 'G'}, []byte(DatasetMarker+"-MIXED")...),
+		mediaFileIDs["image"]:   append([]byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'}, []byte(DatasetMarker+"-IMAGE")...),
+		mediaFileIDs["voice"]:   append([]byte("RIFF"), []byte(DatasetMarker+"-WAVEfmt ")...),
+		mediaFileIDs["video"]:   append([]byte{0, 0, 0, 24}, []byte("ftypmp42"+DatasetMarker+"-VIDEO")...),
+		mediaFileIDs["file"]:    []byte("%PDF-1.4\n% " + DatasetMarker + " FILE\n%%EOF\n"),
+		mediaFileIDs["mixed"]:   append([]byte{0x89, 'P', 'N', 'G'}, []byte(DatasetMarker+"-MIXED")...),
+		mediaFileIDs["missing"]: append([]byte{0x89, 'P', 'N', 'G'}, []byte(DatasetMarker+"-MISSING")...),
+		mediaFileIDs["corrupt"]: append([]byte{0x89, 'P', 'N', 'G'}, []byte(DatasetMarker+"-CORRUPT")...),
 	}
 	plainMessages := []map[string]any{
 		baseMessage(1, "text", map[string]any{"content": DatasetMarker + " local contract text"}),
@@ -97,6 +101,12 @@ func NewArchiveFixture() (*ArchiveFixture, error) {
 			{"type": "text", "content": DatasetMarker + " mixed text"},
 			{"type": "image", "image": map[string]any{
 				"sdkfileid": mediaFileIDs["mixed"], "md5sum": mediaMD5(media[mediaFileIDs["mixed"]]), "filesize": len(media[mediaFileIDs["mixed"]]),
+			}},
+			{"type": "image", "image": map[string]any{
+				"sdkfileid": mediaFileIDs["missing"], "md5sum": mediaMD5(media[mediaFileIDs["missing"]]), "filesize": len(media[mediaFileIDs["missing"]]),
+			}},
+			{"type": "image", "image": map[string]any{
+				"sdkfileid": mediaFileIDs["corrupt"], "md5sum": mediaMD5(media[mediaFileIDs["corrupt"]]), "filesize": len(media[mediaFileIDs["corrupt"]]),
 			}},
 		}}),
 		baseMessage(9, "future_archive_type", map[string]any{"opaque": DatasetMarker + " preserve unknown payload", "version": 1}),
@@ -115,7 +125,10 @@ func NewArchiveFixture() (*ArchiveFixture, error) {
 	}
 	return &ArchiveFixture{
 		privateKeyPEM: string(privateKeyPEM), encryptedRandomKey: base64.StdEncoding.EncodeToString(encryptedRandomKey),
-		messages: messages, mediaFileIDs: mediaFileIDs, media: media, mediaModes: map[string]MediaMode{},
+		messages: messages, mediaFileIDs: mediaFileIDs, media: media, mediaModes: map[string]MediaMode{
+			mediaFileIDs["missing"]: MediaMissing,
+			mediaFileIDs["corrupt"]: MediaCorrupt,
+		},
 	}, nil
 }
 

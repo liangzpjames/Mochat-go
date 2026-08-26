@@ -51,12 +51,19 @@ func TestBridgeSourceUsesRealArchiveFixtureMixedShape(t *testing.T) {
 		t.Fatalf("messages=%d", len(page.Messages))
 	}
 	mixed := page.Messages[7]
-	wantID := fixture.MediaFileIDs()["mixed"]
-	if mixed.MsgType != "mixed" || len(mixed.Media) != 1 || mixed.Media[0].Type != "image" || mixed.Media[0].SDKFileID != wantID || mixed.Media[0].ExpectedSize <= 0 || mixed.Media[0].ExpectedMD5 == "" {
+	fileIDs := fixture.MediaFileIDs()
+	wantIDs := []string{fileIDs["mixed"], fileIDs["missing"], fileIDs["corrupt"]}
+	if mixed.MsgType != "mixed" || len(mixed.Media) != len(wantIDs) {
 		t.Fatalf("mixed=%#v", mixed)
 	}
-	if strings.Contains(mixed.RawJSON, wantID) || strings.Contains(mixed.ContentRaw, wantID) {
-		t.Fatal("mixed public payload leaked SDK locator")
+	for index, wantID := range wantIDs {
+		media := mixed.Media[index]
+		if media.Type != "image" || media.SDKFileID != wantID || media.ExpectedSize <= 0 || media.ExpectedMD5 == "" {
+			t.Fatalf("mixed media[%d]=%#v", index, media)
+		}
+		if strings.Contains(mixed.RawJSON, wantID) || strings.Contains(mixed.ContentRaw, wantID) {
+			t.Fatal("mixed public payload leaked SDK locator")
+		}
 	}
 }
 

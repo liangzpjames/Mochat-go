@@ -1,0 +1,70 @@
+# 企微会话存档、SaaS 对接模式与新租户激活专项验收报告
+
+> 数据集：`MOCHAT-LOCAL-ACCEPTANCE-20260827`（本地验收 / 非生产）
+>
+> 验收日期：2026-08-27
+> 结论边界：本报告中的 SDK 结果仅代表去敏 Finance SDK 合同夹具在本地生产代码路径通过，不代表真实企业微信线上联调通过。
+
+## 1. 实施结果
+
+- 新增 `mochat-archive-acceptance` CLI，提供 `bridge`、`seed`、`verify`、`cleanup`；输出仅含固定数据集标识、计数和非敏感 ID，不输出 Bearer、SDK locator、数据库口令或密码。
+- fixture bridge 使用真实 `ArchiveFixture.GetChatData/DecryptData/GetMediaData` 与 `NewAdminHandler`，随后进入生产 `BridgeSource → 0138 SyncService/MySQLStore → media worker → Dashboard media API`，没有直接向消息表或媒体表插入业务结果。
+- 固定生成 9 类消息：文本、图片、语音、视频、文件、链接、位置、混合和未知类型；共形成 7 个媒体对象，其中 5 个 ready、1 个 missing、1 个 corrupt。媒体按 7 字节分片，所有正常样本均超过 3 个分片。
+- `verify` 核验同一 run、cursor=9、9 条消息的正式投影类型、同步审计、当前 `self_built` integration 的 `archive.read` scope、5 个对象文件的大小/SHA-256、locator 不泄漏，以及未登录 401、正式 Dashboard 登录后鉴权下载 200 和内容哈希一致。
+- 独立 Compose 项目为 `mochat-wecom-acceptance-20260827`；随机数据库口令、JWT、bridge token、企微加密键、MFA 键及本地验收密码只写入 ignored runtime 目录 `.tmp-wecom-acceptance-runtime/`。
+- `seed` 同时通过仓库受控 `mochat-bootstrap` 创建幂等 SaaS 平台验收账号；Windows bind mount 先在一次性容器内复制并收紧为 `0600` 后再交给 bootstrap，未放宽生产口令文件权限检查。
+
+## 2. 自动化与 Docker 证据
+
+| 验收项 | 结果 | 证据摘要 |
+|---|---|---|
+| CLI 单元测试 | PASS | 参数脱敏、bridge 鉴权、cleanup 范围、绝对对象路径、missing/corrupt、正式登录与媒体鉴权读取 |
+| fixture / durable / media 相关 Go 测试 | PASS | Finance SDK JSON、分页 cursor、失败不推进、重放幂等、分片与 checkpoint/restart 合同 |
+| Node 静态专项门禁 | PASS | DTO/locator、durable 与 legacy 互斥、激活 URL 清理、独立 Compose、密码文件和固定数据集 |
+| Compose 配置渲染 | PASS | 固定 project，独立端口和命名卷，敏感项来自 ignored env/file |
+| MariaDB `0166 down → up` | PASS | down 后 integration/media 两表均不存在，up 后两表恢复 |
+| `seed` 首次 | PASS | run 保持 1 个；9 messages；7 media；5 ready、1 missing、1 corrupt；cursor=9 |
+| `seed` 重放 | PASS | 同一 run 与对象计数，`mediaProcessed=0` |
+| `verify` | PASS | 类型 `[1,2,3,4,5,6,7,9,100]`、同步审计 3 条、鉴权媒体读取 1 次 |
+| `cleanup -DryRun` | PASS | 只报告本数据集计数，不写数据 |
+| `cleanup` / 重复 cleanup | PASS | 首次删除精确业务行和 5 个对象文件；重复执行为全 0 且成功 |
+| app + bridge restart 后 verify | PASS | 健康恢复后 cursor、消息、媒体与对象文件仍通过 |
+| 应用内浏览器点击 | 待主任务验收 | 本任务按分工不执行浏览器；不得将自动化结果写成浏览器 PASS |
+
+## 3. 本地访问
+
+- Dashboard：`http://127.0.0.1:19080/`
+- SaaS 管理端：`http://127.0.0.1:19080/saas/`
+- Sidebar：`http://127.0.0.1:19081/`
+- Operation：`http://127.0.0.1:19082/`
+- fixture bridge health：`http://127.0.0.1:19091/healthz`
+- MariaDB：`127.0.0.1:19016`
+- Redis：`127.0.0.1:29089`
+
+非敏感登录提示：Dashboard 账号为 `19008208270`；SaaS 账号为 `mochat-local-acceptance-admin`。两者随机密码分别只保存在 ignored 文件 `.tmp-wecom-acceptance-runtime/dashboard-acceptance-password` 与 `.tmp-wecom-acceptance-runtime/saas-admin-password`，报告与命令输出不记录密码。
+
+## 4. 浏览器待验收清单
+
+主任务需在应用内浏览器补齐并如实记录：
+
+1. SaaS 的自建应用、第三方代开发应用 candidate/verify/switch/rollback、切换冲突和审计回读。
+2. 激活 valid、expired、activated、revoked、invalid，重发的一次性入口、安全复制和刷新恢复；确认界面不暗示不存在的发送能力。
+3. Dashboard 文本、图片、语音、视频、文件、mixed、unknown 回读；图片查看、音频/视频播放、文件下载、missing/corrupt 失败态和未授权读取。
+4. 控制台与网络错误、刷新恢复、空态/失败态、桌面响应式，以及员工端 390×844。
+
+## 5. 回滚与清理
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/run_wecom_archive_saas_activation_acceptance.ps1 -Action cleanup -DryRun -NoBuild
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/run_wecom_archive_saas_activation_acceptance.ps1 -Action cleanup -NoBuild
+```
+
+cleanup 使用固定 tenant/corp/user/integration ID、固定数据集消息前缀、bootstrap request key 和精确 FK 顺序；对象路径必须位于配置的 `archive-media/` 根内。它不删除卷、不执行 `TRUNCATE`，也不使用宽泛 tenant 清理。若需要停止容器，可执行不带 `-v` 的 `docker compose stop`；不得用 `down -v` 清除卷。
+
+## 6. 保留边界
+
+- 真实企业微信 `GetChatData/DecryptData/GetMediaData`：SKIP（按本次范围不再调用真实企微）。
+- 真实企微 CorpID、会话存档 Secret、RSA、可信 IP、线上授权企业与永久授权码：SKIP / 外部条件。
+- 本地 MariaDB：PASS，使用独立 Docker MariaDB 10.6；这不能替代目标生产数据库版本与生产数据升级演练。
+- 应用内浏览器：待主任务验收；自动化、数据库计数与截图均不能替代真实点击。
+- 当前 Compose 保持运行，未执行 `down -v`，便于继续浏览器验收。
