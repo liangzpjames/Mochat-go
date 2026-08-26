@@ -149,6 +149,98 @@ export function hasPermission(permissions: string[], permission: string): boolea
   return permissions.includes('*') || permissions.includes(permission)
 }
 
+export type WeComIntegrationMode = 'self_built' | 'third_party_delegated'
+
+export interface WeComIntegrationRecord {
+  id: string
+  mode: WeComIntegrationMode
+  slot: 'current' | 'candidate'
+  status: 'unconfigured' | 'pending_verification' | 'active' | 'suspended' | 'revoked' | 'failed'
+  verifiedWxCorpId: string
+  agentId: string
+  providerAppId: string
+  credentialConfigured: boolean
+  credentialHint: string
+  scope: string[]
+  scopeDigest: string
+  missingCapabilities: string[]
+  generation: number
+  version: number
+  verificationLevel: string
+  verifiedAt: string
+  lastErrorCode: string
+  updatedAt: string
+}
+
+export interface WeComIntegrationView {
+  tenantId: number
+  corpId: number
+  current: WeComIntegrationRecord | null
+  candidate: WeComIntegrationRecord | null
+}
+
+export interface WeComIntegrationCandidateInput {
+  mode: WeComIntegrationMode
+  agentId?: string
+  providerAppId?: string
+  employeeSecret?: string
+  contactSecret?: string
+  agentSecret?: string
+  chatSecret?: string
+  permanentCode?: string
+  scope: string[]
+  version: number
+}
+
+export interface WeComIntegrationAudit {
+  id: number
+  action: string
+  targetId: string
+  before: string
+  after: string
+  actorUserId: number
+  createdAt: string
+}
+
+function weComIntegrationPath(tenantId: number, suffix = '') {
+  if (!Number.isInteger(tenantId) || tenantId <= 0) throw new Error('租户 ID 无效')
+  return `/dashboard/saasAdmin/tenants/${tenantId}/wecom-integration${suffix}`
+}
+
+export function fetchWeComIntegration(tenantId: number) {
+  return apiRequest<WeComIntegrationView>(weComIntegrationPath(tenantId))
+}
+
+export function saveWeComIntegrationCandidate(tenantId: number, input: WeComIntegrationCandidateInput) {
+  return apiRequest<WeComIntegrationRecord>(weComIntegrationPath(tenantId, '/candidate'), jsonRequest('PUT', input))
+}
+
+export function verifyWeComIntegrationCandidate(tenantId: number, version: number) {
+  return apiRequest<WeComIntegrationRecord>(weComIntegrationPath(tenantId, '/candidate/verify'), jsonRequest('POST', { version }))
+}
+
+export function switchWeComIntegration(tenantId: number, version: number) {
+  return apiRequest<WeComIntegrationView>(weComIntegrationPath(tenantId, '/switch'), jsonRequest('POST', { version }))
+}
+
+export function rollbackWeComIntegration(tenantId: number, version: number) {
+  return apiRequest<WeComIntegrationView>(weComIntegrationPath(tenantId, '/rollback'), jsonRequest('POST', { version }))
+}
+
+export function fetchWeComIntegrationAudits(tenantId: number) {
+  return apiRequest<WeComIntegrationAudit[]>(weComIntegrationPath(tenantId, '/audits'))
+}
+
+export function activationDeliveryURL(path: string, origin = location.origin): string {
+  const base = new URL(origin)
+  const value = new URL(path, base)
+  if (value.origin !== base.origin) throw new Error('激活入口必须与当前站点同源')
+  if (value.pathname !== '/activate' || value.searchParams.has('token') || !value.hash.startsWith('#token=')) {
+    throw new Error('激活入口必须使用 fragment')
+  }
+  return value.toString()
+}
+
 function policyRequiresApproval(mode: ApprovalPoliciesData | undefined, actionType: string): boolean {
   if (!mode?.required) return false
   const policy = mode.policies.find((item) => item.actionType === actionType)

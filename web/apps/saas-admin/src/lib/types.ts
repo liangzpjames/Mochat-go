@@ -138,6 +138,8 @@ export interface DashboardAdminProvisionResult {
   dashboardUserId: number
   bindingCorpId: number
   activationToken?: string
+  activationPath?: string
+  activationExpiresAt?: string
   idempotent?: boolean
 }
 
@@ -145,6 +147,9 @@ export interface DashboardAdminGovernanceResult {
   tenantId: number
   dashboardUserId: number
   version: number
+  activationToken?: string
+  activationPath?: string
+  activationExpiresAt?: string
   idempotent?: boolean
 }
 

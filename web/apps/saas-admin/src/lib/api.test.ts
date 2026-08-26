@@ -1,6 +1,21 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { ApiError, apiRequest, changeSaaSPassword, completeSaaSMFA, loginURL, logoutSaaS, readStoredToken } from './api'
+import {
+  ApiError,
+  activationDeliveryURL,
+  apiRequest,
+  changeSaaSPassword,
+  completeSaaSMFA,
+  fetchWeComIntegration,
+  fetchWeComIntegrationAudits,
+  loginURL,
+  logoutSaaS,
+  readStoredToken,
+  rollbackWeComIntegration,
+  saveWeComIntegrationCandidate,
+  switchWeComIntegration,
+  verifyWeComIntegrationCandidate,
+} from './api'
 
 describe('SaaS Admin token storage', () => {
   beforeEach(() => {
@@ -69,5 +84,56 @@ describe('SaaS Admin token storage', () => {
     })
     expect(fetchMock).toHaveBeenCalledTimes(3)
     expect(new ApiError('test', 400, 'INVALID_REQUEST', 400).machineCode).toBe('INVALID_REQUEST')
+  })
+
+  it('uses tenant-scoped WeCom integration endpoints and optimistic versions', async () => {
+    vi.stubGlobal('localStorage', {
+      getItem: vi.fn((key: string) => key === 'mochat_saas_admin_token' ? 'saas-token' : key === 'mochat_saas_admin_user_id' ? '7' : key === 'mochat_saas_admin_expires_at' ? '9999999999' : null),
+      removeItem: vi.fn(),
+    })
+    const fetchMock = vi.fn().mockImplementation(async () => new Response(JSON.stringify({ code: 200, data: {} }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await fetchWeComIntegration(41)
+    await saveWeComIntegrationCandidate(41, {
+      mode: 'third_party_delegated',
+      agentId: '',
+      providerAppId: 'provider-app',
+      employeeSecret: '',
+      contactSecret: '',
+      agentSecret: '',
+      chatSecret: '',
+      permanentCode: 'permanent-code',
+      scope: ['archive.read'],
+      version: 3,
+    })
+    await verifyWeComIntegrationCandidate(41, 4)
+    await switchWeComIntegration(41, 5)
+    await rollbackWeComIntegration(41, 6)
+    await fetchWeComIntegrationAudits(41)
+
+    expect(fetchMock.mock.calls.map(([path]) => path)).toEqual([
+      '/dashboard/saasAdmin/tenants/41/wecom-integration',
+      '/dashboard/saasAdmin/tenants/41/wecom-integration/candidate',
+      '/dashboard/saasAdmin/tenants/41/wecom-integration/candidate/verify',
+      '/dashboard/saasAdmin/tenants/41/wecom-integration/switch',
+      '/dashboard/saasAdmin/tenants/41/wecom-integration/rollback',
+      '/dashboard/saasAdmin/tenants/41/wecom-integration/audits',
+    ])
+    expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).toMatchObject({ mode: 'third_party_delegated', permanentCode: 'permanent-code', version: 3 })
+    expect(JSON.parse(String(fetchMock.mock.calls[2]?.[1]?.body))).toEqual({ version: 4 })
+    expect(JSON.parse(String(fetchMock.mock.calls[3]?.[1]?.body))).toEqual({ version: 5 })
+    expect(JSON.parse(String(fetchMock.mock.calls[4]?.[1]?.body))).toEqual({ version: 6 })
+  })
+
+  it('builds an absolute fragment activation URL without moving the token into query', () => {
+    const url = activationDeliveryURL('/activate#token=opaque%2Bvalue', 'https://saas.example.test')
+    expect(url).toBe('https://saas.example.test/activate#token=opaque%2Bvalue')
+    expect(url).not.toContain('?token=')
+    expect(() => activationDeliveryURL('/activate?token=leak', 'https://saas.example.test')).toThrow('激活入口必须使用 fragment')
+    expect(() => activationDeliveryURL('https://evil.example/activate#token=opaque', 'https://saas.example.test')).toThrow('激活入口必须与当前站点同源')
   })
 })

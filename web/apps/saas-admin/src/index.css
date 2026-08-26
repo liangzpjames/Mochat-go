@@ -79,4 +79,16 @@ tbody tr:hover td {
     padding-right: 12px;
     padding-left: 12px;
   }
+
+  .integration-actions,
+  .activation-delivery-actions {
+    width: 100%;
+  }
+
+  .integration-actions > button,
+  .activation-delivery-actions > button {
+    width: 100%;
+    min-height: 44px;
+    justify-content: center;
+  }
 }
