@@ -110,3 +110,33 @@ test('explicit HTTPS public URL overrides the standalone sidebar default', () =>
 
   assert.equal(environment.MOCHAT_SIDEBAR_BASE_URL, 'https://sidebar.example.test');
 });
+
+test('standalone forwards the WeCom archive sync runtime configuration', () => {
+  const environment = appEnvironment(renderCompose({
+    MOCHAT_GO_ENABLE_WORK_MESSAGE_ARCHIVE_SYNC_CRON: '1',
+    MOCHAT_GO_WORK_MESSAGE_ARCHIVE_SYNC_CRON_INTERVAL_SECONDS: '15',
+    MOCHAT_GO_WORK_MESSAGE_ARCHIVE_SYNC_CRON_RUN_ON_START: '1',
+    MOCHAT_GO_WORK_MESSAGE_ARCHIVE_SYNC_LIMIT: '50',
+    MOCHAT_GO_WORK_MESSAGE_ARCHIVE_BRIDGE_BASE_URL: 'http://wecom-archive-demo:8080',
+    MOCHAT_GO_WORK_MESSAGE_ARCHIVE_BRIDGE_TOKEN: 'test-bridge-token',
+  }));
+
+  assert.deepEqual(
+    {
+      enabled: environment.MOCHAT_GO_ENABLE_WORK_MESSAGE_ARCHIVE_SYNC_CRON,
+      interval: environment.MOCHAT_GO_WORK_MESSAGE_ARCHIVE_SYNC_CRON_INTERVAL_SECONDS,
+      runOnStart: environment.MOCHAT_GO_WORK_MESSAGE_ARCHIVE_SYNC_CRON_RUN_ON_START,
+      limit: environment.MOCHAT_GO_WORK_MESSAGE_ARCHIVE_SYNC_LIMIT,
+      bridgeURL: environment.MOCHAT_GO_WORK_MESSAGE_ARCHIVE_BRIDGE_BASE_URL,
+      bridgeToken: environment.MOCHAT_GO_WORK_MESSAGE_ARCHIVE_BRIDGE_TOKEN,
+    },
+    {
+      enabled: '1',
+      interval: '15',
+      runOnStart: '1',
+      limit: '50',
+      bridgeURL: 'http://wecom-archive-demo:8080',
+      bridgeToken: 'test-bridge-token',
+    },
+  );
+});
