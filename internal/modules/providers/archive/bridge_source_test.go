@@ -3,13 +3,88 @@ package archive
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"jiyi/mochat-go/internal/modules/providers"
+	"jiyi/mochat-go/internal/testfixtures/archivesource"
+	"jiyi/mochat-go/internal/wecomarchivedemo"
 )
+
+func TestBridgeSourceUsesRealArchiveFixtureMixedShape(t *testing.T) {
+	fixture, err := archivesource.NewArchiveFixture()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer fixture.Close()
+	evidence, err := wecomarchivedemo.NewEvidenceStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	service, err := wecomarchivedemo.NewArchiveService(fixture, fixture.PrivateKeyPEM(), evidence, 100, 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const token = "MOCHAT-LOCAL-ACCEPTANCE-BEARER-0123456789"
+	const wxCorpID = "ww-local-acceptance"
+	server := httptest.NewServer(wecomarchivedemo.NewAdminHandler(wecomarchivedemo.Config{
+		AdminToken: token, CorpID: wxCorpID, PullLimit: 100, TimeoutSeconds: 5,
+	}, evidence, service))
+	defer server.Close()
+
+	client, err := NewBridgeArchiveClient(server.URL, token, server.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	source, err := NewBridgeSource(client, Scope{TenantID: 11, CorpID: 27}, wxCorpID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	page, err := source.Fetch(context.Background(), Scope{TenantID: 11, CorpID: 27}, Cursor{}, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Messages) != 9 {
+		t.Fatalf("messages=%d", len(page.Messages))
+	}
+	mixed := page.Messages[7]
+	wantID := fixture.MediaFileIDs()["mixed"]
+	if mixed.MsgType != "mixed" || len(mixed.Media) != 1 || mixed.Media[0].Type != "image" || mixed.Media[0].SDKFileID != wantID || mixed.Media[0].ExpectedSize <= 0 || mixed.Media[0].ExpectedMD5 == "" {
+		t.Fatalf("mixed=%#v", mixed)
+	}
+	if strings.Contains(mixed.RawJSON, wantID) || strings.Contains(mixed.ContentRaw, wantID) {
+		t.Fatal("mixed public payload leaked SDK locator")
+	}
+}
+
+func TestBridgeMediaNon2xxReturnsBoundedSanitizedFetchError(t *testing.T) {
+	const secretLocator = "MOCHAT-LOCAL-ACCEPTANCE-SECRET-LOCATOR"
+	for _, code := range []string{"ARCHIVE_MEDIA_MISSING", "ARCHIVE_MEDIA_CORRUPT"} {
+		t.Run(code, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusNotFound)
+				_, _ = w.Write([]byte(`{"errcode":"` + code + `","errmsg":"` + secretLocator + `"}`))
+			}))
+			defer server.Close()
+			client, err := NewBridgeArchiveClient(server.URL, "MOCHAT-LOCAL-ACCEPTANCE-BEARER-0123456789", server.Client())
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = client.FetchMedia(context.Background(), Scope{TenantID: 11, CorpID: 27}, "ww-local", secretLocator, "")
+			var fetchErr *MediaFetchError
+			if !errors.As(err, &fetchErr) || fetchErr.Code != code {
+				t.Fatalf("error=%T %v", err, err)
+			}
+			if strings.Contains(err.Error(), secretLocator) || strings.Contains(err.Error(), "errmsg") {
+				t.Fatalf("error leaked bridge response: %v", err)
+			}
+		})
+	}
+}
 
 func TestBridgeSourceParsesSupportedMessagesAndKeepsSDKFileIDInternal(t *testing.T) {
 	const bearer = "MOCHAT-LOCAL-ACCEPTANCE-BEARER-0123456789"

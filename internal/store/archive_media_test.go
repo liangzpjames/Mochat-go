@@ -31,13 +31,14 @@ func TestArchiveMediaClaimDecryptsLocatorAndFencesStaleWorker(t *testing.T) {
 	mock.ExpectBegin()
 	mock.ExpectQuery("SELECT media\\.id,media\\.tenant_id").WithArgs(now).WillReturnRows(sqlmock.NewRows([]string{
 		"id", "tenant_id", "corp_id", "wx_corpid", "msgid", "source_identity", "ciphertext", "key_id",
-		"media_type", "media_name", "mime_type", "expected_size_bytes", "expected_md5", "status", "index_buf", "bytes_received", "attempt",
-	}).AddRow(id, 11, 27, "ww-local", "msg-1", "wecom:ww-local", ciphertext, keyID, "image", "", "image/png", 21, "", "fetching", "index-4", 28, 4))
+		"media_type", "media_name", "mime_type", "expected_size_bytes", "expected_md5", "status", "index_buf", "bytes_received",
+		"checkpoint_attempt", "download_finished", "download_sha256", "attempt",
+	}).AddRow(id, 11, 27, "ww-local", "msg-1", "wecom:ww-local", ciphertext, keyID, "image", "", "image/png", 21, "", "fetching", "index-4", 28, 4, false, "", 4))
 	mock.ExpectExec("UPDATE mochat_go_archive_media_objects").WithArgs(5, sqlmock.AnyArg(), now.Add(archiveMediaLeaseDuration), now, now, id, now).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 	store := NewMySQLStore(db).WithWeComCredentialCipher(manager)
 	object, found, err := store.ClaimArchiveMedia(context.Background(), now)
-	if err != nil || !found || object.SDKFileID != "private-sdk-id" || object.Attempt != 5 || object.LeaseToken == "" || object.IndexBuf != "index-4" || object.BytesReceived != 28 {
+	if err != nil || !found || object.SDKFileID != "private-sdk-id" || object.Attempt != 5 || object.LeaseToken == "" || object.IndexBuf != "index-4" || object.BytesReceived != 28 || object.CheckpointAttempt != 4 {
 		t.Fatalf("object=%#v found=%v err=%v", object, found, err)
 	}
 	mock.ExpectExec("UPDATE mochat_go_archive_media_objects SET heartbeat_at").
@@ -60,11 +61,17 @@ func TestArchiveMediaMutationsCarryAttemptAndTokenFence(t *testing.T) {
 	store := NewMySQLStore(db)
 	now := time.Date(2026, 8, 27, 3, 0, 0, 0, time.UTC)
 	id, token := "014c1da7-1b2e-4aa1-90aa-a6a0d6f53380", "lease-token"
-	mock.ExpectExec("SET index_buf=\\?,bytes_received=\\?").WithArgs("next", int64(7), now, now.Add(archiveMediaLeaseDuration), now, id, 3, token, int64(7)).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("SET index_buf=NULLIF\\(\\?,''\\),bytes_received=\\?,checkpoint_attempt=\\?,download_finished=\\?,download_sha256=\\?").
+		WithArgs("next", int64(7), 3, false, "", now, now.Add(archiveMediaLeaseDuration), now, id, 3, token, int64(7)).WillReturnResult(sqlmock.NewResult(0, 1))
 	if err := store.CheckpointArchiveMedia(context.Background(), archiveprovider.ArchiveMediaCheckpoint{ID: id, Attempt: 3, LeaseToken: token, NextIndexBuf: "next", BytesReceived: 7}, now); err != nil {
 		t.Fatal(err)
 	}
-	mock.ExpectExec("SET status='ready'").WithArgs(int64(7), strings.Repeat("a", 64), "safe-path", now, now, now, id, 3, token).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("SET index_buf=NULLIF\\(\\?,''\\),bytes_received=\\?,checkpoint_attempt=\\?,download_finished=\\?,download_sha256=\\?").
+		WithArgs("", int64(7), 3, true, strings.Repeat("a", 64), now, now.Add(archiveMediaLeaseDuration), now, id, 3, token, int64(7)).WillReturnResult(sqlmock.NewResult(0, 1))
+	if err := store.CheckpointArchiveMedia(context.Background(), archiveprovider.ArchiveMediaCheckpoint{ID: id, Attempt: 3, LeaseToken: token, BytesReceived: 7, Finished: true, SHA256: strings.Repeat("a", 64)}, now); err != nil {
+		t.Fatal(err)
+	}
+	mock.ExpectExec("SET status='ready'").WithArgs(int64(7), strings.Repeat("a", 64), "safe-path", now, now, now, id, 3, token, strings.Repeat("a", 64)).WillReturnResult(sqlmock.NewResult(0, 1))
 	if err := store.CompleteArchiveMedia(context.Background(), archiveprovider.ArchiveMediaCompletion{ID: id, Attempt: 3, LeaseToken: token, BytesReceived: 7, SHA256: strings.Repeat("a", 64), StoragePath: "safe-path"}, now); err != nil {
 		t.Fatal(err)
 	}
@@ -122,7 +129,7 @@ func TestDurableArchiveBindingsAndCursorStayTenantScoped(t *testing.T) {
 	}
 	defer db.Close()
 	store := NewMySQLStore(db)
-	mock.ExpectQuery("SELECT integration\\.tenant_id,integration\\.corp_id,integration\\.verified_wx_corpid").
+	mock.ExpectQuery("(?s)SELECT integration\\.tenant_id,integration\\.corp_id,integration\\.verified_wx_corpid.*integration\\.status='active'.*integration\\.verified_at IS NOT NULL.*binding\\.status=2 AND binding\\.verified_at IS NOT NULL.*JSON_CONTAINS\\(integration\\.scope_json, JSON_QUOTE\\('archive\\.read'\\)\\).*JSON_LENGTH\\(integration\\.missing_capabilities_json\\) = 0").
 		WillReturnRows(sqlmock.NewRows([]string{"tenant_id", "corp_id", "verified_wx_corpid"}).AddRow(11, 27, "ww-local"))
 	bindings, err := store.DurableArchiveBindings(context.Background())
 	if err != nil || len(bindings) != 1 || bindings[0].Scope.TenantID != 11 || bindings[0].Scope.CorpID != 27 || bindings[0].WXCorpID != "ww-local" {

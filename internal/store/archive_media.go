@@ -72,7 +72,8 @@ func (s *MySQLStore) ClaimArchiveMedia(ctx context.Context, at time.Time) (archi
 		SELECT media.id,media.tenant_id,media.corp_id,COALESCE(NULLIF(binding.verified_wx_corpid,''),corp.wx_corpid),
 		       media.msgid,media.source_identity,media.sdk_file_id_ciphertext,media.sdk_file_id_key_id,
 		       media.media_type,media.media_name,media.mime_type,media.expected_size_bytes,media.expected_md5,
-		       media.status,media.index_buf,media.bytes_received,media.attempt
+		       media.status,media.index_buf,media.bytes_received,media.checkpoint_attempt,
+		       media.download_finished,media.download_sha256,media.attempt
 		FROM mochat_go_archive_media_objects media
 		INNER JOIN mc_corp corp ON corp.tenant_id=media.tenant_id AND corp.id=media.corp_id AND corp.deleted_at IS NULL
 		LEFT JOIN mochat_go_tenant_corp_bindings binding ON binding.tenant_id=media.tenant_id AND binding.corp_id=media.corp_id
@@ -81,7 +82,8 @@ func (s *MySQLStore) ClaimArchiveMedia(ctx context.Context, at time.Time) (archi
 		LIMIT 1 FOR UPDATE
 	`, at).Scan(&object.ID, &object.Scope.TenantID, &object.Scope.CorpID, &object.WXCorpID,
 		&object.MsgID, &object.SourceIdentity, &ciphertext, &keyID, &object.MediaType, &object.FileName,
-		&object.MIMEType, &object.ExpectedSize, &object.ExpectedMD5, &object.Status, &indexBuf, &object.BytesReceived, &object.Attempt)
+		&object.MIMEType, &object.ExpectedSize, &object.ExpectedMD5, &object.Status, &indexBuf, &object.BytesReceived,
+		&object.CheckpointAttempt, &object.DownloadFinished, &object.DownloadSHA256, &object.Attempt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return archiveprovider.ArchiveMediaObject{}, false, nil
 	}
@@ -129,11 +131,21 @@ func (s *MySQLStore) CheckpointArchiveMedia(ctx context.Context, value archivepr
 	if value.BytesReceived < 0 {
 		return errors.New("archive media checkpoint bytes invalid")
 	}
+	shaValue := strings.ToLower(strings.TrimSpace(value.SHA256))
+	if value.Finished {
+		if value.BytesReceived <= 0 || strings.TrimSpace(value.NextIndexBuf) != "" || len(shaValue) != 64 {
+			return errors.New("archive media finished checkpoint invalid")
+		}
+	} else if shaValue != "" {
+		return errors.New("archive media unfinished checkpoint hash invalid")
+	}
 	return s.archiveMediaLeaseMutation(ctx, `
 		UPDATE mochat_go_archive_media_objects
-		SET index_buf=?,bytes_received=?,heartbeat_at=?,lease_expires_at=?,updated_at=?
+		SET index_buf=NULLIF(?,''),bytes_received=?,checkpoint_attempt=?,download_finished=?,download_sha256=?,
+		    heartbeat_at=?,lease_expires_at=?,updated_at=?
 		WHERE id=? AND status='fetching' AND attempt=? AND lease_token=? AND bytes_received <= ?
-	`, strings.TrimSpace(value.NextIndexBuf), value.BytesReceived, at, at.Add(archiveMediaLeaseDuration), at,
+	`, strings.TrimSpace(value.NextIndexBuf), value.BytesReceived, value.Attempt, value.Finished, shaValue,
+		at, at.Add(archiveMediaLeaseDuration), at,
 		value.ID, value.Attempt, strings.TrimSpace(value.LeaseToken), value.BytesReceived)
 }
 
@@ -146,8 +158,9 @@ func (s *MySQLStore) CompleteArchiveMedia(ctx context.Context, value archiveprov
 		SET status='ready',index_buf=NULL,bytes_received=?,sha256=?,storage_path=?,lease_token='',lease_expires_at=NULL,
 		    heartbeat_at=?,last_error_code='',last_error='',completed_at=?,updated_at=?
 		WHERE id=? AND status='fetching' AND attempt=? AND lease_token=?
+		  AND download_finished=1 AND download_sha256=?
 	`, value.BytesReceived, strings.ToLower(strings.TrimSpace(value.SHA256)), value.StoragePath, at, at, at,
-		value.ID, value.Attempt, strings.TrimSpace(value.LeaseToken))
+		value.ID, value.Attempt, strings.TrimSpace(value.LeaseToken), strings.ToLower(strings.TrimSpace(value.SHA256)))
 }
 
 func (s *MySQLStore) FailArchiveMedia(ctx context.Context, value archiveprovider.ArchiveMediaFailure, at time.Time) error {

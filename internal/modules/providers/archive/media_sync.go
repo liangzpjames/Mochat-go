@@ -28,22 +28,25 @@ const (
 )
 
 type ArchiveMediaObject struct {
-	ID             string
-	Scope          Scope
-	WXCorpID       string
-	MsgID          string
-	SourceIdentity string
-	SDKFileID      string
-	MediaType      string
-	FileName       string
-	MIMEType       string
-	ExpectedSize   int64
-	ExpectedMD5    string
-	Status         ArchiveMediaStatus
-	IndexBuf       string
-	BytesReceived  int64
-	Attempt        int
-	LeaseToken     string
+	ID                string
+	Scope             Scope
+	WXCorpID          string
+	MsgID             string
+	SourceIdentity    string
+	SDKFileID         string
+	MediaType         string
+	FileName          string
+	MIMEType          string
+	ExpectedSize      int64
+	ExpectedMD5       string
+	Status            ArchiveMediaStatus
+	IndexBuf          string
+	BytesReceived     int64
+	CheckpointAttempt int
+	DownloadFinished  bool
+	DownloadSHA256    string
+	Attempt           int
+	LeaseToken        string
 }
 
 type ArchiveMediaCheckpoint struct {
@@ -52,6 +55,8 @@ type ArchiveMediaCheckpoint struct {
 	LeaseToken    string
 	NextIndexBuf  string
 	BytesReceived int64
+	Finished      bool
+	SHA256        string
 }
 
 type ArchiveMediaCompletion struct {
@@ -124,14 +129,13 @@ func (s *MediaSyncService) RunOne(ctx context.Context) (bool, error) {
 		return true, s.recordFailed(ctx, object, "archive.media_storage_unavailable", err)
 	}
 	finalPath := filepath.Join(dir, object.ID)
-	partPath := finalPath + ".part"
+	partPath := archiveMediaAttemptPath(dir, object.ID, object.Attempt)
 	if _, statErr := os.Stat(finalPath); statErr == nil {
 		shaValue, md5Value, size, hashErr := hashMediaFile(finalPath)
 		if hashErr != nil {
 			return true, s.recordFailed(ctx, object, "archive.media_storage_read_failed", hashErr)
 		}
-		if !archiveMediaIntegrityMatches(object, size, md5Value) {
-			_ = os.Remove(finalPath)
+		if !object.DownloadFinished || !strings.EqualFold(object.DownloadSHA256, shaValue) || !archiveMediaIntegrityMatches(object, size, md5Value) {
 			return true, s.recordCorrupt(ctx, object, "archive.media_integrity_mismatch", partPath, errors.New("archive media integrity mismatch"))
 		}
 		completion := ArchiveMediaCompletion{ID: object.ID, Attempt: object.Attempt, LeaseToken: object.LeaseToken, BytesReceived: size, SHA256: shaValue, StoragePath: finalPath}
@@ -142,7 +146,7 @@ func (s *MediaSyncService) RunOne(ctx context.Context) (bool, error) {
 	} else if !errors.Is(statErr, os.ErrNotExist) {
 		return true, s.recordFailed(ctx, object, "archive.media_storage_unavailable", statErr)
 	}
-	file, err := openMediaPart(partPath, object.BytesReceived)
+	file, err := prepareMediaAttemptPart(dir, object)
 	if err != nil {
 		return true, s.recordCorrupt(ctx, object, "archive.media_checkpoint_mismatch", partPath, err)
 	}
@@ -152,6 +156,15 @@ func (s *MediaSyncService) RunOne(ctx context.Context) (bool, error) {
 			_ = file.Close()
 		}
 	}()
+
+	if object.DownloadFinished {
+		if err := file.Close(); err != nil {
+			closed = true
+			return true, s.recordFailed(ctx, object, "archive.media_storage_close_failed", err)
+		}
+		closed = true
+		return true, s.commitFinishedPart(ctx, object, partPath, finalPath, object.DownloadSHA256)
+	}
 
 	indexBuf := object.IndexBuf
 	bytesReceived := object.BytesReceived
@@ -164,6 +177,13 @@ func (s *MediaSyncService) RunOne(ctx context.Context) (bool, error) {
 			_ = file.Close()
 			closed = true
 			return true, s.classifyFetchFailure(ctx, object, partPath, fetchErr)
+		}
+		// The network call can outlive the lease. Fence the response before it
+		// can touch any attempt-owned file.
+		if err := s.store.RenewArchiveMedia(ctx, object.ID, object.Attempt, object.LeaseToken, s.now()); err != nil {
+			_ = file.Close()
+			closed = true
+			return true, err
 		}
 		next := strings.TrimSpace(chunk.NextIndexBuf)
 		if !chunk.Finished && (next == "" || next == indexBuf) {
@@ -188,13 +208,13 @@ func (s *MediaSyncService) RunOne(ctx context.Context) (bool, error) {
 			closed = true
 			return true, s.recordFailed(ctx, object, "archive.media_storage_sync_failed", err)
 		}
-		checkpoint := ArchiveMediaCheckpoint{ID: object.ID, Attempt: object.Attempt, LeaseToken: object.LeaseToken, NextIndexBuf: next, BytesReceived: bytesReceived}
-		if err := s.store.CheckpointArchiveMedia(ctx, checkpoint, s.now()); err != nil {
-			_ = file.Close()
-			closed = true
-			return true, err
-		}
 		if !chunk.Finished {
+			checkpoint := ArchiveMediaCheckpoint{ID: object.ID, Attempt: object.Attempt, LeaseToken: object.LeaseToken, NextIndexBuf: next, BytesReceived: bytesReceived}
+			if err := s.store.CheckpointArchiveMedia(ctx, checkpoint, s.now()); err != nil {
+				_ = file.Close()
+				closed = true
+				return true, err
+			}
 			indexBuf = next
 			continue
 		}
@@ -217,17 +237,30 @@ func (s *MediaSyncService) RunOne(ctx context.Context) (bool, error) {
 	if !archiveMediaIntegrityMatches(object, size, md5Value) {
 		return true, s.recordCorrupt(ctx, object, "archive.media_integrity_mismatch", partPath, errors.New("archive media integrity mismatch"))
 	}
-	if err := s.store.RenewArchiveMedia(ctx, object.ID, object.Attempt, object.LeaseToken, s.now()); err != nil {
+	checkpoint := ArchiveMediaCheckpoint{ID: object.ID, Attempt: object.Attempt, LeaseToken: object.LeaseToken,
+		BytesReceived: size, Finished: true, SHA256: shaValue}
+	if err := s.store.CheckpointArchiveMedia(ctx, checkpoint, s.now()); err != nil {
 		return true, err
 	}
-	if err := os.Rename(partPath, finalPath); err != nil {
-		return true, s.recordFailed(ctx, object, "archive.media_storage_commit_failed", err)
+	return true, s.commitFinishedPart(ctx, object, partPath, finalPath, shaValue)
+}
+
+func (s *MediaSyncService) commitFinishedPart(ctx context.Context, object ArchiveMediaObject, partPath, finalPath, checkpointSHA string) error {
+	shaValue, md5Value, size, err := hashMediaFile(partPath)
+	if err != nil {
+		return s.recordFailed(ctx, object, "archive.media_storage_read_failed", err)
+	}
+	if !strings.EqualFold(strings.TrimSpace(checkpointSHA), shaValue) || !archiveMediaIntegrityMatches(object, size, md5Value) {
+		return s.recordCorrupt(ctx, object, "archive.media_integrity_mismatch", partPath, errors.New("archive media integrity mismatch"))
+	}
+	if err := s.store.RenewArchiveMedia(ctx, object.ID, object.Attempt, object.LeaseToken, s.now()); err != nil {
+		return err
+	}
+	if err := publishArchiveMedia(partPath, finalPath, shaValue); err != nil {
+		return s.recordFailed(ctx, object, "archive.media_storage_commit_failed", err)
 	}
 	completion := ArchiveMediaCompletion{ID: object.ID, Attempt: object.Attempt, LeaseToken: object.LeaseToken, BytesReceived: size, SHA256: shaValue, StoragePath: finalPath}
-	if err := s.store.CompleteArchiveMedia(ctx, completion, s.now()); err != nil {
-		return true, err
-	}
-	return true, nil
+	return s.store.CompleteArchiveMedia(ctx, completion, s.now())
 }
 
 func archiveMediaIntegrityMatches(object ArchiveMediaObject, size int64, md5Value string) bool {
@@ -240,37 +273,65 @@ func validateClaimedMedia(object ArchiveMediaObject) error {
 		return errors.New("archive media object ID is invalid")
 	}
 	if !object.Scope.valid() || strings.TrimSpace(object.WXCorpID) == "" || strings.TrimSpace(object.SDKFileID) == "" ||
-		object.Attempt <= 0 || strings.TrimSpace(object.LeaseToken) == "" || object.BytesReceived < 0 {
+		object.Attempt <= 0 || strings.TrimSpace(object.LeaseToken) == "" || object.BytesReceived < 0 || object.CheckpointAttempt < 0 {
 		return errors.New("archive media claim is incomplete")
+	}
+	if object.BytesReceived > 0 && (object.CheckpointAttempt <= 0 || object.CheckpointAttempt >= object.Attempt) {
+		return errors.New("archive media checkpoint owner is missing")
+	}
+	if object.DownloadFinished && (object.BytesReceived <= 0 || len(strings.TrimSpace(object.DownloadSHA256)) != 64) {
+		return errors.New("archive media finished checkpoint is incomplete")
 	}
 	return nil
 }
 
-func openMediaPart(path string, checkpoint int64) (*os.File, error) {
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
+func archiveMediaAttemptPath(dir, id string, attempt int) string {
+	return filepath.Join(dir, fmt.Sprintf("%s.attempt-%d.part", id, attempt))
+}
+
+func prepareMediaAttemptPart(dir string, object ArchiveMediaObject) (*os.File, error) {
+	path := archiveMediaAttemptPath(dir, object.ID, object.Attempt)
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR|os.O_TRUNC, 0o600)
 	if err != nil {
 		return nil, err
 	}
-	stat, err := file.Stat()
-	if err != nil {
-		_ = file.Close()
-		return nil, err
-	}
-	if stat.Size() < checkpoint {
-		_ = file.Close()
-		return nil, errors.New("archive media part is shorter than checkpoint")
-	}
-	if stat.Size() > checkpoint {
-		if err := file.Truncate(checkpoint); err != nil {
+	if object.BytesReceived > 0 {
+		sourcePath := archiveMediaAttemptPath(dir, object.ID, object.CheckpointAttempt)
+		source, openErr := os.Open(sourcePath)
+		if openErr != nil {
 			_ = file.Close()
-			return nil, err
+			return nil, openErr
+		}
+		copied, copyErr := io.CopyN(file, source, object.BytesReceived)
+		closeErr := source.Close()
+		if copyErr != nil || copied != object.BytesReceived || closeErr != nil {
+			_ = file.Close()
+			if copyErr != nil {
+				return nil, errors.New("archive media part is shorter than checkpoint")
+			}
+			return nil, errors.New("archive media checkpoint copy failed")
 		}
 	}
-	if _, err := file.Seek(checkpoint, io.SeekStart); err != nil {
+	if err := file.Sync(); err != nil {
 		_ = file.Close()
 		return nil, err
 	}
 	return file, nil
+}
+
+func publishArchiveMedia(partPath, finalPath, expectedSHA string) error {
+	err := os.Link(partPath, finalPath)
+	if err == nil {
+		return os.Remove(partPath)
+	}
+	if !errors.Is(err, os.ErrExist) {
+		return err
+	}
+	shaValue, _, _, hashErr := hashMediaFile(finalPath)
+	if hashErr != nil || !strings.EqualFold(shaValue, expectedSHA) {
+		return errors.New("archive media final object conflicts with checkpoint")
+	}
+	return os.Remove(partPath)
 }
 
 func hashMediaFile(path string) (shaValue, md5Value string, size int64, err error) {

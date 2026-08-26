@@ -49,6 +49,12 @@ type BridgeArchiveClient struct {
 	httpClient *http.Client
 }
 
+type bridgeHTTPStatusError struct{ status int }
+
+func (e *bridgeHTTPStatusError) Error() string {
+	return fmt.Sprintf("archive bridge HTTP status %d", e.status)
+}
+
 func NewBridgeArchiveClient(baseURL, token string, client *http.Client) (*BridgeArchiveClient, error) {
 	baseURL, token = strings.TrimRight(strings.TrimSpace(baseURL), "/"), strings.TrimSpace(token)
 	parsed, err := url.Parse(baseURL)
@@ -99,6 +105,11 @@ func (c *BridgeArchiveClient) FetchMedia(ctx context.Context, scope Scope, wxCor
 		Finished     bool            `json:"finished"`
 	}
 	if err := c.postJSON(ctx, bridgeMediaPath, request, &response); err != nil {
+		var statusErr *bridgeHTTPStatusError
+		code := rawErrorCode(response.ErrCode)
+		if errors.As(err, &statusErr) && code != "" && code != "0" {
+			return MediaChunk{}, &MediaFetchError{Code: code}
+		}
 		return MediaChunk{}, err
 	}
 	code := rawErrorCode(response.ErrCode)
@@ -131,12 +142,19 @@ func (c *BridgeArchiveClient) postJSON(ctx context.Context, path string, input, 
 		return errors.New("archive bridge request failed")
 	}
 	defer response.Body.Close()
-	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return fmt.Errorf("archive bridge HTTP status %d", response.StatusCode)
-	}
-	decoder := json.NewDecoder(io.LimitReader(response.Body, maxBridgeBody))
-	if err := decoder.Decode(output); err != nil {
+	limited := &io.LimitedReader{R: response.Body, N: maxBridgeBody + 1}
+	body, err := io.ReadAll(limited)
+	if err != nil || len(body) > maxBridgeBody {
 		return errors.New("archive bridge response is invalid")
+	}
+	if err := json.Unmarshal(body, output); err != nil {
+		if response.StatusCode < 200 || response.StatusCode >= 300 {
+			return &bridgeHTTPStatusError{status: response.StatusCode}
+		}
+		return errors.New("archive bridge response is invalid")
+	}
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return &bridgeHTTPStatusError{status: response.StatusCode}
 	}
 	return nil
 }
@@ -304,7 +322,11 @@ func mixedMediaDescriptors(payload any) []MediaDescriptor {
 			continue
 		}
 		kind := strings.ToLower(anyString(object["type"]))
-		result = append(result, mediaDescriptors(kind, object["content"])...)
+		content := object[kind]
+		if content == nil {
+			content = object["content"]
+		}
+		result = append(result, mediaDescriptors(kind, content)...)
 	}
 	return result
 }
