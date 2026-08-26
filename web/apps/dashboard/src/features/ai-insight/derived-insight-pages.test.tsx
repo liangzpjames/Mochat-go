@@ -303,7 +303,7 @@ describe('三个 AI 洞察专用投影页面', () => {
     fireEvent.click(resultRow);
     await screen.findByRole('dialog');
     fireEvent.keyDown(window, { key: 'Escape', code: 'Escape' });
-    expect(screen.queryByRole('dialog')).toBeNull();
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
 
     fireEvent.click(resultRow);
     await screen.findByRole('dialog');
