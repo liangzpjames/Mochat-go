@@ -49,15 +49,31 @@ func Test0166WeComIntegrationAndArchiveMediaMigrationContract(t *testing.T) {
 		"UNIQUE KEY `uk_archive_media_source_identity` (`tenant_id`,`corp_id`,`msgid`,`sdk_file_id_hash`)",
 		"KEY `idx_archive_media_claim_lease`",
 		"KEY `idx_archive_media_scope_msgid` (`tenant_id`,`corp_id`,`msgid`)",
-		"fake_tenant_%",
-		"'unconfigured'",
 	} {
 		if !strings.Contains(up, required) {
 			t.Errorf("0166 up migration missing %q", required)
 		}
 	}
-	if strings.Contains(strings.ToLower(up), "fake_tenant_%')\nset `status` = 'active'") {
-		t.Fatal("0166 fake tenant backfill may activate a fake corp")
+	activeBackfill, unconfiguredBackfill := wecomIntegrationBackfillSegments(t, up)
+	for _, required := range []string{
+		"'self_built', 'current', 'active'",
+		"WHERE b.`status` = 2",
+		"COALESCE(b.`verified_wx_corpid`, '') <> ''",
+		"c.`wx_corpid` NOT LIKE 'fake_tenant_%'",
+	} {
+		if !strings.Contains(activeBackfill, required) {
+			t.Errorf("0166 active backfill missing %q", required)
+		}
+	}
+	for _, required := range []string{
+		"'self_built', 'current', 'unconfigured'",
+		"b.`status` <> 2",
+		"c.`wx_corpid` LIKE 'fake_tenant_%'",
+		"COALESCE(b.`verified_wx_corpid`, '') = ''",
+	} {
+		if !strings.Contains(unconfiguredBackfill, required) {
+			t.Errorf("0166 unconfigured backfill missing %q", required)
+		}
 	}
 	for _, required := range []string{
 		"DROP TABLE IF EXISTS `mochat_go_archive_media_objects`",
@@ -76,4 +92,26 @@ func Test0166WeComIntegrationAndArchiveMediaMigrationContract(t *testing.T) {
 			t.Errorf("0166 down migration must not delete existing table %q", forbidden)
 		}
 	}
+}
+
+func wecomIntegrationBackfillSegments(t *testing.T, up string) (active, unconfigured string) {
+	t.Helper()
+	marker := "INSERT INTO `mochat_go_wecom_integrations`"
+	activeStart := strings.Index(up, marker)
+	if activeStart < 0 {
+		t.Fatal("0166 active integration backfill is missing")
+	}
+	unconfiguredStart := strings.Index(up[activeStart+len(marker):], marker)
+	if unconfiguredStart < 0 {
+		t.Fatal("0166 unconfigured integration backfill is missing")
+	}
+	unconfiguredStart += activeStart + len(marker)
+	active = up[activeStart:unconfiguredStart]
+
+	afterBackfill := strings.Index(up[unconfiguredStart:], "-- A later authenticated media endpoint")
+	if afterBackfill < 0 {
+		t.Fatal("0166 unconfigured integration backfill boundary is missing")
+	}
+	unconfigured = up[unconfiguredStart : unconfiguredStart+afterBackfill]
+	return active, unconfigured
 }
