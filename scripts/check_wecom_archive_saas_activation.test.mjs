@@ -44,7 +44,7 @@ test('acceptance runtime secures Windows secrets, rebuilds the CLI and runs a du
     assert.ok(script.includes(contract), `acceptance PowerShell missing ${contract}`);
   }
   const compose = await readFile('deploy/local-acceptance/docker-compose.yml', 'utf8');
-  assert.match(compose, /\n  worker:\n[\s\S]*MOCHAT_GO_RUNTIME_ROLE:\s*worker[\s\S]*MOCHAT_GO_ENABLE_DURABLE_WORK_MESSAGE_ARCHIVE:\s*"1"/);
+  assert.match(compose, /\n  worker:\n[\s\S]*MOCHAT_GO_RUNTIME_ROLE:\s*scheduler[\s\S]*MOCHAT_GO_ENABLE_DURABLE_WORK_MESSAGE_ARCHIVE:\s*"1"/);
   assert.match(compose, /worker:[\s\S]*restart:\s*unless-stopped/);
 });
 

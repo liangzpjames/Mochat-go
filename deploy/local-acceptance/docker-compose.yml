@@ -126,7 +126,7 @@ services:
     restart: unless-stopped
     environment:
       <<: *app-environment
-      MOCHAT_GO_RUNTIME_ROLE: worker
+      MOCHAT_GO_RUNTIME_ROLE: scheduler
       MOCHAT_GO_ENABLE_FRONTEND_SERVERS: "0"
       MOCHAT_GO_ENABLE_DURABLE_WORK_MESSAGE_ARCHIVE: "1"
       MOCHAT_GO_WORK_MESSAGE_ARCHIVE_SYNC_CRON_INTERVAL_SECONDS: "5"

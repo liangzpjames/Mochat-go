@@ -112,8 +112,14 @@ function Ensure-AcceptanceImage {
 }
 
 function Test-CheckpointState([string]$State) {
-    & docker compose -p $ProjectName --env-file $EnvironmentFile -f $ComposeFile --profile tools run --rm acceptance checkpoint -checkpoint-state $State 2>$null | Out-Null
-    return $LASTEXITCODE -eq 0
+    $previousPreference = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        & docker compose -p $ProjectName --env-file $EnvironmentFile -f $ComposeFile --profile tools run --rm acceptance checkpoint -checkpoint-state $State 2>&1 | Out-Null
+        return $LASTEXITCODE -eq 0
+    } finally {
+        $ErrorActionPreference = $previousPreference
+    }
 }
 
 function Wait-CheckpointState([string]$State, [int]$Attempts = 120) {
@@ -127,8 +133,9 @@ function Wait-CheckpointState([string]$State, [int]$Attempts = 120) {
 }
 
 function Invoke-SaaSAuthRequest([string]$Path, [hashtable]$Payload) {
-    $client = [Net.Http.HttpClient]::new()
-    $content = [Net.Http.StringContent]::new(($Payload | ConvertTo-Json -Compress), [Text.Encoding]::UTF8, 'application/json')
+    Add-Type -AssemblyName System.Net.Http
+    $client = [System.Net.Http.HttpClient]::new()
+    $content = [System.Net.Http.StringContent]::new(($Payload | ConvertTo-Json -Compress), [Text.Encoding]::UTF8, 'application/json')
     try {
         $response = $client.PostAsync("http://127.0.0.1:19080$Path", $content).GetAwaiter().GetResult()
         $body = $response.Content.ReadAsStringAsync().GetAwaiter().GetResult()
