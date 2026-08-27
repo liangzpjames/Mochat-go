@@ -969,13 +969,15 @@ func cleanupStatements() []string {
 		`DELETE FROM mochat_go_archive_message_sources WHERE tenant_id=? AND corp_id=? AND msgid LIKE ?`,
 		`DELETE FROM mochat_go_archive_sync_audits WHERE tenant_id=? AND corp_id=? AND source_id=? AND run_id IN (SELECT owned.id FROM mochat_go_archive_sync_runs owned WHERE owned.tenant_id=? AND owned.corp_id=? AND owned.source_id=? AND (owned.idempotency_key=? OR owned.idempotency_key LIKE ?))`,
 		`DELETE FROM mochat_go_archive_sync_runs WHERE tenant_id=? AND corp_id=? AND source_id=? AND (idempotency_key=? OR idempotency_key LIKE ?)`,
-		`DELETE FROM mochat_go_wecom_integrations WHERE tenant_id=? AND corp_id=? AND id=?`,
+		`DELETE FROM mochat_go_saas_admin_operation_logs WHERE tenant_id=? AND target_type='wecom_integration'`,
+		`DELETE FROM mochat_go_wecom_integrations WHERE tenant_id=? AND corp_id=?`,
 		`DELETE FROM mochat_go_tenant_corp_bindings WHERE tenant_id=? AND corp_id=?`,
 		`DELETE FROM mochat_go_dashboard_sessions WHERE user_id=?`,
 		`DELETE FROM mochat_go_dashboard_identity_activations WHERE user_id=?`,
 		`DELETE FROM mochat_go_dashboard_identities WHERE user_id=? AND login_identifier=?`,
 		`DELETE FROM mochat_go_saas_subscriptions WHERE tenant_id=? AND package_code=?`,
 		`DELETE FROM mochat_go_saas_tenant_packages WHERE tenant_id=? AND package_code=?`,
+		`DELETE FROM mochat_go_saas_packages WHERE id=? AND code=?`,
 		`DELETE FROM mochat_go_work_message_participant_identity WHERE corp_id=? AND msgid LIKE ?`,
 		`DELETE FROM mc_work_contact WHERE id=? AND corp_id=? AND wx_external_userid=?`,
 		`DELETE FROM mc_work_employee WHERE id=? AND corp_id=? AND wx_user_id=?`,
@@ -1016,14 +1018,17 @@ func cleanup(ctx context.Context, output io.Writer, values options) error {
 			return err
 		}
 	}
+	if err := cleanupActivationFixturesTx(ctx, tx); err != nil {
+		return err
+	}
 	statements := cleanupStatements()
 	arguments := [][]any{
 		{acceptanceTenant, acceptanceCorp, datasetID + "-MSG-%"}, {acceptanceTenant, acceptanceCorp, datasetID + "-MSG-%"},
 		{acceptanceTenant, acceptanceCorp, acceptanceSource, acceptanceTenant, acceptanceCorp, acceptanceSource, acceptanceRunKey, acceptanceWorkerRunLike},
 		{acceptanceTenant, acceptanceCorp, acceptanceSource, acceptanceRunKey, acceptanceWorkerRunLike},
-		{acceptanceTenant, acceptanceCorp, acceptanceIntegrationID}, {acceptanceTenant, acceptanceCorp},
+		{acceptanceTenant}, {acceptanceTenant, acceptanceCorp}, {acceptanceTenant, acceptanceCorp},
 		{acceptanceUser}, {acceptanceUser}, {acceptanceUser, "19008208270"},
-		{acceptanceTenant, datasetID}, {acceptanceTenant, datasetID},
+		{acceptanceTenant, datasetID}, {acceptanceTenant, datasetID}, {acceptancePackageID, acceptancePackageCode},
 		{acceptanceCorp, datasetID + "-MSG-%"}, {acceptanceContact, acceptanceCorp, datasetID + "-EXTERNAL-01"},
 		{acceptanceStaff, acceptanceCorp, datasetID + "-STAFF-01"}, {acceptanceUser, acceptanceTenant, datasetID + " 本地验收管理员"},
 		{acceptanceCorp, acceptanceTenant, datasetID + " 本地验收企业（非生产）"}, {acceptanceTenant, datasetID + " 本地验收租户（非生产）"},
@@ -1037,9 +1042,6 @@ func cleanup(ctx context.Context, output io.Writer, values options) error {
 			return err
 		}
 	}
-	if err := tx.Commit(); err != nil {
-		return err
-	}
 	removed := 0
 	for _, path := range paths {
 		if target, ok := datasetObjectPath(values.StorageRoot, path); ok {
@@ -1050,13 +1052,94 @@ func cleanup(ctx context.Context, output io.Writer, values options) error {
 			}
 		}
 	}
-	if err := verifyCleanupOrphans(ctx, db, paths, values.StorageRoot); err != nil {
+	for _, name := range []string{"valid.token", "expired.token", "activated.token", "revoked.token", "revoked-replacement.token", "invalid.token"} {
+		if err := os.Remove(filepath.Join(values.ActivationFixtureDir, name)); err == nil {
+			removed++
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	if err := verifyCleanupOrphans(ctx, db, paths, values.StorageRoot, values.ActivationFixtureDir); err != nil {
 		return err
 	}
 	return json.NewEncoder(output).Encode(map[string]any{"dataset": datasetID, "action": "cleanup", "status": "PASS", "objectsRemoved": removed, "countsBefore": counts})
 }
 
-func verifyCleanupOrphans(ctx context.Context, db *sql.DB, storagePaths []string, storageRoot string) error {
+func activationProvisionKeys() []string {
+	result := make([]string, 0, 4)
+	for _, state := range []string{"VALID", "EXPIRED", "ACTIVATED", "REVOKED"} {
+		result = append(result, datasetID+"-ACTIVATION-"+state)
+	}
+	return result
+}
+
+func cleanupActivationFixturesTx(ctx context.Context, tx *sql.Tx) error {
+	keys := activationProvisionKeys()
+	rows, err := tx.QueryContext(ctx, `SELECT provision.tenant_id,tenant.name FROM mochat_go_tenant_provision_runs provision INNER JOIN mc_tenant tenant ON tenant.id=provision.tenant_id WHERE provision.run_key IN (?,?,?,?)`, keys[0], keys[1], keys[2], keys[3])
+	if err != nil {
+		return err
+	}
+	tenantIDs := []int{}
+	for rows.Next() {
+		var tenantID int
+		var tenantName string
+		if err := rows.Scan(&tenantID, &tenantName); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		if !strings.HasPrefix(tenantName, datasetID+" 激活状态 ") {
+			_ = rows.Close()
+			return errors.New("activation fixture run points at a non-acceptance tenant")
+		}
+		tenantIDs = append(tenantIDs, tenantID)
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	for _, tenantID := range tenantIDs {
+		var userID, corpID int
+		if err := tx.QueryRowContext(ctx, `SELECT id FROM mc_user WHERE tenant_id=? AND name LIKE ? LIMIT 1`, tenantID, datasetID+" 激活管理员 %").Scan(&userID); err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
+		if err := tx.QueryRowContext(ctx, `SELECT corp_id FROM mochat_go_tenant_corp_bindings WHERE tenant_id=? LIMIT 1`, tenantID).Scan(&corpID); err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
+		for _, statement := range []struct {
+			query string
+			args  []any
+		}{
+			{`DELETE FROM mochat_go_dashboard_sessions WHERE user_id=?`, []any{userID}},
+			{`DELETE FROM mochat_go_dashboard_password_resets WHERE user_id=?`, []any{userID}},
+			{`DELETE FROM mochat_go_dashboard_mfa_challenges WHERE user_id=?`, []any{userID}},
+			{`DELETE FROM mochat_go_dashboard_mfa_credentials WHERE user_id=?`, []any{userID}},
+			{`DELETE FROM mochat_go_dashboard_identity_activations WHERE user_id=?`, []any{userID}},
+			{`DELETE FROM mochat_go_dashboard_user_permissions WHERE tenant_id=? AND user_id=?`, []any{tenantID, userID}},
+			{`DELETE FROM mochat_go_dashboard_user_roles WHERE tenant_id=? AND user_id=?`, []any{tenantID, userID}},
+			{`DELETE FROM mochat_go_dashboard_identities WHERE user_id=?`, []any{userID}},
+			{`DELETE FROM mochat_go_dashboard_permission_audits WHERE tenant_id=?`, []any{tenantID}},
+			{`DELETE FROM mochat_go_saas_idempotency_receipts WHERE tenant_id=?`, []any{tenantID}},
+			{`DELETE FROM mochat_go_saas_admin_operation_logs WHERE tenant_id=?`, []any{tenantID}},
+			{`DELETE FROM mochat_go_saas_subscription_events WHERE tenant_id=?`, []any{tenantID}},
+			{`DELETE FROM mochat_go_saas_subscriptions WHERE tenant_id=?`, []any{tenantID}},
+			{`DELETE FROM mochat_go_saas_tenant_packages WHERE tenant_id=?`, []any{tenantID}},
+			{`DELETE FROM mochat_go_tenant_corp_bindings WHERE tenant_id=? AND corp_id=?`, []any{tenantID, corpID}},
+			{`DELETE FROM mc_corp WHERE tenant_id=? AND id=?`, []any{tenantID, corpID}},
+			{`DELETE FROM mc_user WHERE tenant_id=? AND id=?`, []any{tenantID, userID}},
+			{`DELETE FROM mochat_go_tenant_provision_runs WHERE tenant_id=? AND run_key IN (?,?,?,?)`, []any{tenantID, keys[0], keys[1], keys[2], keys[3]}},
+			{`DELETE FROM mc_tenant WHERE id=? AND name LIKE ?`, []any{tenantID, datasetID + " 激活状态 %"}},
+		} {
+			if _, err := tx.ExecContext(ctx, statement.query, statement.args...); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func verifyCleanupOrphans(ctx context.Context, db *sql.DB, storagePaths []string, storageRoot, activationFixtureDir string) error {
 	checks := []struct {
 		name  string
 		query string
@@ -1066,6 +1149,8 @@ func verifyCleanupOrphans(ctx context.Context, db *sql.DB, storagePaths []string
 		{"sources", `SELECT COUNT(*) FROM mochat_go_archive_message_sources WHERE tenant_id=? AND corp_id=? AND msgid LIKE ?`, []any{acceptanceTenant, acceptanceCorp, datasetID + "-MSG-%"}},
 		{"runs", `SELECT COUNT(*) FROM mochat_go_archive_sync_runs WHERE tenant_id=? AND corp_id=? AND source_id=? AND (idempotency_key=? OR idempotency_key LIKE ?)`, []any{acceptanceTenant, acceptanceCorp, acceptanceSource, acceptanceRunKey, acceptanceWorkerRunLike}},
 		{"integration", `SELECT COUNT(*) FROM mochat_go_wecom_integrations WHERE tenant_id=? AND corp_id=?`, []any{acceptanceTenant, acceptanceCorp}},
+		{"activation provision runs", `SELECT COUNT(*) FROM mochat_go_tenant_provision_runs WHERE run_key IN (?,?,?,?)`, []any{activationProvisionKeys()[0], activationProvisionKeys()[1], activationProvisionKeys()[2], activationProvisionKeys()[3]}},
+		{"activation package", `SELECT COUNT(*) FROM mochat_go_saas_packages WHERE id=? AND code=?`, []any{acceptancePackageID, acceptancePackageCode}},
 		{"participant identities", `SELECT COUNT(*) FROM mochat_go_work_message_participant_identity WHERE corp_id=? AND msgid LIKE ?`, []any{acceptanceCorp, datasetID + "-MSG-%"}},
 		{"tenant", `SELECT COUNT(*) FROM mc_tenant WHERE id=? AND name=?`, []any{acceptanceTenant, datasetID + " 本地验收租户（非生产）"}},
 	}
@@ -1094,6 +1179,13 @@ func verifyCleanupOrphans(ctx context.Context, db *sql.DB, storagePaths []string
 		}
 		if _, err := os.Stat(target); err == nil {
 			return fmt.Errorf("cleanup left acceptance media file %s", filepath.Base(target))
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+	}
+	for _, name := range []string{"valid.token", "expired.token", "activated.token", "revoked.token", "revoked-replacement.token", "invalid.token"} {
+		if _, err := os.Stat(filepath.Join(activationFixtureDir, name)); err == nil {
+			return fmt.Errorf("cleanup left acceptance activation token file %s", name)
 		} else if !errors.Is(err, os.ErrNotExist) {
 			return err
 		}
