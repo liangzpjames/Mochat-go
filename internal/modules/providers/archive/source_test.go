@@ -2,6 +2,7 @@ package archive
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -122,5 +123,19 @@ func TestArchiveSourcesRejectInvalidScopeAndExternalFetchFailsClosed(t *testing.
 	}
 	if _, err := external.Fetch(context.Background(), Scope{TenantID: 9, CorpID: 27}, Cursor{}, 10); !errors.Is(err, providers.ErrCapabilityUnavailable) {
 		t.Fatalf("external fetch error=%v, want ErrCapabilityUnavailable", err)
+	}
+}
+
+func TestComponentMessageKeepsPrivateLocatorOutOfJSONAndMedia(t *testing.T) {
+	message := Message{
+		ContentPolicy: ContentPolicyComponent,
+		Component:     &ComponentDescriptor{MessageID: "dz-msg-1", PublicKeyVersion: 1, EncryptedSecretKey: "private-locator"},
+	}
+	raw, err := json.Marshal(message)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "private-locator") || len(message.Media) != 0 {
+		t.Fatalf("component locator leaked or derived media: %s %+v", raw, message.Media)
 	}
 }

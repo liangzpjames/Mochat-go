@@ -51,23 +51,41 @@ type Cursor struct {
 // every message before persistence, so a simulated row cannot silently become
 // an external archive row.
 type Message struct {
-	Source      providers.Source
-	SourceID    string
-	Namespace   string
-	MsgID       string
-	Seq         int64
-	Action      string
-	From        string
-	ToList      []string
-	RoomID      string
-	MsgType     string
-	MsgTime     time.Time
-	ContentRaw  string
-	ContentText string
-	RawJSON     string
+	Source        providers.Source
+	SourceID      string
+	Namespace     string
+	MsgID         string
+	Seq           int64
+	Action        string
+	From          string
+	ToList        []string
+	RoomID        string
+	MsgType       string
+	MsgTime       time.Time
+	ContentRaw    string
+	ContentText   string
+	RawJSON       string
+	ContentPolicy ContentPolicy `json:"contentPolicy,omitempty"`
+	// Component contains the encrypted data-zone display locator. It is only
+	// consumed by the encrypted persistence boundary and is never serialized
+	// to ordinary Dashboard JSON.
+	Component *ComponentDescriptor `json:"-"`
 	// Media is an internal persistence descriptor. SDKFileID must never be
 	// serialized into Dashboard message content, URLs, or logs.
 	Media []MediaDescriptor `json:"-"`
+}
+
+type ContentPolicy string
+
+const (
+	ContentPolicyPlaintext ContentPolicy = "plaintext"
+	ContentPolicyComponent ContentPolicy = "component"
+)
+
+type ComponentDescriptor struct {
+	MessageID          string `json:"messageId"`
+	PublicKeyVersion   uint32 `json:"publicKeyVersion"`
+	EncryptedSecretKey string `json:"-"`
 }
 
 // MediaDescriptor carries the private bridge locator separately from the
