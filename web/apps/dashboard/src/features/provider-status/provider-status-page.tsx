@@ -1,110 +1,69 @@
 import { ApiError } from '@mochat/api-client';
 import { useQuery } from '@tanstack/react-query';
 
-import type { CapabilityStatus, ProviderStatus, ProviderStatusApi } from './provider-status-api';
+import type { ProviderStatus, ProviderStatusApi } from './provider-status-api';
 
-export function ProviderStatusPage({ api, isSuperAdmin = false }: { api: ProviderStatusApi; isSuperAdmin?: boolean }) {
+export function ProviderStatusPage({ api, isSuperAdmin: _isSuperAdmin = false }: { api: ProviderStatusApi; isSuperAdmin?: boolean }) {
   const query = useQuery({ queryKey: ['provider-status'], queryFn: () => api.getStatus(), retry: false });
+
   if (query.isPending) {
-    return <section aria-label="Provider 状态" className="phase35-card provider-status-card"><p>正在读取 Provider 状态…</p></section>;
+    return <section aria-label="服务运行状态" className="phase35-card provider-status-card"><p>正在读取服务运行状态…</p></section>;
   }
+
   if (query.isError) {
     return (
-      <section aria-label="Provider 状态" className="phase35-card provider-status-card">
+      <section aria-label="服务运行状态" className="phase35-card provider-status-card">
         <p role="alert">{providerStatusErrorMessage(query.error)}</p>
         <button type="button" onClick={() => void query.refetch()}>重试</button>
       </section>
     );
   }
+
   const statuses = query.data?.providers ?? [];
   return (
-    <section aria-label="Provider 状态" className="phase35-card provider-status-card">
-      <header className="phase35-card-header">
-        <div>
-          <h2>Provider 运行状态</h2>
-          <p>状态来自当前运行时与企业作用域凭据，不触发外部测试请求。</p>
-        </div>
-      </header>
-      {statuses.length === 0 ? <p>当前没有可显示的 Provider 能力。</p> : <div className="provider-status-list">{statuses.map((status) => <ProviderStatusRow key={status.kind} status={status} isSuperAdmin={isSuperAdmin} />)}</div>}
+    <section aria-label="服务运行状态" className="phase35-card provider-status-card">
+      <header className="phase35-card-header"><h2>服务运行状态</h2></header>
+      {statuses.length === 0
+        ? <p>暂无服务状态信息。</p>
+        : <div className="provider-status-list">{statuses.map((status) => <ProviderStatusRow key={status.kind} status={status} />)}</div>}
     </section>
   );
 }
 
-function ProviderStatusRow({ status, isSuperAdmin }: { status: ProviderStatus; isSuperAdmin: boolean }) {
-  const label = providerLabel(status.kind);
-  const sourceLabel = providerSourceLabel(status.source);
-  const stateLabel = status.state === 'ready' ? '可用' : status.state === 'limited' ? '受限' : '不可用';
+function ProviderStatusRow({ status }: { status: ProviderStatus }) {
+  const { label: stateLabel, description } = serviceStateSummary(status.state);
   return (
-    <article className={`provider-status-row provider-status-row-${status.state}`} aria-label={`${label} ${stateLabel}`}>
-      <div><h3>{label}</h3><p>{status.capabilities.join('、') || '未声明能力'}</p><p>来源：{sourceLabel}</p></div>
+    <article className={`provider-status-row provider-status-row-${status.state}`} aria-label={`${serviceLabel(status.kind)} ${stateLabel}`}>
+      <div><h3>{serviceLabel(status.kind)}</h3><p>{description}</p></div>
       <strong>{stateLabel}</strong>
-      <div>
-        <code>{status.code}</code>
-        {status.action && <p>下一步：{status.action}</p>}
-        {isSuperAdmin && status.reason && <p>{status.reason}</p>}
-        {isSuperAdmin && status.missing && status.missing.length > 0 && <p>缺失项：{status.missing.join('、')}</p>}
-        <div className="provider-status-diagnostics">
-          {status.lastSyncAt && <span>最近同步：{formatTimestamp(status.lastSyncAt)}</span>}
-          {status.lastSuccessAt && <span>最近成功：{formatTimestamp(status.lastSuccessAt)}</span>}
-          {status.lastFailureAt && <span>最近失败：{formatTimestamp(status.lastFailureAt)}</span>}
-          {status.lastErrorCode && <span>最近错误：<code>{status.lastErrorCode}</code></span>}
-        </div>
-        {status.capabilityStatuses.length > 0 && <div className="provider-capability-statuses" aria-label="能力状态">
-          {status.capabilityStatuses.map((capability) => <CapabilityStatusRow key={capability.capability} status={capability} isSuperAdmin={isSuperAdmin} />)}
-        </div>}
-      </div>
     </article>
   );
 }
 
-function CapabilityStatusRow({ status, isSuperAdmin }: { status: CapabilityStatus; isSuperAdmin: boolean }) {
-  const stateLabel = status.state === 'ready' ? '可用' : status.state === 'limited' ? '受限' : '不可用';
-  return <div className="provider-capability-status-row">
-    <span>{status.capability}</span><strong>{stateLabel}</strong>
-    {status.source && <span>来源：{providerSourceLabel(status.source)}</span>}
-    {status.code && <code>{status.code}</code>}
-    {status.action && <span>下一步：{status.action}</span>}
-    {isSuperAdmin && status.reason && <span>{status.reason}</span>}
-    {status.lastSyncAt && <span>最近同步：{formatTimestamp(status.lastSyncAt)}</span>}
-    {status.lastSuccessAt && <span>最近成功：{formatTimestamp(status.lastSuccessAt)}</span>}
-    {status.lastFailureAt && <span>最近失败：{formatTimestamp(status.lastFailureAt)}</span>}
-    {status.lastErrorCode && <span>最近错误：<code>{status.lastErrorCode}</code></span>}
-  </div>;
-}
-
 function providerStatusErrorMessage(error: unknown): string {
   if (error instanceof ApiError && error.machineCode === 'CORP_CONFIGURATION_REQUIRED') {
-    return '企业尚未完成企业微信验证，完成验证后此处将显示 Provider 状态。';
+    return '企业服务尚未完成配置，请联系管理员。';
   }
   if (error instanceof ApiError && (error.status === 403 || error.machineCode === 'DASHBOARD_PERMISSION_DENIED')) {
-    return '当前账号无权查看 Provider 状态。';
+    return '当前账号无权查看服务运行状态。';
   }
-  if (error instanceof ApiError && (error.status === 503 || error.machineCode === 'PROVIDER_STATUS_SOURCE_UNAVAILABLE')) {
-    return 'Provider 状态来源暂不可用，请稍后重试。';
-  }
-  return 'Provider 状态暂时不可用，请稍后重试。';
+  return '服务状态暂时无法获取，请稍后重试。';
 }
 
-function providerSourceLabel(source: ProviderStatus['source']): string {
-  switch (source) {
-    case 'external': return '真实外部 Provider';
-    case 'simulated': return '模拟 Provider';
-    case 'local': return '本地 Provider';
-    case 'code_only': return '仅代码支持';
-  }
-}
-
-function formatTimestamp(value: string): string {
-  const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString('zh-CN');
-}
-
-function providerLabel(kind: string): string {
+function serviceLabel(kind: string): string {
   switch (kind) {
-    case 'wecom_standard': return '企业微信标准能力';
+    case 'wecom_standard': return '企业微信';
     case 'wecom_archive': return '会话存档';
-    case 'audio_storage': return '音频存储';
-    case 'ai': return 'AI Provider';
-    default: return kind;
+    case 'audio_storage': return '文件与录音';
+    case 'ai': return '智能分析';
+    default: return '其他服务';
+  }
+}
+
+function serviceStateSummary(state: ProviderStatus['state']): { label: string; description: string } {
+  switch (state) {
+    case 'ready': return { label: '运行正常', description: '服务运行正常' };
+    case 'limited': return { label: '需要完善', description: '部分功能尚未配置完成' };
+    case 'unavailable': return { label: '暂不可用', description: '当前无法使用，请联系管理员' };
   }
 }
