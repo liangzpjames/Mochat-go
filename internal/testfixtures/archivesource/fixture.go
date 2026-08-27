@@ -4,15 +4,11 @@ import (
 	"bytes"
 	"context"
 	"crypto/md5"
-	"crypto/rand"
-	"crypto/rsa"
-	"crypto/x509"
 	"database/sql"
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
-	"encoding/pem"
 	"errors"
 	"fmt"
 	"image"
@@ -22,12 +18,11 @@ import (
 	"sync"
 	"time"
 
+	"jiyi/mochat-go/internal/archivefixture"
 	"jiyi/mochat-go/internal/wecomarchivedemo"
 )
 
 const DatasetMarker = "MOCHAT-LOCAL-ACCEPTANCE-20260827"
-
-const fixtureRandomKey = DatasetMarker + "-DECRYPTED-RANDOM-KEY"
 
 const fixtureMP4Base64 = "AAAAIGZ0eXBpc29tAAACAGlzb21pc28yYXZjMW1wNDEAAANGbW9vdgAAAGxtdmhkAAAAAAAAAAAAAAAAAAAD6AAAAMgAAQAAAQAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgAAAjl0cmFrAAAAXHRraGQAAAADAAAAAAAAAAAAAAABAAAAAAAAAMgAAAAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAABAAAAAABAAAAAQAAAAAAAkZWR0cwAAABxlbHN0AAAAAAAAAAEAAADIAAAAAAABAAAAAAGxbWRpYQAAACBtZGhkAAAAAAAAAAAAAAAAAAAoAAAACABVxAAAAAAALWhkbHIAAAAAAAAAAHZpZGUAAAAAAAAAAAAAAABWaWRlb0hhbmRsZXIAAAABXG1pbmYAAAAUdm1oZAAAAAEAAAAAAAAAAAAAACRkaW5mAAAAHGRyZWYAAAAAAAAAAQAAAAx1cmwgAAAAAQAAARxzdGJsAAAAuHN0c2QAAAAAAAAAAQAAAKhhdmMxAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAABAAEABIAAAASAAAAAAAAAABFUxhdmM2MS4xOS4xMDAgbGlieDI2NAAAAAAAAAAAAAAAGP//AAAALmF2Y0MBQsAK/+EAFmdCwArZHsBEAAADAAQAAAMAKDxImSABAAVoy4PLIAAAABBwYXNwAAAAAQAAAAEAAAAUYnRydAAAAAAAAGIgAABiIAAAABhzdHRzAAAAAAAAAAEAAAABAAAIAAAAABxzdHNjAAAAAAAAAAEAAAABAAAAAQAAAAEAAAAUc3RzegAAAAAAAAJ0AAAAAQAAABRzdGNvAAAAAAAAAAEAAAN2AAAAmXVkdGEAAACRbWV0YQAAAAAAAAAhaGRscgAAAAAAAAAAbWRpcmFwcGwAAAAAAAAAAAAAAABkaWxzdAAAACSpdG9vAAAAHGRhdGEAAAABAAAAAExhdmY2MS43LjEwMAAAADipY210AAAAMGRhdGEAAAABAAAAAE1PQ0hBVC1MT0NBTC1BQ0NFUFRBTkNFLTIwMjYwODI3AAAACGZyZWUAAAJ8bWRhdAAAAmIGBf//XtxF6b3m2Ui3lizYINkj7u94MjY0IC0gY29yZSAxNjQgLSBILjI2NC9NUEVHLTQgQVZDIGNvZGVjIC0gQ29weWxlZnQgMjAwMy0yMDIzIC0gaHR0cDovL3d3dy52aWRlb2xhbi5vcmcveDI2NC5odG1sIC0gb3B0aW9uczogY2FiYWM9MCByZWY9MyBkZWJsb2NrPTE6MDowIGFuYWx5c2U9MHgxOjB4MTExIG1lPWhleCBzdWJtZT03IHBzeT0xIHBzeV9yZD0xLjAwOjAuMDAgbWl4ZWRfcmVmPTEgbWVfcmFuZ2U9MTYgY2hyb21hX21lPTEgdHJlbGxpcz0xIDh4OGRjdD0wIGNxbT0wIGRlYWR6b25lPTIxLDExIGZhc3RfcHNraXA9MSBjaHJvbWFfcXBfb2Zmc2V0PS0yIHRocmVhZHM9MSBsb29rYWhlYWRfdGhyZWFkcz0xIHNsaWNlZF90aHJlYWRzPTAgbnI9MCBkZWNpbWF0ZT0xIGludGVybGFjZWQ9MCBibHVyYXlfY29tcGF0PTAgY29uc3RyYWluZWRfaW50cmE9MCBiZnJhbWVzPTAgd2VpZ2h0cD0wIGtleWludD0yNTAga2V5aW50X21pbj01IHNjZW5lY3V0PTQwIGludHJhX3JlZnJlc2g9MCByY19sb29rYWhlYWQ9NDAgcmM9Y3JmIG1idHJlZT0xIGNyZj0yMy4wIHFjb21wPTAuNjAgcXBtaW49MCBxcG1heD02OSBxcHN0ZXA9NCBpcF9yYXRpbz0xLjQwIGFxPTE6MS4wMACAAAAACmWIhA/yYoAAw+4="
 
@@ -52,34 +47,25 @@ func (e FixtureError) Error() string {
 func (e FixtureError) MediaErrorCode() string { return e.Code }
 
 type fixtureMessage struct {
-	seq        uint64
-	msgID      string
-	ciphertext string
-	plain      []byte
+	envelope archivefixture.EncryptedChatData
 }
 
 type ArchiveFixture struct {
-	mu                 sync.Mutex
-	privateKeyPEM      string
-	encryptedRandomKey string
-	messages           []fixtureMessage
-	mediaFileIDs       map[string]string
-	media              map[string][]byte
-	mediaModes         map[string]MediaMode
-	mediaChunkDelay    time.Duration
-	closed             bool
+	mu              sync.Mutex
+	finance         *archivefixture.FinanceCipher
+	messages        []fixtureMessage
+	mediaFileIDs    map[string]string
+	media           map[string][]byte
+	mediaModes      map[string]MediaMode
+	mediaChunkDelay time.Duration
+	closed          bool
 }
 
 func NewArchiveFixture() (*ArchiveFixture, error) {
-	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	finance, err := archivefixture.NewFinanceCipher(DatasetMarker + "-CORP")
 	if err != nil {
 		return nil, err
 	}
-	encryptedRandomKey, err := rsa.EncryptPKCS1v15(rand.Reader, &privateKey.PublicKey, []byte(fixtureRandomKey))
-	if err != nil {
-		return nil, err
-	}
-	privateKeyPEM := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(privateKey)})
 	mediaFileIDs := map[string]string{
 		"image":   DatasetMarker + "-SDKFILE-IMAGE",
 		"voice":   DatasetMarker + "-SDKFILE-VOICE",
@@ -129,13 +115,14 @@ func NewArchiveFixture() (*ArchiveFixture, error) {
 			return nil, err
 		}
 		seq := uint64(index + 1)
-		messages = append(messages, fixtureMessage{
-			seq: seq, msgID: fmt.Sprintf("%s-MSG-%02d", DatasetMarker, seq),
-			ciphertext: fmt.Sprintf("%s-CIPHER-%02d", DatasetMarker, seq), plain: plain,
-		})
+		envelope, err := finance.Encrypt(seq, fmt.Sprintf("%s-MSG-%02d", DatasetMarker, seq), plain)
+		if err != nil {
+			return nil, err
+		}
+		messages = append(messages, fixtureMessage{envelope: envelope})
 	}
 	return &ArchiveFixture{
-		privateKeyPEM: string(privateKeyPEM), encryptedRandomKey: base64.StdEncoding.EncodeToString(encryptedRandomKey),
+		finance:  finance,
 		messages: messages, mediaFileIDs: mediaFileIDs, media: media, mediaModes: map[string]MediaMode{
 			mediaFileIDs["missing"]: MediaMissing,
 			mediaFileIDs["corrupt"]: MediaCorrupt,
@@ -225,7 +212,10 @@ func baseMessage(seq int, msgType string, payload any) map[string]any {
 }
 
 func (f *ArchiveFixture) PrivateKeyPEM() string {
-	return f.privateKeyPEM
+	if f == nil || f.finance == nil {
+		return ""
+	}
+	return f.finance.PrivateKeyPEM()
 }
 
 func (f *ArchiveFixture) MediaFileIDs() map[string]string {
@@ -270,12 +260,14 @@ func (f *ArchiveFixture) GetChatData(seq uint64, limit uint32, timeoutSeconds in
 	}
 	chatData := make([]map[string]any, 0, limit)
 	for _, message := range f.messages {
-		if message.seq <= seq {
+		if message.envelope.Sequence <= seq {
 			continue
 		}
 		chatData = append(chatData, map[string]any{
-			"seq": message.seq, "msgid": message.msgID, "publickey_ver": 1,
-			"encrypt_random_key": f.encryptedRandomKey, "encrypt_chat_msg": message.ciphertext,
+			"seq": message.envelope.Sequence, "msgid": message.envelope.MessageID,
+			"publickey_ver":      message.envelope.PublicKeyVersion,
+			"encrypt_random_key": message.envelope.EncryptedRandomKey,
+			"encrypt_chat_msg":   message.envelope.EncryptedMessage,
 		})
 		if len(chatData) == int(limit) {
 			break
@@ -290,12 +282,13 @@ func (f *ArchiveFixture) DecryptData(randomKey, encryptedMessage string) ([]byte
 	if f.closed {
 		return nil, errors.New("local archive fixture is closed")
 	}
-	if randomKey != fixtureRandomKey {
-		return nil, errors.New("local archive fixture random key mismatch")
-	}
 	for _, message := range f.messages {
-		if message.ciphertext == encryptedMessage {
-			return append([]byte(nil), message.plain...), nil
+		if message.envelope.EncryptedMessage == encryptedMessage {
+			plain, err := f.finance.DecryptWithRandomKey([]byte(randomKey), message.envelope)
+			if err != nil {
+				return nil, errors.New("local archive fixture decryption failed")
+			}
+			return plain, nil
 		}
 	}
 	return nil, errors.New("local archive fixture ciphertext not found")

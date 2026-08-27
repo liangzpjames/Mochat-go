@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/md5"
 	"database/sql"
+	"encoding/base64"
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
@@ -50,29 +51,25 @@ func TestFixtureMissingMediaIsAnIndependentDashboardMessage(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer fixture.Close()
-	page, err := fixture.GetChatData(7, 1, 5)
+	store, err := wecomarchivedemo.NewEvidenceStore(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	var envelope struct {
-		ChatData []struct {
-			Encrypted string `json:"encrypt_chat_msg"`
-		} `json:"chatdata"`
-	}
-	if err := json.Unmarshal(page, &envelope); err != nil || len(envelope.ChatData) != 1 {
-		t.Fatalf("chat data=%s err=%v", page, err)
-	}
-	plain, err := fixture.DecryptData(fixtureRandomKey, envelope.ChatData[0].Encrypted)
+	service, err := wecomarchivedemo.NewArchiveService(fixture, fixture.PrivateKeyPEM(), store, 1, 5)
 	if err != nil {
 		t.Fatal(err)
+	}
+	page, err := service.FetchPage(context.Background(), 7, 1)
+	if err != nil || len(page.Messages) != 1 {
+		t.Fatalf("page=%+v err=%v", page, err)
 	}
 	var message map[string]any
-	if err := json.Unmarshal(plain, &message); err != nil {
+	if err := json.Unmarshal(page.Messages[0], &message); err != nil {
 		t.Fatal(err)
 	}
 	imagePayload, _ := message["image"].(map[string]any)
 	if message["msgtype"] != "image" || imagePayload["sdkfileid"] != fixture.MediaFileIDs()["missing"] {
-		t.Fatalf("sequence 8 is not independent missing image: %s", plain)
+		t.Fatalf("sequence 8 is not independent missing image: %s", page.Messages[0])
 	}
 }
 
@@ -187,6 +184,38 @@ func TestFixtureArchiveMessagesUseProductionSDKShapesAndPreserveUnknown(t *testi
 			if mediaID == "" || payload.Item[2].Type != "image" || payload.Item[2].Image.SDKFileID != mediaID {
 				t.Fatalf("mixed corrupt media contract is missing: %+v", payload)
 			}
+		}
+	}
+}
+
+func TestFixtureChatDataUsesPerMessageAuthenticatedCiphertext(t *testing.T) {
+	fixture, err := NewArchiveFixture()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer fixture.Close()
+	raw, err := fixture.GetChatData(0, 2, 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var envelope struct {
+		ChatData []struct {
+			EncryptedRandomKey string `json:"encrypt_random_key"`
+			EncryptedChatMsg   string `json:"encrypt_chat_msg"`
+		} `json:"chatdata"`
+	}
+	if err := json.Unmarshal(raw, &envelope); err != nil || len(envelope.ChatData) != 2 {
+		t.Fatalf("chat data=%s err=%v", raw, err)
+	}
+	if envelope.ChatData[0].EncryptedRandomKey == envelope.ChatData[1].EncryptedRandomKey || envelope.ChatData[0].EncryptedChatMsg == envelope.ChatData[1].EncryptedChatMsg {
+		t.Fatal("fixture reused a random key or ciphertext")
+	}
+	for _, item := range envelope.ChatData {
+		if _, err := base64.StdEncoding.DecodeString(item.EncryptedRandomKey); err != nil {
+			t.Fatalf("random key is not encrypted base64: %v", err)
+		}
+		if decoded, err := base64.StdEncoding.DecodeString(item.EncryptedChatMsg); err != nil || bytes.Contains(decoded, []byte(DatasetMarker)) {
+			t.Fatalf("chat ciphertext is not opaque base64: %v", err)
 		}
 	}
 }
