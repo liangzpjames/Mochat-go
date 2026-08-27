@@ -21,6 +21,10 @@ type workMessageMediaRow struct {
 	Size                                                                    int64
 }
 
+type workMessageComponentRow struct {
+	ID, MsgID, SourceIdentity, Status string
+}
+
 func (s *MySQLStore) projectWorkMessageMedia(ctx context.Context, tenantID, corpID int, refs []workMessageMediaProjection) error {
 	if tenantID <= 0 || corpID <= 0 || len(refs) == 0 {
 		return nil
@@ -85,6 +89,74 @@ func (s *MySQLStore) projectWorkMessageMedia(ctx context.Context, tenantID, corp
 	return nil
 }
 
+func (s *MySQLStore) projectWorkMessageComponents(ctx context.Context, tenantID, corpID int, refs []workMessageMediaProjection) error {
+	if s == nil || s.db == nil || tenantID <= 0 || corpID <= 0 || len(refs) == 0 {
+		return nil
+	}
+	msgIDs := make([]string, 0, len(refs))
+	seen := map[string]bool{}
+	for _, ref := range refs {
+		msgID := strings.TrimSpace(ref.MsgID)
+		if msgID != "" && ref.Content != nil && !seen[msgID] {
+			seen[msgID] = true
+			msgIDs = append(msgIDs, msgID)
+		}
+	}
+	if len(msgIDs) == 0 {
+		return nil
+	}
+	args := []any{tenantID, corpID}
+	for _, msgID := range msgIDs {
+		args = append(args, msgID)
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT locator.id,locator.msgid,locator.source_identity,locator.status
+		FROM mochat_go_archive_component_locators locator
+		INNER JOIN mochat_go_archive_message_sources source
+		  ON source.tenant_id=locator.tenant_id AND source.corp_id=locator.corp_id AND source.msgid=locator.msgid
+		 AND source.source_id=locator.source_identity
+		WHERE locator.tenant_id=? AND locator.corp_id=? AND locator.msgid IN (`+placeholders(len(msgIDs))+`)
+		ORDER BY locator.msgid,locator.id
+	`, args...)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	byMessage := map[string]workMessageComponentRow{}
+	for rows.Next() {
+		var row workMessageComponentRow
+		if err := rows.Scan(&row.ID, &row.MsgID, &row.SourceIdentity, &row.Status); err != nil {
+			return err
+		}
+		if _, exists := byMessage[row.MsgID]; !exists {
+			byMessage[row.MsgID] = row
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for _, ref := range refs {
+		row, exists := byMessage[strings.TrimSpace(ref.MsgID)]
+		if !exists || row.Status != "available" || !archiveMediaSourceMatches(ref.SourceIdentity, row.SourceIdentity) {
+			continue
+		}
+		content := workMessageMediaContent(*ref.Content)
+		content["contentPolicy"] = "component"
+		content["component"] = map[string]any{
+			"id": row.ID, "available": true, "sessionUrl": "/dashboard/archive/components/" + row.ID + "/session",
+		}
+		*ref.Content = content
+	}
+	return nil
+}
+
+func (s *MySQLStore) projectWorkMessageArchiveAssets(ctx context.Context, tenantID, corpID int, refs []workMessageMediaProjection) error {
+	if err := s.projectWorkMessageMedia(ctx, tenantID, corpID, refs); err != nil {
+		return err
+	}
+	return s.projectWorkMessageComponents(ctx, tenantID, corpID, refs)
+}
+
 func (s *MySQLStore) ProjectWorkMessageStaffMedia(ctx context.Context, tenantID, corpID int, detail *dashboard.WorkMessageStaffDetail) error {
 	if detail == nil {
 		return nil
@@ -96,7 +168,7 @@ func (s *MySQLStore) ProjectWorkMessageStaffMedia(ctx context.Context, tenantID,
 			Content: &detail.Messages[index].Content,
 		})
 	}
-	return s.projectWorkMessageMedia(ctx, tenantID, corpID, refs)
+	return s.projectWorkMessageArchiveAssets(ctx, tenantID, corpID, refs)
 }
 
 func (s *MySQLStore) ProjectWorkMessageRoomMedia(ctx context.Context, tenantID, corpID int, page *dashboard.WorkMessageRoomMessages) error {
@@ -110,7 +182,7 @@ func (s *MySQLStore) ProjectWorkMessageRoomMedia(ctx context.Context, tenantID, 
 			Content: &page.Messages[index].Content,
 		})
 	}
-	return s.projectWorkMessageMedia(ctx, tenantID, corpID, refs)
+	return s.projectWorkMessageArchiveAssets(ctx, tenantID, corpID, refs)
 }
 
 func (s *MySQLStore) ProjectWorkMessagePageMedia(ctx context.Context, tenantID, corpID int, page *dashboard.WorkMessagePage) error {
@@ -125,7 +197,7 @@ func (s *MySQLStore) ProjectWorkMessagePageMedia(ctx context.Context, tenantID, 
 			MsgID: page.Items[index].MsgID, SourceIdentity: page.Items[index].ArchiveSourceID, Content: &contents[index],
 		})
 	}
-	if err := s.projectWorkMessageMedia(ctx, tenantID, corpID, refs); err != nil {
+	if err := s.projectWorkMessageArchiveAssets(ctx, tenantID, corpID, refs); err != nil {
 		return err
 	}
 	for index := range page.Items {

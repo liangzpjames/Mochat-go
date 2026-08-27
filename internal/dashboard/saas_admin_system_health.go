@@ -16,8 +16,8 @@ import (
 )
 
 const (
-	SaaSAdminExpectedMigrationVersion = "0168_company_archive_sync_rbac"
-	SaaSAdminExpectedMigrationCount   = 168
+	SaaSAdminExpectedMigrationVersion = "0169_archive_component_locator"
+	SaaSAdminExpectedMigrationCount   = 169
 
 	SaaSAdminSystemHealthStateHealthy  = "healthy"
 	SaaSAdminSystemHealthStateWarning  = "warning"

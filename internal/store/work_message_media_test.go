@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"regexp"
 	"strings"
 	"testing"
@@ -58,6 +59,33 @@ func TestWorkMessageMediaProjectionBatchesAndKeepsSourceIdentity(t *testing.T) {
 	}
 	if firstContent["text"] != "a" || secondContent["text"] != "b" {
 		t.Fatalf("message order/content changed: %#v %#v", firstContent, secondContent)
+	}
+}
+
+func TestWorkMessageComponentProjectionExposesOnlySafeSessionEntry(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	content := any(map[string]any{"value": ""})
+	refs := []workMessageMediaProjection{{MsgID: "dz-msg-1", SourceIdentity: "wecom:third_party_delegated:ww-a", Content: &content}}
+	mock.ExpectQuery(regexp.QuoteMeta("FROM mochat_go_archive_component_locators locator")).WithArgs(11, 27, "dz-msg-1").WillReturnRows(sqlmock.NewRows([]string{"id", "msgid", "source_identity", "status"}).AddRow(
+		"8ff7bf2d-5604-43bc-a600-3ec91d575085", "dz-msg-1", "wecom:third_party_delegated:ww-a", "available",
+	))
+	if err := NewMySQLStore(db).projectWorkMessageComponents(context.Background(), 11, 27, refs); err != nil {
+		t.Fatal(err)
+	}
+	projected := content.(map[string]any)
+	component, ok := projected["component"].(map[string]any)
+	if !ok || component["id"] != "8ff7bf2d-5604-43bc-a600-3ec91d575085" || component["sessionUrl"] != "/dashboard/archive/components/8ff7bf2d-5604-43bc-a600-3ec91d575085/session" || projected["contentPolicy"] != "component" {
+		t.Fatalf("projected=%#v", projected)
+	}
+	encoded, _ := json.Marshal(projected)
+	for _, forbidden := range []string{"wrapped", "secret", "ciphertext", "locator"} {
+		if strings.Contains(strings.ToLower(string(encoded)), forbidden) {
+			t.Fatalf("component projection leaked %q: %s", forbidden, encoded)
+		}
 	}
 }
 

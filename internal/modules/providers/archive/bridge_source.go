@@ -21,9 +21,15 @@ import (
 )
 
 const (
-	bridgeMessagePath = "/work-message/archive/messages"
-	bridgeMediaPath   = "/work-message/archive/media"
-	maxBridgeBody     = 16 << 20
+	bridgeMessagePath       = "/v1/archive/messages"
+	bridgeMediaPath         = "/v1/archive/media/chunks"
+	bridgeComponentPath     = "/v1/archive/component/session"
+	legacyBridgeMessagePath = "/work-message/archive/messages"
+	legacyBridgeMediaPath   = "/work-message/archive/media"
+	maxBridgeBody           = 16 << 20
+
+	IntegrationModeSelfBuilt           = "self_built"
+	IntegrationModeThirdPartyDelegated = "third_party_delegated"
 )
 
 var bridgeErrorCodePattern = regexp.MustCompile(`^[A-Z0-9_.-]{1,96}$`)
@@ -32,6 +38,21 @@ type MediaChunk struct {
 	Data         []byte
 	NextIndexBuf string
 	Finished     bool
+}
+
+type ComponentRequest struct {
+	Scope              Scope
+	WXCorpID           string
+	MessageID          string
+	PublicKeyVersion   uint32
+	EncryptedSecretKey string
+}
+
+type ComponentContent struct {
+	Type     string
+	FileName string
+	MIMEType string
+	Data     []byte
 }
 
 type MediaFetchError struct{ Code string }
@@ -74,15 +95,26 @@ type bridgeMessagePage struct {
 	Messages []json.RawMessage
 }
 
-func (c *BridgeArchiveClient) fetchMessages(ctx context.Context, scope Scope, wxCorpID string, cursor Cursor, limit int) (bridgeMessagePage, error) {
-	request := map[string]any{"corp_id": scope.CorpID, "wx_corpid": wxCorpID, "seq": cursor.Sequence, "limit": limit}
+func (c *BridgeArchiveClient) fetchMessages(ctx context.Context, scope Scope, wxCorpID, mode string, cursor Cursor, limit int) (bridgeMessagePage, error) {
+	request := map[string]any{"tenant_id": scope.TenantID, "corp_id": scope.CorpID, "wx_corpid": wxCorpID, "integration_mode": mode, "seq": cursor.Sequence, "limit": limit}
 	var response struct {
 		ErrCode  int               `json:"errcode"`
 		Messages []json.RawMessage `json:"messages"`
 		ChatData []json.RawMessage `json:"chatdata"`
 	}
 	if err := c.postJSON(ctx, bridgeMessagePath, request, &response); err != nil {
-		return bridgeMessagePage{}, err
+		var statusErr *bridgeHTTPStatusError
+		if !errors.As(err, &statusErr) || statusErr.status != http.StatusNotFound {
+			return bridgeMessagePage{}, err
+		}
+		response = struct {
+			ErrCode  int               `json:"errcode"`
+			Messages []json.RawMessage `json:"messages"`
+			ChatData []json.RawMessage `json:"chatdata"`
+		}{}
+		if err := c.postJSON(ctx, legacyBridgeMessagePath, request, &response); err != nil {
+			return bridgeMessagePage{}, err
+		}
 	}
 	if response.ErrCode != 0 {
 		return bridgeMessagePage{}, errors.New("archive bridge rejected message request")
@@ -95,7 +127,7 @@ func (c *BridgeArchiveClient) fetchMessages(ctx context.Context, scope Scope, wx
 
 func (c *BridgeArchiveClient) FetchMedia(ctx context.Context, scope Scope, wxCorpID, sdkFileID, indexBuf string) (MediaChunk, error) {
 	request := map[string]any{
-		"corp_id": scope.CorpID, "wx_corpid": wxCorpID, "sdkFileId": sdkFileID,
+		"tenant_id": scope.TenantID, "corp_id": scope.CorpID, "wx_corpid": wxCorpID, "integration_mode": IntegrationModeSelfBuilt, "sdkFileId": sdkFileID,
 		"indexBuf": indexBuf, "timeoutSeconds": 5,
 	}
 	var response struct {
@@ -106,6 +138,26 @@ func (c *BridgeArchiveClient) FetchMedia(ctx context.Context, scope Scope, wxCor
 	}
 	if err := c.postJSON(ctx, bridgeMediaPath, request, &response); err != nil {
 		var statusErr *bridgeHTTPStatusError
+		if errors.As(err, &statusErr) && statusErr.status == http.StatusNotFound {
+			response = struct {
+				ErrCode      json.RawMessage `json:"errcode"`
+				DataBase64   string          `json:"dataBase64"`
+				NextIndexBuf string          `json:"nextIndexBuf"`
+				Finished     bool            `json:"finished"`
+			}{}
+			err = c.postJSON(ctx, legacyBridgeMediaPath, request, &response)
+		}
+		if err == nil {
+			code := rawErrorCode(response.ErrCode)
+			if code != "" && code != "0" {
+				return MediaChunk{}, &MediaFetchError{Code: code}
+			}
+			data, decodeErr := base64.StdEncoding.DecodeString(response.DataBase64)
+			if decodeErr != nil {
+				return MediaChunk{}, &MediaFetchError{Code: "ARCHIVE_MEDIA_INVALID_RESPONSE"}
+			}
+			return MediaChunk{Data: data, NextIndexBuf: response.NextIndexBuf, Finished: response.Finished}, nil
+		}
 		code := rawErrorCode(response.ErrCode)
 		if errors.As(err, &statusErr) && code != "" && code != "0" {
 			return MediaChunk{}, &MediaFetchError{Code: code}
@@ -121,6 +173,35 @@ func (c *BridgeArchiveClient) FetchMedia(ctx context.Context, scope Scope, wxCor
 		return MediaChunk{}, &MediaFetchError{Code: "ARCHIVE_MEDIA_INVALID_RESPONSE"}
 	}
 	return MediaChunk{Data: data, NextIndexBuf: response.NextIndexBuf, Finished: response.Finished}, nil
+}
+
+func (c *BridgeArchiveClient) FetchComponent(ctx context.Context, input ComponentRequest) (ComponentContent, error) {
+	if !input.Scope.valid() || strings.TrimSpace(input.WXCorpID) == "" || strings.TrimSpace(input.MessageID) == "" || input.PublicKeyVersion == 0 || strings.TrimSpace(input.EncryptedSecretKey) == "" {
+		return ComponentContent{}, errors.New("archive component request is invalid")
+	}
+	request := map[string]any{
+		"tenant_id": input.Scope.TenantID, "corp_id": input.Scope.CorpID, "wx_corpid": strings.TrimSpace(input.WXCorpID),
+		"integration_mode": IntegrationModeThirdPartyDelegated, "msgid": strings.TrimSpace(input.MessageID),
+		"public_key_ver": input.PublicKeyVersion, "encrypted_secret_key": strings.TrimSpace(input.EncryptedSecretKey),
+	}
+	var response struct {
+		ErrCode    json.RawMessage `json:"errcode"`
+		Type       string          `json:"msgtype"`
+		FileName   string          `json:"fileName"`
+		MIMEType   string          `json:"mimeType"`
+		DataBase64 string          `json:"dataBase64"`
+	}
+	if err := c.postJSON(ctx, bridgeComponentPath, request, &response); err != nil {
+		return ComponentContent{}, errors.New("archive component request failed")
+	}
+	if code := rawErrorCode(response.ErrCode); code != "" && code != "0" {
+		return ComponentContent{}, errors.New("archive component request rejected")
+	}
+	data, err := base64.StdEncoding.DecodeString(response.DataBase64)
+	if err != nil || len(data) == 0 {
+		return ComponentContent{}, errors.New("archive component response is invalid")
+	}
+	return ComponentContent{Type: strings.ToLower(strings.TrimSpace(response.Type)), FileName: safeMediaName(response.FileName), MIMEType: strings.TrimSpace(response.MIMEType), Data: data}, nil
 }
 
 func (c *BridgeArchiveClient) postJSON(ctx context.Context, path string, input, output any) error {
@@ -179,20 +260,21 @@ func rawErrorCode(raw json.RawMessage) string {
 }
 
 type BridgeSource struct {
-	client   *BridgeArchiveClient
-	scope    Scope
-	wxCorpID string
-	sourceID string
+	client          *BridgeArchiveClient
+	scope           Scope
+	wxCorpID        string
+	integrationMode string
+	sourceID        string
 }
 
 var _ ArchiveSource = (*BridgeSource)(nil)
 
-func NewBridgeSource(client *BridgeArchiveClient, scope Scope, wxCorpID string) (*BridgeSource, error) {
-	wxCorpID = strings.TrimSpace(wxCorpID)
-	if client == nil || !scope.valid() || wxCorpID == "" {
+func NewBridgeSource(client *BridgeArchiveClient, scope Scope, wxCorpID, integrationMode string) (*BridgeSource, error) {
+	wxCorpID, integrationMode = strings.TrimSpace(wxCorpID), strings.TrimSpace(integrationMode)
+	if client == nil || !scope.valid() || wxCorpID == "" || (integrationMode != IntegrationModeSelfBuilt && integrationMode != IntegrationModeThirdPartyDelegated) {
 		return nil, errors.New("archive bridge source binding is invalid")
 	}
-	return &BridgeSource{client: client, scope: scope, wxCorpID: wxCorpID, sourceID: "wecom:" + wxCorpID}, nil
+	return &BridgeSource{client: client, scope: scope, wxCorpID: wxCorpID, integrationMode: integrationMode, sourceID: "wecom:" + integrationMode + ":" + wxCorpID}, nil
 }
 
 func (s *BridgeSource) Kind() providers.Source { return providers.SourceExternal }
@@ -209,10 +291,16 @@ func (s *BridgeSource) Namespace() string {
 	return s.sourceID
 }
 func (s *BridgeSource) Status() providers.Status {
-	if s == nil || s.client == nil || !s.scope.valid() || s.wxCorpID == "" {
+	if s == nil || s.client == nil || !s.scope.valid() || s.wxCorpID == "" || s.integrationMode == "" {
 		return providers.Status{Kind: "wecom_archive", Source: providers.SourceExternal, State: providers.StateUnavailable, Code: "archive.source_unavailable"}
 	}
-	return providers.Status{Kind: "wecom_archive", Source: providers.SourceExternal, State: providers.StateReady, Code: "archive.bridge_ready", Capabilities: []string{"archive_sync", "archive_media"}}
+	capabilities := []string{"archive_sync"}
+	if s.integrationMode == IntegrationModeSelfBuilt {
+		capabilities = append(capabilities, "archive_media")
+	} else {
+		capabilities = append(capabilities, "archive_component")
+	}
+	return providers.Status{Kind: "wecom_archive", Source: providers.SourceExternal, State: providers.StateReady, Code: "archive.bridge_ready", Capabilities: capabilities}
 }
 
 func (s *BridgeSource) Fetch(ctx context.Context, scope Scope, cursor Cursor, limit int) (Page, error) {
@@ -225,7 +313,7 @@ func (s *BridgeSource) Fetch(ctx context.Context, scope Scope, cursor Cursor, li
 	if limit <= 0 {
 		limit = DefaultFetchLimit
 	}
-	page, err := s.client.fetchMessages(ctx, scope, s.wxCorpID, cursor, limit)
+	page, err := s.client.fetchMessages(ctx, scope, s.wxCorpID, s.integrationMode, cursor, limit)
 	if err != nil {
 		return Page{}, err
 	}
@@ -260,7 +348,29 @@ func parseBridgeMessage(raw json.RawMessage, sourceID string) (Message, error) {
 	if seq <= 0 || msgID == "" || msgType == "" {
 		return Message{}, errors.New("archive bridge message identity is invalid")
 	}
-	media := mediaDescriptors(msgType, object[msgType])
+	policy := ContentPolicy(anyString(object["content_policy"]))
+	if policy == "" {
+		policy = ContentPolicyPlaintext
+	}
+	if policy != ContentPolicyPlaintext && policy != ContentPolicyComponent {
+		return Message{}, errors.New("archive bridge content policy is invalid")
+	}
+	var component *ComponentDescriptor
+	if policy == ContentPolicyComponent {
+		locator, _ := object["component_locator"].(map[string]any)
+		component = &ComponentDescriptor{
+			MessageID: anyString(locator["msgid"]), PublicKeyVersion: uint32(anyInt64(locator["public_key_ver"])),
+			EncryptedSecretKey: anyString(locator["encrypted_secret_key"]),
+		}
+		if component.MessageID != msgID || component.PublicKeyVersion == 0 || component.EncryptedSecretKey == "" {
+			return Message{}, errors.New("archive bridge component locator is invalid")
+		}
+		delete(object, "component_locator")
+	}
+	var media []MediaDescriptor
+	if policy == ContentPolicyPlaintext {
+		media = mediaDescriptors(msgType, object[msgType])
+	}
 	sanitized := sanitizeSDKIdentifiers(object).(map[string]any)
 	sanitizedRaw, err := json.Marshal(sanitized)
 	if err != nil {
@@ -268,6 +378,9 @@ func parseBridgeMessage(raw json.RawMessage, sourceID string) (Message, error) {
 	}
 	content := sanitized[msgType]
 	if content == nil {
+		content = map[string]any{}
+	}
+	if policy == ContentPolicyComponent {
 		content = map[string]any{}
 	}
 	contentRaw, err := json.Marshal(content)
@@ -280,6 +393,7 @@ func parseBridgeMessage(raw json.RawMessage, sourceID string) (Message, error) {
 		ToList: anyStringSlice(object["tolist"]), RoomID: anyString(object["roomid"]), MsgType: msgType,
 		MsgTime: unixBridgeTime(anyInt64(object["msgtime"])), ContentRaw: string(contentRaw),
 		ContentText: bridgeContentText(msgType, content), RawJSON: string(sanitizedRaw), Media: media,
+		ContentPolicy: policy, Component: component,
 	}, nil
 }
 

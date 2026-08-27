@@ -39,7 +39,7 @@ func TestBridgeSourceUsesRealArchiveFixtureMixedShape(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	source, err := NewBridgeSource(client, Scope{TenantID: 11, CorpID: 27}, wxCorpID)
+	source, err := NewBridgeSource(client, Scope{TenantID: 11, CorpID: 27}, wxCorpID, IntegrationModeSelfBuilt)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -108,15 +108,17 @@ func TestBridgeSourceParsesSupportedMessagesAndKeepsSDKFileIDInternal(t *testing
 			t.Fatalf("authorization header = %q", r.Header.Get("Authorization"))
 		}
 		var request struct {
+			TenantID int64  `json:"tenant_id"`
 			CorpID   int64  `json:"corp_id"`
 			WXCorpID string `json:"wx_corpid"`
+			Mode     string `json:"integration_mode"`
 			Seq      int64  `json:"seq"`
 			Limit    int    `json:"limit"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 			t.Fatal(err)
 		}
-		if request.CorpID != 27 || request.WXCorpID != "ww-local-acceptance" || request.Seq != 40 || request.Limit != 9 {
+		if request.TenantID != 11 || request.CorpID != 27 || request.WXCorpID != "ww-local-acceptance" || request.Mode != IntegrationModeSelfBuilt || request.Seq != 40 || request.Limit != 9 {
 			t.Fatalf("request = %#v", request)
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -138,7 +140,7 @@ func TestBridgeSourceParsesSupportedMessagesAndKeepsSDKFileIDInternal(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	source, err := NewBridgeSource(client, Scope{TenantID: 11, CorpID: 27}, "ww-local-acceptance")
+	source, err := NewBridgeSource(client, Scope{TenantID: 11, CorpID: 27}, "ww-local-acceptance", IntegrationModeSelfBuilt)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -146,7 +148,7 @@ func TestBridgeSourceParsesSupportedMessagesAndKeepsSDKFileIDInternal(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	if source.Kind() != providers.SourceExternal || source.SourceID() != "wecom:ww-local-acceptance" || source.Namespace() != "wecom:ww-local-acceptance" {
+	if source.Kind() != providers.SourceExternal || source.SourceID() != "wecom:self_built:ww-local-acceptance" || source.Namespace() != "wecom:self_built:ww-local-acceptance" {
 		t.Fatalf("source identity = %s/%s/%s", source.Kind(), source.SourceID(), source.Namespace())
 	}
 	if len(page.Messages) != 9 || page.NextCursor.Sequence != 49 || !page.HasMore {
@@ -195,7 +197,7 @@ func TestBridgeSourceFailsClosedOnScopeAuthCorpAndInvalidJSON(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			source, err := NewBridgeSource(client, Scope{TenantID: 11, CorpID: 27}, "ww-local-acceptance")
+			source, err := NewBridgeSource(client, Scope{TenantID: 11, CorpID: 27}, "ww-local-acceptance", IntegrationModeSelfBuilt)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -206,8 +208,69 @@ func TestBridgeSourceFailsClosedOnScopeAuthCorpAndInvalidJSON(t *testing.T) {
 		})
 	}
 	client, _ := NewBridgeArchiveClient("https://bridge.example", "MOCHAT-LOCAL-ACCEPTANCE-BEARER-0123456789", http.DefaultClient)
-	source, _ := NewBridgeSource(client, Scope{TenantID: 11, CorpID: 27}, "ww-local-acceptance")
+	source, _ := NewBridgeSource(client, Scope{TenantID: 11, CorpID: 27}, "ww-local-acceptance", IntegrationModeSelfBuilt)
 	if _, err := source.Fetch(context.Background(), Scope{TenantID: 12, CorpID: 27}, Cursor{}, 1); err == nil {
 		t.Fatal("scope mismatch unexpectedly succeeded")
+	}
+}
+
+func TestBridgeSourceParsesDelegatedComponentWithoutPlaintextOrMedia(t *testing.T) {
+	const bearer = "MOCHAT-LOCAL-ACCEPTANCE-BEARER-0123456789"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Fatal(err)
+		}
+		if request["integration_mode"] != IntegrationModeThirdPartyDelegated || request["tenant_id"] != float64(11) {
+			t.Fatalf("request=%#v", request)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"errcode":0,"messages":[{"seq":1,"msgid":"dz-1","msgtype":"voice","from":"a","tolist":["b"],"content_policy":"component","component_locator":{"msgid":"dz-1","public_key_ver":1,"encrypted_secret_key":"private-wrapped-key"}}]}`))
+	}))
+	defer server.Close()
+	client, err := NewBridgeArchiveClient(server.URL, bearer, server.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	source, err := NewBridgeSource(client, Scope{TenantID: 11, CorpID: 27}, "ww-delegated", IntegrationModeThirdPartyDelegated)
+	if err != nil {
+		t.Fatal(err)
+	}
+	page, err := source.Fetch(context.Background(), Scope{TenantID: 11, CorpID: 27}, Cursor{}, 10)
+	if err != nil || len(page.Messages) != 1 {
+		t.Fatalf("page=%#v err=%v", page, err)
+	}
+	message := page.Messages[0]
+	if message.ContentPolicy != ContentPolicyComponent || message.Component == nil || message.Component.EncryptedSecretKey != "private-wrapped-key" || message.ContentText != "" || len(message.Media) != 0 {
+		t.Fatalf("component message=%#v", message)
+	}
+	if strings.Contains(message.RawJSON, "private-wrapped-key") || strings.Contains(message.ContentRaw, "private-wrapped-key") {
+		t.Fatalf("component locator leaked: %#v", message)
+	}
+}
+
+func TestBridgeClientFetchesDelegatedComponentWithExactBinding(t *testing.T) {
+	const bearer = "MOCHAT-LOCAL-ACCEPTANCE-BEARER-0123456789"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var input map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+			t.Fatal(err)
+		}
+		if input["tenant_id"] != float64(11) || input["corp_id"] != float64(27) || input["integration_mode"] != IntegrationModeThirdPartyDelegated || input["encrypted_secret_key"] != "wrapped-key" {
+			t.Fatalf("component input=%#v", input)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"errcode":0,"msgtype":"voice","fileName":"message.wav","mimeType":"audio/wav","dataBase64":"Zml4dHVyZS1hdWRpbw=="}`))
+	}))
+	defer server.Close()
+	client, err := NewBridgeArchiveClient(server.URL, bearer, server.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	content, err := client.FetchComponent(context.Background(), ComponentRequest{
+		Scope: Scope{TenantID: 11, CorpID: 27}, WXCorpID: "ww-delegated", MessageID: "dz-1", PublicKeyVersion: 1, EncryptedSecretKey: "wrapped-key",
+	})
+	if err != nil || string(content.Data) != "fixture-audio" || content.MIMEType != "audio/wav" {
+		t.Fatalf("content=%#v err=%v", content, err)
 	}
 }

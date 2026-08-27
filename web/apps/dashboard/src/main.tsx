@@ -40,6 +40,7 @@ import { businessRouteCatalog } from './features/business-workbench/catalog';
 import { createDashboardOverviewApi } from './features/dashboard-overview/dashboard-overview-api';
 import { createConversationGlobalApi } from './features/conversation-global/conversation-global-api';
 import { ArchiveMediaClientProvider, createArchiveMediaClient } from './features/conversation-global/archive-media-client';
+import { ArchiveComponentClientProvider, createArchiveComponentClient } from './features/conversation-global/archive-component-client';
 import { createSensitiveWordApi } from './features/sensitive-word/sensitive-word-api';
 import { createRiskBehaviorApi } from './features/phase33/risk-behavior-api';
 import { createLeadApi } from './features/scrm/lead-api';
@@ -112,6 +113,7 @@ const businessWorkbenchApi = createBusinessWorkbenchApi(apiClient);
 const dashboardOverviewApi = createDashboardOverviewApi(apiClient);
 const conversationGlobalApi = createConversationGlobalApi(apiClient);
 const archiveMediaClient = createArchiveMediaClient(apiClient, window.location.origin);
+const archiveComponentClient = createArchiveComponentClient(apiClient, window.location.origin);
 const sensitiveWordApi = createSensitiveWordApi(apiClient);
 const riskBehaviorApi = createRiskBehaviorApi(apiClient);
 const leadApi = createLeadApi(apiClient);
@@ -225,13 +227,15 @@ const router = createDashboardRouter({
   },
   renderAccess: (_access, children) => (
     <ArchiveMediaClientProvider client={archiveMediaClient}>
-      <DashboardSessionActionsProvider
-        onLogout={performLogout}
-        userId={authStore.getSession()?.userId ?? null}
-        userName={authStore.getSession()?.userName ?? null}
-      >
-        {children}
-      </DashboardSessionActionsProvider>
+      <ArchiveComponentClientProvider client={archiveComponentClient}>
+        <DashboardSessionActionsProvider
+          onLogout={performLogout}
+          userId={authStore.getSession()?.userId ?? null}
+          userName={authStore.getSession()?.userName ?? null}
+        >
+          {children}
+        </DashboardSessionActionsProvider>
+      </ArchiveComponentClientProvider>
     </ArchiveMediaClientProvider>
   ),
   setSession: (session) => authStore.setSession(session),

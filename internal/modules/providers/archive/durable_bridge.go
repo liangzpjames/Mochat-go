@@ -9,8 +9,9 @@ import (
 )
 
 type DurableArchiveBinding struct {
-	Scope    Scope
-	WXCorpID string
+	Scope           Scope
+	WXCorpID        string
+	IntegrationMode string
 }
 
 type DurableArchivePendingRun struct {
@@ -60,7 +61,7 @@ func (r *DurableBridgeRunner) Enqueue(ctx context.Context, binding DurableArchiv
 	if requestID == "" || len(requestID) > 96 {
 		return SyncRun{}, errors.New("archive manual request id is invalid")
 	}
-	source, err := NewBridgeSource(r.client, binding.Scope, binding.WXCorpID)
+	source, err := NewBridgeSource(r.client, binding.Scope, binding.WXCorpID, binding.IntegrationMode)
 	if err != nil {
 		return SyncRun{}, err
 	}
@@ -115,7 +116,7 @@ func (r *DurableBridgeRunner) RunOnce(ctx context.Context) error {
 		if _, pendingForScope := processedScopes[binding.Scope]; pendingForScope {
 			continue
 		}
-		source, err := NewBridgeSource(r.client, binding.Scope, binding.WXCorpID)
+		source, err := NewBridgeSource(r.client, binding.Scope, binding.WXCorpID, binding.IntegrationMode)
 		if err != nil {
 			if firstErr == nil {
 				firstErr = err
@@ -138,7 +139,7 @@ func (r *DurableBridgeRunner) RunOnce(ctx context.Context) error {
 }
 
 func (r *DurableBridgeRunner) syncBinding(ctx context.Context, binding DurableArchiveBinding, cursor Cursor, key string) error {
-	source, err := NewBridgeSource(r.client, binding.Scope, binding.WXCorpID)
+	source, err := NewBridgeSource(r.client, binding.Scope, binding.WXCorpID, binding.IntegrationMode)
 	if err != nil {
 		return err
 	}

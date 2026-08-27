@@ -148,10 +148,10 @@ func TestDurableArchiveBindingsAndCursorStayTenantScoped(t *testing.T) {
 	}
 	defer db.Close()
 	store := NewMySQLStore(db)
-	mock.ExpectQuery("(?s)SELECT integration\\.tenant_id,integration\\.corp_id,integration\\.verified_wx_corpid.*INNER JOIN mc_tenant tenant.*tenant\\.status=1.*integration\\.status='active'.*integration\\.mode=binding\\.wecom_integration_mode.*integration\\.verified_at IS NOT NULL.*binding\\.status=2 AND binding\\.verified_at IS NOT NULL.*JSON_CONTAINS\\(integration\\.scope_json, JSON_QUOTE\\('archive\\.read'\\)\\).*JSON_LENGTH\\(integration\\.missing_capabilities_json\\) = 0").
-		WillReturnRows(sqlmock.NewRows([]string{"tenant_id", "corp_id", "verified_wx_corpid"}).AddRow(11, 27, "ww-local"))
+	mock.ExpectQuery("(?s)SELECT integration\\.tenant_id,integration\\.corp_id,integration\\.verified_wx_corpid,binding\\.wecom_integration_mode.*INNER JOIN mc_tenant tenant.*tenant\\.status=1.*integration\\.status='active'.*integration\\.mode=binding\\.wecom_integration_mode.*integration\\.verified_at IS NOT NULL.*binding\\.status=2 AND binding\\.verified_at IS NOT NULL.*JSON_CONTAINS\\(integration\\.scope_json, JSON_QUOTE\\('archive\\.read'\\)\\).*JSON_LENGTH\\(integration\\.missing_capabilities_json\\) = 0").
+		WillReturnRows(sqlmock.NewRows([]string{"tenant_id", "corp_id", "verified_wx_corpid", "wecom_integration_mode"}).AddRow(11, 27, "ww-local", archiveprovider.IntegrationModeSelfBuilt))
 	bindings, err := store.DurableArchiveBindings(context.Background())
-	if err != nil || len(bindings) != 1 || bindings[0].Scope.TenantID != 11 || bindings[0].Scope.CorpID != 27 || bindings[0].WXCorpID != "ww-local" {
+	if err != nil || len(bindings) != 1 || bindings[0].Scope.TenantID != 11 || bindings[0].Scope.CorpID != 27 || bindings[0].WXCorpID != "ww-local" || bindings[0].IntegrationMode != archiveprovider.IntegrationModeSelfBuilt {
 		t.Fatalf("bindings=%#v err=%v", bindings, err)
 	}
 	mock.ExpectQuery("SELECT cursor_sequence,cursor_token").WithArgs(int64(11), int64(27), "wecom:ww-local").

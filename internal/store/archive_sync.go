@@ -147,7 +147,7 @@ func (s *MySQLStore) DurableArchiveBindings(ctx context.Context) ([]archiveprovi
 		return nil, errors.New("archive sync store unavailable")
 	}
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT integration.tenant_id,integration.corp_id,integration.verified_wx_corpid
+		SELECT integration.tenant_id,integration.corp_id,integration.verified_wx_corpid,binding.wecom_integration_mode
 		FROM mochat_go_wecom_integrations integration
 		INNER JOIN mc_tenant tenant ON tenant.id=integration.tenant_id AND tenant.status=1 AND tenant.deleted_at IS NULL
 		INNER JOIN mc_corp corp ON corp.tenant_id=integration.tenant_id AND corp.id=integration.corp_id AND corp.deleted_at IS NULL
@@ -162,7 +162,7 @@ func (s *MySQLStore) DurableArchiveBindings(ctx context.Context) ([]archiveprovi
 	result := make([]archiveprovider.DurableArchiveBinding, 0)
 	for rows.Next() {
 		var item archiveprovider.DurableArchiveBinding
-		if err := rows.Scan(&item.Scope.TenantID, &item.Scope.CorpID, &item.WXCorpID); err != nil {
+		if err := rows.Scan(&item.Scope.TenantID, &item.Scope.CorpID, &item.WXCorpID, &item.IntegrationMode); err != nil {
 			return nil, err
 		}
 		result = append(result, item)
@@ -176,7 +176,7 @@ func (s *MySQLStore) DurableArchiveBindingForScope(ctx context.Context, scope ar
 	}
 	var binding archiveprovider.DurableArchiveBinding
 	err := s.db.QueryRowContext(ctx, `
-		SELECT integration.tenant_id,integration.corp_id,integration.verified_wx_corpid
+		SELECT integration.tenant_id,integration.corp_id,integration.verified_wx_corpid,binding.wecom_integration_mode
 		FROM mochat_go_wecom_integrations integration
 		INNER JOIN mc_tenant tenant ON tenant.id=integration.tenant_id AND tenant.status=1 AND tenant.deleted_at IS NULL
 		INNER JOIN mc_corp corp ON corp.tenant_id=integration.tenant_id AND corp.id=integration.corp_id AND corp.deleted_at IS NULL
@@ -184,7 +184,7 @@ func (s *MySQLStore) DurableArchiveBindingForScope(ctx context.Context, scope ar
 		WHERE `+durableArchiveEligibilityPredicate+`
 		  AND integration.tenant_id=? AND integration.corp_id=?
 		LIMIT 1
-	`, scope.TenantID, scope.CorpID).Scan(&binding.Scope.TenantID, &binding.Scope.CorpID, &binding.WXCorpID)
+	`, scope.TenantID, scope.CorpID).Scan(&binding.Scope.TenantID, &binding.Scope.CorpID, &binding.WXCorpID, &binding.IntegrationMode)
 	if errors.Is(err, sql.ErrNoRows) {
 		return archiveprovider.DurableArchiveBinding{}, false, nil
 	}
@@ -202,7 +202,7 @@ func (s *MySQLStore) PendingDurableArchiveRuns(ctx context.Context, limit int) (
 		limit = 100
 	}
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT run.tenant_id,run.corp_id,integration.verified_wx_corpid,
+		SELECT run.tenant_id,run.corp_id,integration.verified_wx_corpid,binding.wecom_integration_mode,
 		       run.cursor_sequence,run.cursor_token,run.idempotency_key
 		FROM mochat_go_archive_sync_runs run
 		INNER JOIN mochat_go_wecom_integrations integration
@@ -212,7 +212,7 @@ func (s *MySQLStore) PendingDurableArchiveRuns(ctx context.Context, limit int) (
 		INNER JOIN mochat_go_tenant_corp_bindings binding ON binding.tenant_id=integration.tenant_id AND binding.corp_id=integration.corp_id
 		WHERE `+durableArchiveEligibilityPredicate+`
 		  AND run.source_kind='external'
-		  AND run.source_id=CONCAT('wecom:',integration.verified_wx_corpid)
+		  AND run.source_id=CONCAT('wecom:',binding.wecom_integration_mode,':',integration.verified_wx_corpid)
 		  AND run.namespace=run.source_id
 		  AND (run.status='queued' OR (run.status='running' AND run.lease_expires_at IS NOT NULL AND run.lease_expires_at<=NOW()))
 		ORDER BY run.updated_at,run.id
@@ -226,7 +226,7 @@ func (s *MySQLStore) PendingDurableArchiveRuns(ctx context.Context, limit int) (
 	for rows.Next() {
 		var item archiveprovider.DurableArchivePendingRun
 		if err := rows.Scan(
-			&item.Binding.Scope.TenantID, &item.Binding.Scope.CorpID, &item.Binding.WXCorpID,
+			&item.Binding.Scope.TenantID, &item.Binding.Scope.CorpID, &item.Binding.WXCorpID, &item.Binding.IntegrationMode,
 			&item.Cursor.Sequence, &item.Cursor.Token, &item.IdempotencyKey,
 		); err != nil {
 			return nil, err
@@ -353,6 +353,9 @@ func (s *MySQLStore) UpsertArchiveMessage(ctx context.Context, runID string, att
 		return archiveprovider.UpsertResult{}, errors.New("archive message participants unresolved")
 	}
 	if err = upsertArchiveMediaTx(ctx, tx, s.weComCredentialCipher, scope, message); err != nil {
+		return archiveprovider.UpsertResult{}, err
+	}
+	if err = upsertArchiveComponentTx(ctx, tx, s.weComCredentialCipher, scope, message); err != nil {
 		return archiveprovider.UpsertResult{}, err
 	}
 	if err = tx.Commit(); err != nil {

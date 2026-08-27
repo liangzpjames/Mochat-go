@@ -50,6 +50,24 @@ type companyProfileWeComVerifier struct {
 	client *dashboard.RoomWelcomeWeComClient
 }
 
+type dashboardArchiveComponentBridge struct {
+	client *archiveprovider.BridgeArchiveClient
+}
+
+func (bridge dashboardArchiveComponentBridge) FetchArchiveComponent(ctx context.Context, object dashboard.ArchiveComponentObject) (dashboard.ArchiveComponentContent, error) {
+	if bridge.client == nil {
+		return dashboard.ArchiveComponentContent{}, fmt.Errorf("archive component bridge is unavailable")
+	}
+	content, err := bridge.client.FetchComponent(ctx, archiveprovider.ComponentRequest{
+		Scope: archiveprovider.Scope{TenantID: int64(object.TenantID), CorpID: int64(object.CorpID)}, WXCorpID: object.WXCorpID,
+		MessageID: object.MessageID, PublicKeyVersion: object.PublicKeyVersion, EncryptedSecretKey: object.EncryptedSecretKey,
+	})
+	if err != nil {
+		return dashboard.ArchiveComponentContent{}, err
+	}
+	return dashboard.ArchiveComponentContent{Type: content.Type, MIMEType: content.MIMEType, FileName: content.FileName, Body: content.Data}, nil
+}
+
 func (v companyProfileWeComVerifier) Verify(ctx context.Context, request companyprofile.VerificationRequest) (companyprofile.VerificationResult, error) {
 	if v.client == nil || request.TenantID <= 0 || request.CorpID <= 0 || strings.TrimSpace(request.WXCorpID) == "" {
 		return companyprofile.VerificationResult{}, fmt.Errorf("company verification provider is not configured")
@@ -1779,6 +1797,14 @@ func main() {
 		mysqlStore := getMySQLStore()
 		resolver, loginCache := buildUserResolver("autoTagDashboard")
 		autoTag := dashboard.NewAutoTagHandler(mysqlStore, loginCache, resolver, dashboard.NewRBACResolver(mysqlStore))
+		var archiveComponentHandler http.Handler
+		if cfg.EnableDurableWorkMessageArchive {
+			componentBridgeClient, componentBridgeErr := archiveprovider.NewBridgeArchiveClient(cfg.WorkMessageArchiveBridgeBaseURL, cfg.WorkMessageArchiveBridgeToken, nil)
+			if componentBridgeErr != nil {
+				log.Fatalf("build Dashboard archive component bridge: %v", componentBridgeErr)
+			}
+			archiveComponentHandler = dashboard.NewArchiveComponentHandler(mysqlStore, dashboardArchiveComponentBridge{client: componentBridgeClient})
+		}
 		riskBehavior := dashboard.NewRiskBehaviorHandler(mysqlStore, loginCache, resolver, dashboard.NewRBACResolver(mysqlStore)).WithScannerEnabled(false)
 		timeoutWarning := dashboard.NewTimeoutWarningHandler(mysqlStore, loginCache, resolver, dashboard.NewRBACResolver(mysqlStore))
 		messageIntercept := dashboard.NewMessageInterceptHandler(mysqlStore, loginCache, resolver, dashboard.NewRBACResolver(mysqlStore))
@@ -1869,6 +1895,9 @@ func main() {
 			compatserver.WithWorkMessageConfigStepCreateHandler(http.HandlerFunc(autoTag.WorkMessageConfigStepCreate)),
 			compatserver.WithWorkMessageConfigStepUpdateHandler(http.HandlerFunc(autoTag.WorkMessageConfigStepUpdate)),
 		)
+		if archiveComponentHandler != nil {
+			options = append(options, compatserver.WithArchiveComponentHandler(archiveComponentHandler))
+		}
 		log.Printf("go migrated route enabled: POST /dashboard/autoTag/store")
 		log.Printf("go migrated route enabled: GET /dashboard/autoTag/index")
 		log.Printf("go migrated route enabled: DELETE /dashboard/autoTag/destroy")

@@ -290,7 +290,7 @@ func seed(ctx context.Context, output io.Writer, values options) error {
 	if err != nil {
 		return err
 	}
-	source, err := archiveprovider.NewBridgeSource(client, archiveprovider.Scope{TenantID: acceptanceTenant, CorpID: acceptanceCorp}, acceptanceWXCorp)
+	source, err := archiveprovider.NewBridgeSource(client, archiveprovider.Scope{TenantID: acceptanceTenant, CorpID: acceptanceCorp}, acceptanceWXCorp, archiveprovider.IntegrationModeSelfBuilt)
 	if err != nil {
 		return err
 	}

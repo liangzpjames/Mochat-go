@@ -19,7 +19,7 @@ func TestDurableBridgeRunnerUsesAuthoritativeCursorAndStableIdempotency(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	store := &durableBridgeTestStore{syncTestStore: newSyncTestStore(), cursor: Cursor{Sequence: 41}, bindings: []DurableArchiveBinding{{Scope: Scope{TenantID: 11, CorpID: 27}, WXCorpID: "ww-local"}}}
+	store := &durableBridgeTestStore{syncTestStore: newSyncTestStore(), cursor: Cursor{Sequence: 41}, bindings: []DurableArchiveBinding{{Scope: Scope{TenantID: 11, CorpID: 27}, WXCorpID: "ww-local", IntegrationMode: IntegrationModeSelfBuilt}}}
 	runner := NewDurableBridgeRunner(store, client, 10).WithClock(func() time.Time {
 		return time.Date(2026, 8, 27, 12, 34, 10, 0, time.UTC)
 	})
@@ -29,7 +29,7 @@ func TestDurableBridgeRunnerUsesAuthoritativeCursorAndStableIdempotency(t *testi
 	if len(store.upserts) != 1 || store.upserts[0].Seq != 42 {
 		t.Fatalf("upserts=%#v", store.upserts)
 	}
-	wantKey := "archive:poll:11:27:wecom:ww-local:41:202608271234"
+	wantKey := "archive:poll:11:27:wecom:self_built:ww-local:41:202608271234"
 	if store.lastTemplate.IdempotencyKey != wantKey || store.lastTemplate.Cursor.Sequence != 41 {
 		t.Fatalf("template=%#v want key=%q", store.lastTemplate, wantKey)
 	}
@@ -49,7 +49,7 @@ func TestDurableBridgeRunnerEnqueuesManualRunWithoutCallingBridge(t *testing.T) 
 	}
 	store := &durableBridgeTestStore{syncTestStore: newSyncTestStore(), cursor: Cursor{Sequence: 41}}
 	run, err := NewDurableBridgeRunner(store, client, 10).Enqueue(context.Background(), DurableArchiveBinding{
-		Scope: Scope{TenantID: 11, CorpID: 27}, WXCorpID: "ww-local",
+		Scope: Scope{TenantID: 11, CorpID: 27}, WXCorpID: "ww-local", IntegrationMode: IntegrationModeSelfBuilt,
 	}, "manual-abc-123")
 	if err != nil {
 		t.Fatal(err)
@@ -71,9 +71,9 @@ func TestDurableBridgeRunnerProcessesPendingManualRunBeforePolling(t *testing.T)
 	}
 	store := &durableBridgeTestStore{
 		syncTestStore: newSyncTestStore(), cursor: Cursor{Sequence: 41},
-		bindings: []DurableArchiveBinding{{Scope: Scope{TenantID: 11, CorpID: 27}, WXCorpID: "ww-local"}},
+		bindings: []DurableArchiveBinding{{Scope: Scope{TenantID: 11, CorpID: 27}, WXCorpID: "ww-local", IntegrationMode: IntegrationModeSelfBuilt}},
 		pending: []DurableArchivePendingRun{{
-			Binding: DurableArchiveBinding{Scope: Scope{TenantID: 11, CorpID: 27}, WXCorpID: "ww-local"},
+			Binding: DurableArchiveBinding{Scope: Scope{TenantID: 11, CorpID: 27}, WXCorpID: "ww-local", IntegrationMode: IntegrationModeSelfBuilt},
 			Cursor:  Cursor{Sequence: 41}, IdempotencyKey: "archive:manual:manual-abc-123",
 		}},
 	}

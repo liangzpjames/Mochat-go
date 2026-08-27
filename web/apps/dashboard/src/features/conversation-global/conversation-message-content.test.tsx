@@ -3,6 +3,7 @@ import { ApiError } from '@mochat/api-client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ArchiveMediaClientProvider, type ArchiveMediaClient } from './archive-media-client';
+import { ArchiveComponentClientProvider, type ArchiveComponentClient } from './archive-component-client';
 import { ConversationMessageContent } from './conversation-message-content';
 
 const objectURL = vi.fn<(blob: Blob) => string>();
@@ -150,5 +151,31 @@ describe('ConversationMessageContent', () => {
     render(<ConversationMessageContent type={2} content={{ media: { id: 'image-id', type: 'image', name: '图.png', mimeType: 'image/png', size: 1, status: 'ready', url: '/\\attacker.example/image.png' } }} />);
     expect(screen.getByRole('alert').textContent).toContain('媒体暂不可用');
     expect(screen.queryByRole('img')).toBeNull();
+  });
+
+  it('opens delegated application content through a one-time authorized session', async () => {
+    const componentID = '485c9770-9d8d-4e48-a890-984771b60515';
+    const sessionUrl = `/dashboard/archive/components/session/${'b'.repeat(43)}`;
+    const createSession = vi.fn<ArchiveComponentClient['createSession']>().mockResolvedValue({ sessionUrl, expiresIn: 60 });
+    const content = {
+      contentPolicy: 'component',
+      component: { id: componentID, available: true, sessionUrl: `/dashboard/archive/components/${componentID}/session` },
+      encryptedSecretKey: 'must-never-render',
+    };
+    render(<ArchiveComponentClientProvider client={{ createSession }}><ConversationMessageContent type={100} content={content} /></ArchiveComponentClientProvider>);
+    expect(document.body.textContent).not.toContain('must-never-render');
+    fireEvent.click(screen.getByRole('button', { name: '安全查看会话内容' }));
+    expect(screen.getByRole('status').textContent).toContain('会话内容加载中');
+    const frame = await screen.findByTitle('会话内容安全预览');
+    expect(frame.getAttribute('src')).toBe(sessionUrl);
+    expect(createSession).toHaveBeenCalledWith(`/dashboard/archive/components/${componentID}/session`);
+  });
+
+  it('shows a plain-language unavailable state for delegated content', () => {
+    render(<ConversationMessageContent type={100} content={{ contentPolicy: 'component', component: {
+      id: '485c9770-9d8d-4e48-a890-984771b60515', available: false,
+      sessionUrl: '/dashboard/archive/components/485c9770-9d8d-4e48-a890-984771b60515/session',
+    } }} />);
+    expect(screen.getByRole('alert').textContent).toContain('会话内容暂不可查看');
   });
 });

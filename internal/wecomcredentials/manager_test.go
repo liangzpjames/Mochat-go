@@ -101,6 +101,31 @@ func TestArchiveMediaCredentialIsTenantAndObjectBound(t *testing.T) {
 	}
 }
 
+func TestArchiveComponentCredentialIsTenantAndObjectBound(t *testing.T) {
+	manager, err := NewManager(Config{EncryptionKey: testKey(5), EncryptionKeyID: "wecom-v1", RequireEncryption: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	value := ArchiveComponentCredential{MessageID: "dz-msg-1", PublicKeyVersion: 1, EncryptedSecretKey: "wrapped-private-key"}
+	ciphertext, keyID, err := manager.EncryptArchiveComponent(7, "component-object", value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(ciphertext, value.EncryptedSecretKey) {
+		t.Fatal("archive component locator leaked in ciphertext envelope")
+	}
+	got, err := manager.DecryptArchiveComponent(7, "component-object", keyID, ciphertext)
+	if err != nil || got != value {
+		t.Fatalf("component credential=%#v err=%v", got, err)
+	}
+	if _, err := manager.DecryptArchiveComponent(8, "component-object", keyID, ciphertext); err == nil {
+		t.Fatal("cross-tenant component decrypt unexpectedly succeeded")
+	}
+	if _, err := manager.DecryptArchiveComponent(7, "other-object", keyID, ciphertext); err == nil {
+		t.Fatal("cross-object component decrypt unexpectedly succeeded")
+	}
+}
+
 func TestManagerReadsHistoricalKeyAndWritesActiveKey(t *testing.T) {
 	ring := `{"wecom-v1":"` + testKey(1) + `","wecom-v2":"` + testKey(2) + `"}`
 	oldManager, err := NewManager(Config{EncryptionKeys: ring, EncryptionKeyID: "wecom-v1"})

@@ -64,6 +64,14 @@ type ArchiveMediaCredential struct {
 	SDKFileID string `json:"sdkFileId"`
 }
 
+// ArchiveComponentCredential protects the data-zone display locator. It is
+// decrypted only by the authenticated component-session endpoint.
+type ArchiveComponentCredential struct {
+	MessageID          string `json:"messageId"`
+	PublicKeyVersion   uint32 `json:"publicKeyVersion"`
+	EncryptedSecretKey string `json:"encryptedSecretKey"`
+}
+
 type ConfigStatus struct {
 	EncryptionConfigured bool   `json:"encryptionConfigured"`
 	RequireEncryption    bool   `json:"requireEncryption"`
@@ -204,6 +212,28 @@ func (m *Manager) DecryptArchiveMedia(tenantID int, mediaObjectID, keyID, cipher
 	credential.SDKFileID = strings.TrimSpace(credential.SDKFileID)
 	if credential.SDKFileID == "" {
 		return ArchiveMediaCredential{}, errors.New("archive media SDK file id is missing")
+	}
+	return credential, nil
+}
+
+func (m *Manager) EncryptArchiveComponent(tenantID int, objectID string, value ArchiveComponentCredential) (ciphertext, keyID string, err error) {
+	value.MessageID = strings.TrimSpace(value.MessageID)
+	value.EncryptedSecretKey = strings.TrimSpace(value.EncryptedSecretKey)
+	if value.MessageID == "" || value.PublicKeyVersion == 0 || value.EncryptedSecretKey == "" {
+		return "", "", errors.New("archive component locator is invalid")
+	}
+	return m.encrypt("archive_component", tenantID, objectID, value)
+}
+
+func (m *Manager) DecryptArchiveComponent(tenantID int, objectID, keyID, ciphertext string) (ArchiveComponentCredential, error) {
+	var credential ArchiveComponentCredential
+	if err := m.decrypt("archive_component", tenantID, objectID, keyID, ciphertext, &credential); err != nil {
+		return ArchiveComponentCredential{}, err
+	}
+	credential.MessageID = strings.TrimSpace(credential.MessageID)
+	credential.EncryptedSecretKey = strings.TrimSpace(credential.EncryptedSecretKey)
+	if credential.MessageID == "" || credential.PublicKeyVersion == 0 || credential.EncryptedSecretKey == "" {
+		return ArchiveComponentCredential{}, errors.New("archive component locator is missing")
 	}
 	return credential, nil
 }

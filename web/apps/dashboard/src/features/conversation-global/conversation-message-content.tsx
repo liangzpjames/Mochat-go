@@ -2,11 +2,13 @@ import { useEffect, useRef, useState } from 'react';
 import { ApiError } from '@mochat/api-client';
 
 import { useArchiveMediaClient } from './archive-media-client';
+import { useArchiveComponentClient } from './archive-component-client';
 
 type Props = { type: number; content: Record<string, unknown> };
 
 type MediaState = 'pending' | 'fetching' | 'ready' | 'failed' | 'missing' | 'corrupt';
 type MessageMedia = { id: string; type: string; name: string; mimeType: string; size: number; status: MediaState; url?: string };
+type MessageComponent = { id: string; available: boolean; sessionUrl: string };
 
 function textValue(content: Record<string, unknown>, ...keys: string[]): string {
   for (const key of keys) {
@@ -53,6 +55,47 @@ function parseMessageMedia(value: unknown): MessageMedia | null {
 function messageMediaItems(content: Record<string, unknown>): MessageMedia[] {
   if (!Array.isArray(content.mediaItems)) return [];
   return content.mediaItems.map(parseMessageMedia).filter((value): value is MessageMedia => value !== null);
+}
+
+function messageComponent(content: Record<string, unknown>): MessageComponent | null {
+  if (content.contentPolicy !== 'component' || content.component === null || typeof content.component !== 'object' || Array.isArray(content.component)) return null;
+  const component = content.component as Record<string, unknown>;
+  if (typeof component.id !== 'string' || typeof component.available !== 'boolean' || typeof component.sessionUrl !== 'string') return null;
+  const expected = `/dashboard/archive/components/${component.id}/session`;
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(component.id) || component.sessionUrl !== expected) return null;
+  return { id: component.id, available: component.available, sessionUrl: expected };
+}
+
+function ArchiveComponentView({ component }: { component: MessageComponent }) {
+  const client = useArchiveComponentClient();
+  const [state, setState] = useState<'idle' | 'loading' | 'ready' | 'error' | 'unauthorized'>('idle');
+  const [sessionUrl, setSessionUrl] = useState('');
+  if (!component.available) return <span role="alert">会话内容暂不可查看</span>;
+  const open = async () => {
+    if (state === 'loading') return;
+    if (client === null) {
+      setState('error');
+      return;
+    }
+    setState('loading');
+    try {
+      const session = await client.createSession(component.sessionUrl);
+      setSessionUrl(session.sessionUrl);
+      setState('ready');
+    } catch (error) {
+      setState(isUnauthorized(error) ? 'unauthorized' : 'error');
+    }
+  };
+  if (state === 'ready') return <section aria-label="会话内容预览">
+    <iframe src={sessionUrl} title="会话内容安全预览" />
+    <button onClick={() => { setSessionUrl(''); setState('idle'); }} type="button">关闭预览</button>
+  </section>;
+  return <span>
+    <button disabled={state === 'loading'} onClick={() => void open()} type="button">安全查看会话内容</button>
+    {state === 'loading' ? <span aria-live="polite" role="status">会话内容加载中</span> : null}
+    {state === 'unauthorized' ? <span role="alert">登录状态已失效，请重新登录后重试</span> : null}
+    {state === 'error' ? <span role="alert">会话内容加载失败，请重试</span> : null}
+  </span>;
 }
 
 type PreviewState =
@@ -191,6 +234,8 @@ function MediaStateView({ media }: { media: MessageMedia }) {
 }
 
 export function ConversationMessageContent({ type, content }: Props) {
+  const component = messageComponent(content);
+  if (component !== null) return <ArchiveComponentView component={component} />;
   const mediaItems = messageMediaItems(content);
   if (mediaItems.length > 1) return <div className="conversation-message-media-list">
     {mediaItems.map((item) => <MediaStateView key={item.id} media={item} />)}
