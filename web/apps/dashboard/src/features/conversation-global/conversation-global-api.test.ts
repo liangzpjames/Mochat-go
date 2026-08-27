@@ -3,6 +3,16 @@ import { describe, expect, it, vi } from 'vitest';
 import { createConversationGlobalApi } from './conversation-global-api';
 
 describe('createConversationGlobalApi', () => {
+  it('使用当前鉴权企业的会话同步合同', async () => {
+    const response = { status: 'queued', available: true, fetched: 0, processed: 0, skipped: 0, failed: 0 };
+    const request = vi.fn<() => Promise<unknown>>().mockResolvedValue(response);
+    const api = createConversationGlobalApi({ request });
+
+    await expect(api.getArchiveSyncStatus!()).resolves.toEqual(response);
+    await expect(api.startArchiveSync!({ requestId: 'archive-sync-1' })).resolves.toEqual(response);
+    expect(request).toHaveBeenNthCalledWith(1, '/company/archive-sync-status');
+    expect(request).toHaveBeenNthCalledWith(2, '/company/archive-sync', expect.objectContaining({ method: 'POST', body: '{"requestId":"archive-sync-1"}' }));
+  });
   it('loads the real group conversation workspace contracts with fixed page sizes', async () => {
     const room = {
       id: 71, externalId: 'wr_71', name: '星河客户群', avatar: '', ownerId: 9, ownerName: '张三',

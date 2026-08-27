@@ -6,6 +6,7 @@ describe('dashboard access administration API', () => {
   it('uses only /access endpoints and sends expectedVersion on mutations', async () => {
     const request = vi.fn((path: RequestInfo | URL, init?: RequestInit) => Promise.resolve({ path, init }));
     const api = createDashboardAccessAdminApi({ request });
+    await api.employeeSync();
     await api.employees({ page: 1, perPage: 50 });
     await api.provisionEmployeeAccount(4, {
       loginIdentifier: '13800000004',
@@ -20,17 +21,18 @@ describe('dashboard access administration API', () => {
     await api.updateRoleStatus(2, { status: 2, expectedVersion: 5 });
     await api.deleteRole(2, 6);
     expect(request.mock.calls.map(([path]) => typeof path === 'string' ? path : path.toString())).toEqual([
-      '/access/employees?page=1&perPage=50', '/access/employees/4/account',
+      '/company/employee-sync', '/access/employees?page=1&perPage=50', '/access/employees/4/account',
       '/access/employees/4/account/status', '/access/employees/4/account/reset-password',
       '/access/users?page=1&perPage=20', '/access/users/7', '/access/roles',
       '/access/roles/2/status', '/access/roles/2',
     ]);
-    expect(request.mock.calls[1]?.[1]).toMatchObject({ method: 'POST' });
-    expect(JSON.parse(String(request.mock.calls[1]?.[1]?.body))).toEqual({
+    expect(request.mock.calls[0]?.[1]).toMatchObject({ method: 'POST' });
+    expect(request.mock.calls[2]?.[1]).toMatchObject({ method: 'POST' });
+    expect(JSON.parse(String(request.mock.calls[2]?.[1]?.body))).toEqual({
       loginIdentifier: '13800000004',
       roleIds: [2],
       directPermissions: [{ code: 'dashboard.index', scope: 'self' }],
     });
-    expect(request.mock.calls[2]?.[1]).toMatchObject({ method: 'PUT' });
+    expect(request.mock.calls[3]?.[1]).toMatchObject({ method: 'PUT' });
   });
 });

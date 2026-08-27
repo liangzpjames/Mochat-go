@@ -41,6 +41,25 @@ func TestSyncServicePersistsLifecycleCountsCursorAndIdempotency(t *testing.T) {
 	}
 }
 
+func TestSyncServiceEnqueuePersistsQueuedRunWithoutFetchingSource(t *testing.T) {
+	source := &syncTestSource{pages: []Page{{Messages: []Message{
+		syncTestMessage(sourceKindSimulated, "simulation:run-1", "MOCHAT-SIM:run-1", 1, "one"),
+	}}}}
+	store := newSyncTestStore()
+	run, err := NewSyncService(store).Enqueue(context.Background(), source, SyncRequest{
+		Scope: Scope{TenantID: 11, CorpID: 27}, IdempotencyKey: "manual-request-1", Limit: 10,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.Status != SyncStatusQueued || source.calls != 0 {
+		t.Fatalf("run=%#v fetch calls=%d", run, source.calls)
+	}
+	if len(store.lifecycle) != 1 || store.lifecycle[0] != SyncStatusQueued {
+		t.Fatalf("lifecycle=%v", store.lifecycle)
+	}
+}
+
 func TestSyncServiceFailureIsStableAndRetryReusesScopeAndAudit(t *testing.T) {
 	source := &syncTestSource{
 		status: providers.Status{Source: providers.SourceExternal, Code: "archive.getchatdata_unimplemented", State: providers.StateLimited},

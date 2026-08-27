@@ -209,7 +209,8 @@ func isPendingCompanyConfigurationContract(contract string) bool {
 		"PUT /dashboard/company/application-credentials", "PUT /dashboard/company/archive-credentials",
 		"GET /dashboard/company/callback-configuration", "POST /dashboard/company/callback-configuration/regenerate",
 		"POST /dashboard/company/verify",
-		"GET /dashboard/company/audits", "GET /dashboard/providers/status", "GET /dashboard/company/sync-status":
+		"GET /dashboard/company/audits", "GET /dashboard/providers/status", "GET /dashboard/company/sync-status",
+		"GET /dashboard/company/archive-sync-status":
 		return true
 	default:
 		return false
@@ -217,7 +218,7 @@ func isPendingCompanyConfigurationContract(contract string) bool {
 }
 
 func isPendingCompanySyncContract(contract string) bool {
-	return contract == "POST /dashboard/company/employee-sync"
+	return contract == "POST /dashboard/company/employee-sync" || contract == "POST /dashboard/company/archive-sync"
 }
 
 func isDashboardAccessManagementRoute(contract string) bool {

@@ -138,6 +138,13 @@ export async function runCompletionGate(root = process.cwd()) {
       'utf8',
     ),
   });
+  const archiveSyncMappings = applyPermissionResourceReconciliation({
+    mappings: seededMappings,
+    overlaySource: await readFile(
+      path.join(root, 'deploy/standalone/migrations/0168_company_archive_sync_rbac.up.sql'),
+      'utf8',
+    ),
+  });
   const frontend = await scanFrontendAPIUsages();
   const backend = (await scanBackendRegisteredAPIs()).filter((route) => {
     const routePath = route.contract.slice(route.contract.indexOf(' ') + 1);
@@ -154,7 +161,7 @@ export async function runCompletionGate(root = process.cwd()) {
     registeredSources: new Map(backend.map((route) => [route.contract, `${route.file}:${route.line}`])),
     exemptions: routePolicy.exactExempt,
     denyOnly: routePolicy.denyOnly,
-    seededMappings,
+    seededMappings: archiveSyncMappings,
   });
   const output = `${result.pageCount} pages, ${result.ordinaryPageCount} ordinary, ${result.superadminOnlyCount} superadmin_only, ${result.unmappedAPIUsageCount} unmapped dashboard API usages`;
   const [packageJSON, e2eSource, smokeSource] = await Promise.all([

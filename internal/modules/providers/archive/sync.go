@@ -88,6 +88,17 @@ func (s *SyncService) WithClock(now func() time.Time) *SyncService {
 }
 
 func (s *SyncService) Sync(ctx context.Context, source ArchiveSource, request SyncRequest) (SyncRun, error) {
+	run, err := s.Enqueue(ctx, source, request)
+	if err != nil {
+		return run, err
+	}
+	return s.execute(ctx, source, request, run)
+}
+
+// Enqueue persists an archive run without performing any provider I/O. It is
+// the request-side boundary used by manual synchronization; a durable worker
+// later calls Sync with the same identity to claim and execute the queued run.
+func (s *SyncService) Enqueue(ctx context.Context, source ArchiveSource, request SyncRequest) (SyncRun, error) {
 	if s == nil || s.store == nil {
 		return SyncRun{}, newSyncError("archive.persistence_unavailable", nil)
 	}
@@ -102,6 +113,10 @@ func (s *SyncService) Sync(ctx context.Context, source ArchiveSource, request Sy
 	if err != nil {
 		return run, newSyncError("archive.persistence_failed", err)
 	}
+	return run, nil
+}
+
+func (s *SyncService) execute(ctx context.Context, source ArchiveSource, request SyncRequest, run SyncRun) (SyncRun, error) {
 	if run.Status == SyncStatusSucceeded {
 		run.Idempotent = true
 		return run, nil
@@ -117,6 +132,7 @@ func (s *SyncService) Sync(ctx context.Context, source ArchiveSource, request Sy
 	}
 
 	now := s.now()
+	var err error
 	run, err = s.store.MarkArchiveSyncRunning(ctx, run.ID, now)
 	if err != nil {
 		return run, newSyncError("archive.persistence_failed", err)

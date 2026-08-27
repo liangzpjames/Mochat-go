@@ -111,6 +111,17 @@ func (h *HTTPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodGet && r.URL.Path == "/dashboard/company/sync-status":
 		status, callErr := h.service.GetSyncStatus(r.Context(), principal)
 		h.writeCallResult(w, status, callErr)
+	case r.Method == http.MethodPost && r.URL.Path == "/dashboard/company/archive-sync":
+		var input ArchiveSyncInput
+		if !decodeJSON(r, &input) {
+			writeEnvelope(w, http.StatusBadRequest, CodeInvalidRequest, "invalid request", nil)
+			return
+		}
+		status, callErr := h.service.StartArchiveSync(r.Context(), principal, input)
+		h.writeCallResult(w, status, callErr)
+	case r.Method == http.MethodGet && r.URL.Path == "/dashboard/company/archive-sync-status":
+		status, callErr := h.service.GetArchiveSyncStatus(r.Context(), principal)
+		h.writeCallResult(w, status, callErr)
 	case r.Method == http.MethodGet && r.URL.Path == "/dashboard/company/audits":
 		page, callErr := h.service.ListAudits(r.Context(), principal, auditFilterFromQuery(r.URL.Query()))
 		h.writeCallResult(w, page, callErr)

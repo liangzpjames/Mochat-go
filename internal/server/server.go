@@ -4637,6 +4637,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.companyProfile.ServeHTTP(w, r)
 	case s.companyProfile != nil && r.URL.Path == "/dashboard/company/sync-status" && r.Method == http.MethodGet:
 		s.companyProfile.ServeHTTP(w, r)
+	case s.companyProfile != nil && r.URL.Path == "/dashboard/company/archive-sync" && r.Method == http.MethodPost:
+		s.companyProfile.ServeHTTP(w, r)
+	case s.companyProfile != nil && r.URL.Path == "/dashboard/company/archive-sync-status" && r.Method == http.MethodGet:
+		s.companyProfile.ServeHTTP(w, r)
 	case s.companyProfile != nil && r.URL.Path == "/dashboard/company/audits" && r.Method == http.MethodGet:
 		s.companyProfile.ServeHTTP(w, r)
 	case s.providerStatus != nil && r.URL.Path == "/dashboard/providers/status" && r.Method == http.MethodGet:
@@ -6205,6 +6209,8 @@ func (s *Server) migratedRoutes() []string {
 			"POST /dashboard/company/verify",
 			"POST /dashboard/company/employee-sync",
 			"GET /dashboard/company/sync-status",
+			"POST /dashboard/company/archive-sync",
+			"GET /dashboard/company/archive-sync-status",
 			"GET /dashboard/company/audits",
 		)
 	}

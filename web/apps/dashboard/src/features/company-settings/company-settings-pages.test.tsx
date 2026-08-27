@@ -71,6 +71,8 @@ function companyApi(overrides: Partial<CompanyProfileApi> = {}): CompanyProfileA
     verify: vi.fn().mockResolvedValue(companyProfile),
     startEmployeeSync: vi.fn().mockResolvedValue({ status: 'queued', departmentsCreated: 0, departmentsUpdated: 0, employeesCreated: 0, employeesUpdated: 0 }),
     getSyncStatus: vi.fn().mockResolvedValue({ status: 'completed', departments: 3, employees: 8 }),
+    startArchiveSync: vi.fn().mockResolvedValue({ status: 'queued', fetched: 0, processed: 0, skipped: 0, failed: 0, available: true }),
+    getArchiveSyncStatus: vi.fn().mockResolvedValue({ status: 'completed', fetched: 10, processed: 10, skipped: 0, failed: 0, available: true, finishedAt: '2026-08-27T10:00:00Z' }),
     listAudits: vi.fn().mockResolvedValue({ items: [], page: 1, perPage: 20, total: 0 }),
     ...overrides,
   };
@@ -184,13 +186,15 @@ describe('企业设置页面', () => {
     expect(screen.getByText('应用 Secret 已加密保存，出于安全原因不会回显。')).toBeTruthy();
   });
 
-  it('企业信息：第三方代开发模式仅保留身份事实和配置审计，不渲染企微配置卡', async () => {
+  it('企业信息：第三方代开发模式隐藏企微配置，但保留统一数据同步入口', async () => {
     const getCallbackConfiguration = vi.fn();
-    const getSyncStatus = vi.fn();
+    const getSyncStatus = vi.fn().mockResolvedValue({ status: 'idle', departments: 0, employees: 0 });
+    const getArchiveSyncStatus = vi.fn().mockResolvedValue({ status: 'idle', fetched: 0, processed: 0, skipped: 0, failed: 0, available: true });
     const api = companyApi({
       getProfile: vi.fn().mockResolvedValue({ ...companyProfile, wecomIntegrationMode: 'third_party_delegated' }),
       getCallbackConfiguration,
       getSyncStatus,
+      getArchiveSyncStatus,
     });
     renderPage(<CompanyWebsitePage api={api} isSuperAdmin />);
 
@@ -205,13 +209,15 @@ describe('企业设置页面', () => {
     expect(screen.queryByRole('heading', { name: '回调配置' })).toBeNull();
     expect(screen.queryByRole('heading', { name: '会话存档配置' })).toBeNull();
     expect(screen.queryByRole('heading', { name: '验证企业微信' })).toBeNull();
-    expect(screen.queryByRole('heading', { name: '从企业微信同步员工' })).toBeNull();
+    expect(screen.getByRole('heading', { name: '数据同步' })).toBeTruthy();
     expect(screen.queryByLabelText('应用 AgentID')).toBeNull();
     expect(screen.queryByLabelText('应用 Secret')).toBeNull();
     expect(screen.queryByRole('button', { name: '验证企业微信' })).toBeNull();
-    expect(screen.queryByRole('button', { name: '开始员工同步' })).toBeNull();
+    expect(screen.getByRole('button', { name: '立即同步人员' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '立即同步会话' })).toBeTruthy();
     expect(getCallbackConfiguration).not.toHaveBeenCalled();
-    expect(getSyncStatus).not.toHaveBeenCalled();
+    expect(getSyncStatus).toHaveBeenCalled();
+    expect(getArchiveSyncStatus).toHaveBeenCalled();
   });
 
   it('企业信息：待配置和暂停状态均 fail closed，不提供错误的同步或验证入口', async () => {
@@ -219,14 +225,16 @@ describe('企业设置页面', () => {
     renderPage(<CompanyWebsitePage api={pendingApi} isSuperAdmin />);
     expect((await screen.findAllByText('待配置')).length).toBeGreaterThanOrEqual(1);
     expect(screen.getByRole('button', { name: '验证企业微信' })).toHaveProperty('disabled', true);
-    expect(screen.getByRole('button', { name: '开始员工同步' })).toHaveProperty('disabled', true);
+    expect(screen.getByRole('button', { name: '立即同步人员' })).toHaveProperty('disabled', true);
+    expect(screen.getByRole('button', { name: '立即同步会话' })).toHaveProperty('disabled', true);
     cleanup();
 
     const suspendedApi = companyApi({ getProfile: vi.fn().mockResolvedValue({ ...companyProfile, bindingStatus: 'suspended' }) });
     renderPage(<CompanyWebsitePage api={suspendedApi} isSuperAdmin />);
     expect((await screen.findAllByText('已暂停')).length).toBeGreaterThanOrEqual(1);
     expect(screen.getByRole('button', { name: '验证企业微信' })).toHaveProperty('disabled', true);
-    expect(screen.getByRole('button', { name: '开始员工同步' })).toHaveProperty('disabled', true);
+    expect(screen.getByRole('button', { name: '立即同步人员' })).toHaveProperty('disabled', true);
+    expect(screen.getByRole('button', { name: '立即同步会话' })).toHaveProperty('disabled', true);
   });
 
   it('企业信息：待配置同步状态显示中性提示而非故障重试', async () => {
@@ -243,10 +251,10 @@ describe('企业设置页面', () => {
     });
     renderPage(<CompanyWebsitePage api={api} isSuperAdmin />);
 
-    expect(await screen.findByText('完成企业微信验证后即可同步员工')).toBeTruthy();
+    expect(await screen.findByText('完成企业授权后即可同步人员')).toBeTruthy();
     expect(screen.queryByText('同步状态读取失败。')).toBeNull();
     expect(screen.queryByRole('button', { name: '重试' })).toBeNull();
-    expect(screen.getByRole('button', { name: '开始员工同步' })).toHaveProperty('disabled', true);
+    expect(screen.getByRole('button', { name: '立即同步人员' })).toHaveProperty('disabled', true);
   });
 
   it('企业信息：同步状态网络错误仍显示故障重试', async () => {
@@ -255,7 +263,7 @@ describe('企业设置页面', () => {
     });
     renderPage(<CompanyWebsitePage api={api} isSuperAdmin />);
 
-    expect(await screen.findByText('同步状态读取失败。')).toBeTruthy();
+    expect(await screen.findByText('人员同步状态读取失败。')).toBeTruthy();
     expect(screen.getByRole('button', { name: '重试' })).toBeTruthy();
   });
 
@@ -612,19 +620,20 @@ describe('企业设置页面', () => {
     renderPage(<CompanyWebsitePage api={api} isSuperAdmin />);
 
     expect(await screen.findByText('同步中')).toBeTruthy();
-    const syncButton = screen.getByRole('button', { name: '开始员工同步' });
+    const syncButton = screen.getByRole('button', { name: '立即同步人员' });
     expect(syncButton).toHaveProperty('disabled', true);
     expect(document.querySelector('.company-profile-form-grid')).not.toBeNull();
     expect(document.querySelector('table')).toBeNull();
   });
 
-  it('企业信息：同步失败状态展示脱敏错误码并保留重试入口', async () => {
+  it('企业信息：同步失败状态不向操作员暴露技术错误码', async () => {
     const api = companyApi({ getSyncStatus: vi.fn().mockResolvedValue({ status: 'failed', departments: 2, employees: 5, errorCode: 'SYNC_FAILED' }) });
     renderPage(<CompanyWebsitePage api={api} isSuperAdmin />);
 
     expect(await screen.findByText('同步失败')).toBeTruthy();
-    expect(screen.getByText('错误：SYNC_FAILED')).toBeTruthy();
-    expect(screen.getByRole('button', { name: '刷新同步状态' })).toBeTruthy();
+    expect(screen.queryByText(/SYNC_FAILED/)).toBeNull();
+    expect(screen.getByText('上次同步未完成，请检查企业授权后重试。')).toBeTruthy();
+    expect(screen.getByRole('button', { name: '刷新人员状态' })).toBeTruthy();
   });
 
   it('企业信息：员工同步失败提示只显示在员工同步卡片内', async () => {
@@ -641,15 +650,46 @@ describe('企业设置页面', () => {
     });
     const { container } = renderPage(<CompanyWebsitePage api={api} isSuperAdmin />);
 
-    fireEvent.click(await screen.findByRole('button', { name: '开始员工同步' }));
+    fireEvent.click(await screen.findByRole('button', { name: '立即同步人员' }));
     fireEvent.click(await screen.findByRole('button', { name: '确认' }));
     await waitFor(() => expect(startEmployeeSync).toHaveBeenCalledTimes(1));
 
     const alert = await screen.findByRole('alert');
-    const syncSection = screen.getByRole('heading', { name: '从企业微信同步员工' }).closest('section');
+    const syncSection = screen.getByRole('heading', { name: '数据同步' }).closest('section');
     expect(syncSection?.contains(alert)).toBe(true);
     expect(alert.textContent).toContain('同步请求格式不正确');
     expect(container.querySelector('.company-profile-page > .phase35-notice-error')).toBeNull();
+  });
+
+  it('企业信息：会话同步在确认后入队并刷新状态', async () => {
+    const startArchiveSync = vi.fn().mockResolvedValue({ status: 'queued', fetched: 0, processed: 0, skipped: 0, failed: 0, available: true });
+    const api = companyApi({
+      startArchiveSync,
+      getArchiveSyncStatus: vi.fn().mockResolvedValue({ status: 'idle', fetched: 0, processed: 0, skipped: 0, failed: 0, available: true }),
+    });
+    renderPage(<CompanyWebsitePage api={api} isSuperAdmin />);
+
+    const archiveButton = await screen.findByRole('button', { name: '立即同步会话' });
+    await waitFor(() => expect(archiveButton).toHaveProperty('disabled', false));
+    fireEvent.click(archiveButton);
+    expect(startArchiveSync).not.toHaveBeenCalled();
+    fireEvent.click(await screen.findByRole('button', { name: '确认' }));
+    await waitFor(() => expect(startArchiveSync).toHaveBeenCalledOnce());
+    const submitted = startArchiveSync.mock.calls[0]?.[0] as { requestId?: unknown } | undefined;
+    expect(typeof submitted?.requestId).toBe('string');
+    expect(String(submitted?.requestId)).toMatch(/^archive-sync-/);
+    expect(await screen.findByText('会话同步任务已提交。')).toBeTruthy();
+  });
+
+  it('企业信息：会话能力未配置时保持空态且给出业务指引', async () => {
+    const api = companyApi({
+      getArchiveSyncStatus: vi.fn().mockResolvedValue({ status: 'idle', fetched: 0, processed: 0, skipped: 0, failed: 0, available: false, unavailableReason: '完成企业授权后即可同步会话' }),
+    });
+    renderPage(<CompanyWebsitePage api={api} isSuperAdmin />);
+
+    expect(await screen.findByText('完成企业授权后即可同步会话')).toBeTruthy();
+    expect(screen.getByRole('button', { name: '立即同步会话' })).toHaveProperty('disabled', true);
+    expect(screen.queryByText(/source|cursor|lease|errorCode/i)).toBeNull();
   });
 
   it('附加权限：状态切换和删除都需确认', async () => {

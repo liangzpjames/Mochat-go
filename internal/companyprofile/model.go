@@ -239,6 +239,26 @@ type SyncStatus struct {
 	ErrorCode         string     `json:"errorCode,omitempty"`
 }
 
+type ArchiveSyncInput struct {
+	RequestID string `json:"requestId"`
+}
+
+// ArchiveSyncStatus is the operator-facing projection of the durable 0138
+// run ledger. Technical source, cursor, lease and error-code fields are
+// intentionally excluded from JSON.
+type ArchiveSyncStatus struct {
+	Status            string     `json:"status"`
+	Available         bool       `json:"available"`
+	UnavailableReason string     `json:"unavailableReason,omitempty"`
+	Fetched           int        `json:"fetched"`
+	Processed         int        `json:"processed"`
+	Skipped           int        `json:"skipped"`
+	Failed            int        `json:"failed"`
+	StartedAt         *time.Time `json:"startedAt,omitempty"`
+	FinishedAt        *time.Time `json:"finishedAt,omitempty"`
+	RunID             string     `json:"-"`
+}
+
 type SyncDepartment struct {
 	WXDepartmentID int
 	Name           string
@@ -274,6 +294,14 @@ type EmployeeSyncData struct {
 
 type EmployeeSyncScheduler interface {
 	EnqueueEmployeeSync(context.Context, int) (EmployeeSyncEnqueueReceipt, error)
+}
+
+type ArchiveSyncScheduler interface {
+	EnqueueArchiveSync(context.Context, dashboardprincipal.DashboardPrincipal, string) (ArchiveSyncStatus, error)
+}
+
+type ArchiveSyncStatusStore interface {
+	GetArchiveSyncStatus(context.Context, dashboardprincipal.DashboardPrincipal) (ArchiveSyncStatus, error)
 }
 
 // EmployeeSyncEnqueueReceipt is produced by the queue authority. Ticket is the

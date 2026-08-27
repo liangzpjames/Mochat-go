@@ -41,7 +41,7 @@ const syncStatusText: Record<EmployeeSyncSnapshot['status'], string> = {
   completed: '已完成',
 };
 
-type FeedbackScope = 'profile' | 'application' | 'callback' | 'archive' | 'verify' | 'sync';
+type FeedbackScope = 'profile' | 'application' | 'callback' | 'archive' | 'verify' | 'sync' | 'archiveSync';
 type OperationFeedback = { scope: FeedbackScope; tone: 'error' | 'notice'; message: string };
 
 export function CompanyWebsitePage({ api, isSuperAdmin, onTenantAccessDenied, onNavigate, providerStatusApi }: CompanyWebsitePageProps) {
@@ -77,7 +77,13 @@ export function CompanyWebsitePage({ api, isSuperAdmin, onTenantAccessDenied, on
   const syncQuery = useQuery({
     queryKey: ['company-sync-status'],
     queryFn: () => api.getSyncStatus(),
-    enabled: canView && profile !== undefined && profile.wecomIntegrationMode !== 'third_party_delegated',
+    enabled: canView && profile !== undefined,
+    retry: false,
+  });
+  const archiveSyncQuery = useQuery({
+    queryKey: ['company-archive-sync-status'],
+    queryFn: () => api.getArchiveSyncStatus(),
+    enabled: canView && profile !== undefined,
     retry: false,
   });
   const auditsQuery = useQuery({
@@ -214,6 +220,16 @@ export function CompanyWebsitePage({ api, isSuperAdmin, onTenantAccessDenied, on
     },
     onError: (error) => showMutationError(error, '同步服务暂时不可用，任务未创建，请稍后重试。', 'sync'),
   });
+  const archiveSyncMutation = useMutation({
+    mutationFn: () => api.startArchiveSync({ requestId: nextRequestId('archive-sync') }),
+    onSuccess: (result) => {
+      queryClient.setQueryData(['company-archive-sync-status'], result);
+      void queryClient.invalidateQueries({ queryKey: ['company-archive-sync-status'] });
+      void queryClient.invalidateQueries({ queryKey: ['company-audits'] });
+      setOperationFeedback({ scope: 'archiveSync', tone: 'notice', message: '会话同步任务已提交。' });
+    },
+    onError: (error) => showMutationError(error, '会话同步服务暂时不可用，任务未创建，请稍后重试。', 'archiveSync'),
+  });
 
   if (!canView) {
     return (
@@ -251,6 +267,8 @@ export function CompanyWebsitePage({ api, isSuperAdmin, onTenantAccessDenied, on
 	const archiveCallbackUrl = buildArchiveCallbackUrl(callbackConfiguration?.callbackUrl ?? '');
   const syncStatus = syncQuery.data;
   const syncIsRunning = syncStatus?.status === 'queued' || syncStatus?.status === 'syncing' || syncMutation.isPending;
+  const archiveSyncStatus = archiveSyncQuery.data;
+  const archiveSyncIsRunning = archiveSyncStatus?.status === 'queued' || archiveSyncStatus?.status === 'syncing' || archiveSyncMutation.isPending;
   const syncConfigurationRequired =
     syncQuery.isError &&
     syncQuery.error instanceof ApiError &&
@@ -414,34 +432,42 @@ export function CompanyWebsitePage({ api, isSuperAdmin, onTenantAccessDenied, on
           <ScopedFeedback feedback={operationFeedback} scope="verify" />
         </section>
 
+        </> : null}
+
         <section className="phase35-card company-profile-card" aria-labelledby="company-sync-heading">
           <header className="company-profile-card-header">
-            <div><p className="company-profile-eyebrow">员工同步</p><h2 id="company-sync-heading">从企业微信同步员工</h2><p>员工可从企业微信同步到 MoChat。此操作不会创建 Dashboard 登录，也不会授予角色或页面权限。</p></div>
-            {syncStatus && <span className={`company-sync-status company-sync-status-${syncStatus.status}`}>{syncStatusText[syncStatus.status]}</span>}
+            <div><p className="company-profile-eyebrow">主动更新</p><h2 id="company-sync-heading">数据同步</h2><p>需要立即获取企业微信最新数据时，可在这里提交同步任务。页面会保留现有数据，不会因尚未配置而报错。</p></div>
           </header>
-          <div className="company-sync-summary">
-            <span>部门：{syncStatus?.departments ?? 0}</span>
-            <span>员工：{syncStatus?.employees ?? 0}</span>
-            {syncStatus?.errorCode && <span role="alert">错误：{syncStatus.errorCode}</span>}
+          <div className="company-sync-grid">
+            <article className="company-sync-card">
+              <header><div><h3>人员信息</h3><p>更新部门和企业成员，不会自动创建登录账号或授予权限。</p></div><span className={`company-sync-status company-sync-status-${syncStatus?.status ?? 'idle'}`}>{syncStatusText[syncStatus?.status ?? 'idle']}</span></header>
+              <div className="company-sync-summary"><span>部门：{syncStatus?.departments ?? 0}</span><span>人员：{syncStatus?.employees ?? 0}</span></div>
+              {syncStatus?.status === 'failed' && <p className="company-profile-help">上次同步未完成，请检查企业授权后重试。</p>}
+              {syncConfigurationRequired || profile.bindingStatus !== 'verified' ? <p className="company-profile-help">完成企业授权后即可同步人员</p> : syncQuery.isError ? <div className="company-inline-error"><span>人员同步状态读取失败。</span><button type="button" onClick={() => void syncQuery.refetch()}>重试</button></div> : null}
+              <div className="company-profile-actions">
+                <ConfirmAction title="确认同步人员信息？" description="提交当前企业的人员同步任务；不会创建登录身份或授予权限。" onConfirm={() => syncMutation.mutate()}>
+                  <button type="button" disabled={profile.bindingStatus !== 'verified' || syncIsRunning}>立即同步人员</button>
+                </ConfirmAction>
+                <button type="button" onClick={() => void syncQuery.refetch()}>刷新人员状态</button>
+              </div>
+              <ScopedFeedback feedback={operationFeedback} scope="sync" />
+            </article>
+            <article className="company-sync-card">
+              <header><div><h3>会话存档</h3><p>拉取最新会话和媒体文件，已处理的数据不会重复入库。</p></div><span className={`company-sync-status company-sync-status-${archiveSyncStatus?.status ?? 'idle'}`}>{syncStatusText[archiveSyncStatus?.status ?? 'idle']}</span></header>
+              <div className="company-sync-summary"><span>获取：{archiveSyncStatus?.fetched ?? 0}</span><span>完成：{archiveSyncStatus?.processed ?? 0}</span></div>
+              {archiveSyncStatus?.unavailableReason && <p className="company-profile-help">{archiveSyncStatus.unavailableReason}</p>}
+              {archiveSyncStatus?.status === 'failed' && !archiveSyncStatus.unavailableReason && <p className="company-profile-help">上次同步未完成，请检查企业授权后重试。</p>}
+              {archiveSyncQuery.isError ? <div className="company-inline-error"><span>会话同步状态读取失败。</span><button type="button" onClick={() => void archiveSyncQuery.refetch()}>重试</button></div> : null}
+              <div className="company-profile-actions">
+                <ConfirmAction title="确认同步会话存档？" description="提交当前企业的会话与媒体同步任务；已入库内容不会重复处理。" onConfirm={() => archiveSyncMutation.mutate()}>
+                  <button type="button" disabled={profile.bindingStatus !== 'verified' || archiveSyncStatus?.available !== true || archiveSyncIsRunning}>立即同步会话</button>
+                </ConfirmAction>
+                <button type="button" onClick={() => void archiveSyncQuery.refetch()}>刷新会话状态</button>
+              </div>
+              <ScopedFeedback feedback={operationFeedback} scope="archiveSync" />
+            </article>
           </div>
-          {syncConfigurationRequired ? (
-            <p className="company-profile-help">完成企业微信验证后即可同步员工</p>
-          ) : syncQuery.isError ? (
-            <div className="company-inline-error"><span>同步状态读取失败。</span><button type="button" onClick={() => void syncQuery.refetch()}>重试</button></div>
-          ) : null}
-          <div className="company-profile-actions">
-            <ConfirmAction
-              title="确认发起员工同步？"
-              description="变更摘要：提交当前唯一企业的员工同步任务；不会创建登录身份或授予权限。"
-              onConfirm={() => syncMutation.mutate()}
-            >
-              <button type="button" disabled={profile.bindingStatus !== 'verified' || syncIsRunning || syncMutation.isPending}>开始员工同步</button>
-            </ConfirmAction>
-            <button type="button" onClick={() => void syncQuery.refetch()}>刷新同步状态</button>
-          </div>
-          <ScopedFeedback feedback={operationFeedback} scope="sync" />
         </section>
-        </> : null}
 
         <section className="phase35-card company-profile-card" aria-labelledby="company-audit-heading">
           <header className="company-profile-card-header"><div><p className="company-profile-eyebrow">变更记录</p><h2 id="company-audit-heading">企业配置审计</h2><p>仅展示变更动作和版本事实，不包含 Secret、密文或凭据正文。</p></div></header>

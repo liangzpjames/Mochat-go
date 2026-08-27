@@ -15,12 +15,23 @@ import (
 	"jiyi/mochat-go/internal/dashboardprincipal"
 )
 
-var weComAgentIDPattern = regexp.MustCompile(`^[1-9][0-9]{0,19}$`)
+var (
+	weComAgentIDPattern         = regexp.MustCompile(`^[1-9][0-9]{0,19}$`)
+	archiveSyncRequestIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{7,95}$`)
+)
 
 type Service struct {
-	store         Store
-	verifier      WeComVerifier
-	syncScheduler EmployeeSyncScheduler
+	store                Store
+	verifier             WeComVerifier
+	syncScheduler        EmployeeSyncScheduler
+	archiveSyncScheduler ArchiveSyncScheduler
+}
+
+func (s *Service) WithArchiveSyncScheduler(scheduler ArchiveSyncScheduler) *Service {
+	if s != nil {
+		s.archiveSyncScheduler = scheduler
+	}
+	return s
 }
 
 func NewService(store Store, verifier WeComVerifier) *Service {
@@ -44,6 +55,27 @@ func (s *Service) authorize(ctx context.Context, principal dashboardprincipal.Da
 	if !principal.IsSuperAdmin {
 		if principal.CorpStatus == dashboardprincipal.CorpBindingStatusPending ||
 			!dashboardprincipal.HasPermissionCode(ctx, principal, "dashboard.company_setting.website") {
+			return ErrPermissionDenied
+		}
+	}
+	if principal.CorpStatus != dashboardprincipal.CorpBindingStatusActive &&
+		(!allowPending || principal.CorpStatus != dashboardprincipal.CorpBindingStatusPending) {
+		return ErrTenantAccessDenied
+	}
+	return nil
+}
+
+func (s *Service) authorizeArchiveSync(ctx context.Context, principal dashboardprincipal.DashboardPrincipal, allowPending bool) error {
+	if principal.UserID <= 0 || principal.TenantID <= 0 || principal.CorpID <= 0 || principal.AuthVersion == 0 {
+		return ErrPermissionDenied
+	}
+	if principal.CorpStatus == dashboardprincipal.CorpBindingStatusSuspended {
+		return ErrTenantAccessDenied
+	}
+	if !principal.IsSuperAdmin {
+		if principal.CorpStatus == dashboardprincipal.CorpBindingStatusPending ||
+			(!dashboardprincipal.HasPermissionCode(ctx, principal, "dashboard.company_setting.website") &&
+				!dashboardprincipal.HasPermissionCode(ctx, principal, "dashboard.chat.v2_all")) {
 			return ErrPermissionDenied
 		}
 	}
@@ -363,6 +395,52 @@ func (s *Service) GetSyncStatus(ctx context.Context, principal dashboardprincipa
 		return SyncStatus{}, ErrStoreUnavailable
 	}
 	return syncStore.GetSyncStatus(ctx, principal)
+}
+
+func (s *Service) StartArchiveSync(ctx context.Context, principal dashboardprincipal.DashboardPrincipal, input ArchiveSyncInput) (ArchiveSyncStatus, error) {
+	if err := s.authorizeArchiveSync(ctx, principal, false); err != nil {
+		return ArchiveSyncStatus{}, err
+	}
+	input.RequestID = strings.TrimSpace(input.RequestID)
+	if !archiveSyncRequestIDPattern.MatchString(input.RequestID) {
+		return ArchiveSyncStatus{}, ErrInvalidRequest
+	}
+	if s == nil || s.archiveSyncScheduler == nil {
+		return ArchiveSyncStatus{}, ErrStoreUnavailable
+	}
+	status, err := s.archiveSyncScheduler.EnqueueArchiveSync(ctx, principal, input.RequestID)
+	if err != nil {
+		if IsKnownError(err) {
+			return status, err
+		}
+		return ArchiveSyncStatus{}, ErrStoreUnavailable
+	}
+	return status, nil
+}
+
+func (s *Service) GetArchiveSyncStatus(ctx context.Context, principal dashboardprincipal.DashboardPrincipal) (ArchiveSyncStatus, error) {
+	if err := s.authorizeArchiveSync(ctx, principal, true); err != nil {
+		return ArchiveSyncStatus{}, err
+	}
+	if s == nil || s.store == nil {
+		return ArchiveSyncStatus{}, ErrStoreUnavailable
+	}
+	statusStore, ok := s.store.(ArchiveSyncStatusStore)
+	if !ok {
+		return ArchiveSyncStatus{Status: "idle", Available: false, UnavailableReason: "会话同步服务暂不可用"}, nil
+	}
+	status, err := statusStore.GetArchiveSyncStatus(ctx, principal)
+	if err != nil {
+		return ArchiveSyncStatus{}, ErrStoreUnavailable
+	}
+	if strings.TrimSpace(status.Status) == "" {
+		status.Status = "idle"
+	}
+	if status.Available && s.archiveSyncScheduler == nil {
+		status.Available = false
+		status.UnavailableReason = "会话同步服务暂不可用"
+	}
+	return status, nil
 }
 
 func (s *Service) ListAudits(ctx context.Context, principal dashboardprincipal.DashboardPrincipal, filter AuditFilter) (AuditPage, error) {

@@ -170,6 +170,72 @@ func (s *MySQLStore) DurableArchiveBindings(ctx context.Context) ([]archiveprovi
 	return result, rows.Err()
 }
 
+func (s *MySQLStore) DurableArchiveBindingForScope(ctx context.Context, scope archiveprovider.Scope) (archiveprovider.DurableArchiveBinding, bool, error) {
+	if s == nil || s.db == nil || !scopeValid(scope) {
+		return archiveprovider.DurableArchiveBinding{}, false, errors.New("archive sync scope invalid")
+	}
+	var binding archiveprovider.DurableArchiveBinding
+	err := s.db.QueryRowContext(ctx, `
+		SELECT integration.tenant_id,integration.corp_id,integration.verified_wx_corpid
+		FROM mochat_go_wecom_integrations integration
+		INNER JOIN mc_tenant tenant ON tenant.id=integration.tenant_id AND tenant.status=1 AND tenant.deleted_at IS NULL
+		INNER JOIN mc_corp corp ON corp.tenant_id=integration.tenant_id AND corp.id=integration.corp_id AND corp.deleted_at IS NULL
+		INNER JOIN mochat_go_tenant_corp_bindings binding ON binding.tenant_id=integration.tenant_id AND binding.corp_id=integration.corp_id
+		WHERE `+durableArchiveEligibilityPredicate+`
+		  AND integration.tenant_id=? AND integration.corp_id=?
+		LIMIT 1
+	`, scope.TenantID, scope.CorpID).Scan(&binding.Scope.TenantID, &binding.Scope.CorpID, &binding.WXCorpID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return archiveprovider.DurableArchiveBinding{}, false, nil
+	}
+	if err != nil {
+		return archiveprovider.DurableArchiveBinding{}, false, err
+	}
+	return binding, true, nil
+}
+
+func (s *MySQLStore) PendingDurableArchiveRuns(ctx context.Context, limit int) ([]archiveprovider.DurableArchivePendingRun, error) {
+	if s == nil || s.db == nil {
+		return nil, errors.New("archive sync store unavailable")
+	}
+	if limit <= 0 || limit > 500 {
+		limit = 100
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT run.tenant_id,run.corp_id,integration.verified_wx_corpid,
+		       run.cursor_sequence,run.cursor_token,run.idempotency_key
+		FROM mochat_go_archive_sync_runs run
+		INNER JOIN mochat_go_wecom_integrations integration
+		  ON integration.tenant_id=run.tenant_id AND integration.corp_id=run.corp_id
+		INNER JOIN mc_tenant tenant ON tenant.id=integration.tenant_id AND tenant.status=1 AND tenant.deleted_at IS NULL
+		INNER JOIN mc_corp corp ON corp.tenant_id=integration.tenant_id AND corp.id=integration.corp_id AND corp.deleted_at IS NULL
+		INNER JOIN mochat_go_tenant_corp_bindings binding ON binding.tenant_id=integration.tenant_id AND binding.corp_id=integration.corp_id
+		WHERE `+durableArchiveEligibilityPredicate+`
+		  AND run.source_kind='external'
+		  AND run.source_id=CONCAT('wecom:',integration.verified_wx_corpid)
+		  AND run.namespace=run.source_id
+		  AND (run.status='queued' OR (run.status='running' AND run.lease_expires_at IS NOT NULL AND run.lease_expires_at<=NOW()))
+		ORDER BY run.updated_at,run.id
+		LIMIT ?
+	`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := make([]archiveprovider.DurableArchivePendingRun, 0)
+	for rows.Next() {
+		var item archiveprovider.DurableArchivePendingRun
+		if err := rows.Scan(
+			&item.Binding.Scope.TenantID, &item.Binding.Scope.CorpID, &item.Binding.WXCorpID,
+			&item.Cursor.Sequence, &item.Cursor.Token, &item.IdempotencyKey,
+		); err != nil {
+			return nil, err
+		}
+		result = append(result, item)
+	}
+	return result, rows.Err()
+}
+
 // durableArchiveEligibilityPredicate is shared by source discovery and media
 // claiming so revoked capability or verified-corp drift fails closed at both
 // production boundaries.

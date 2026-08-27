@@ -2,7 +2,7 @@ import { ApiError } from '@mochat/api-client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, useLocation } from 'react-router';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { DashboardAccessProvider } from '../../app/access-context';
 import type { AccessContext } from '../../app/access-loader';
@@ -62,6 +62,7 @@ const detail: ConversationDetail = {
 };
 
 afterEach(cleanup);
+beforeAll(() => { globalThis.ResizeObserver = class { observe() {} unobserve() {} disconnect() {} }; });
 
 function LocationProbe() {
   const location = useLocation();
@@ -98,6 +99,39 @@ function renderPage(
 }
 
 describe('ConversationGlobalPage', () => {
+  it('全局消息页仅在确认后提交会话同步任务', async () => {
+    const startArchiveSync = vi.fn().mockResolvedValue({ status: 'queued', available: true, fetched: 0, processed: 0, skipped: 0, failed: 0 });
+    renderPage({
+      search: vi.fn(() => Promise.resolve({ ...page, page: 1 })),
+      detail: vi.fn(),
+      getArchiveSyncStatus: vi.fn().mockResolvedValue({ status: 'idle', available: true, fetched: 0, processed: 0, skipped: 0, failed: 0 }),
+      startArchiveSync,
+    });
+
+    const button = await screen.findByRole('button', { name: '同步最新会话' });
+    await waitFor(() => expect(button).toHaveProperty('disabled', false));
+    fireEvent.click(button);
+    expect(startArchiveSync).not.toHaveBeenCalled();
+    fireEvent.click(await screen.findByRole('button', { name: '确认' }));
+    await waitFor(() => expect(startArchiveSync).toHaveBeenCalledOnce());
+    const submitted = startArchiveSync.mock.calls[0]?.[0] as { requestId?: unknown } | undefined;
+    expect(typeof submitted?.requestId).toBe('string');
+    expect(String(submitted?.requestId)).toMatch(/^archive-sync-/);
+    expect(await screen.findByText('会话同步任务已提交')).not.toBeNull();
+  });
+
+  it('会话能力未配置时继续展示列表和业务空态', async () => {
+    renderPage({
+      search: vi.fn(() => Promise.resolve({ list: [], total: 0, page: 1, pageSize: 20 })),
+      detail: vi.fn(),
+      getArchiveSyncStatus: vi.fn().mockResolvedValue({ status: 'idle', available: false, unavailableReason: '完成企业授权后即可同步会话', fetched: 0, processed: 0, skipped: 0, failed: 0 }),
+      startArchiveSync: vi.fn(),
+    });
+
+    expect(await screen.findByText('完成企业授权后即可同步会话')).not.toBeNull();
+    expect(screen.getByRole('button', { name: '同步最新会话' })).toHaveProperty('disabled', true);
+    expect(screen.getByText('当前筛选条件下暂无会话')).not.toBeNull();
+  });
   it('locks a scoped page to its menu conversation type', async () => {
     const search = vi.fn(() => Promise.resolve({ ...page, page: 1 }));
     const { container } = renderPage({ search, detail: vi.fn() }, '/chat/v2-staff?page=1&pageSize=20', 'employee');

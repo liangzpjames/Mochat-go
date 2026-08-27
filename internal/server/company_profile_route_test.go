@@ -36,6 +36,8 @@ func TestCompanyProfileRoutesReachTheDedicatedHandler(t *testing.T) {
 		{http.MethodPost, "/dashboard/company/verify"},
 		{http.MethodPost, "/dashboard/company/employee-sync"},
 		{http.MethodGet, "/dashboard/company/sync-status"},
+		{http.MethodPost, "/dashboard/company/archive-sync"},
+		{http.MethodGet, "/dashboard/company/archive-sync-status"},
 		{http.MethodGet, "/dashboard/company/audits"},
 	}
 	for _, test := range tests {
@@ -118,6 +120,8 @@ func TestCompanyProfileRoutesAreGrantableDashboardContracts(t *testing.T) {
 		"POST /dashboard/company/verify",
 		"POST /dashboard/company/employee-sync",
 		"GET /dashboard/company/sync-status",
+		"POST /dashboard/company/archive-sync",
+		"GET /dashboard/company/archive-sync-status",
 		"GET /dashboard/company/audits",
 		"GET /dashboard/providers/status",
 	} {

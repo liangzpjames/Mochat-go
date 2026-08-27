@@ -118,16 +118,21 @@ describe('company profile api', () => {
 	expect(jsonBody(callInit(request, 3))).toEqual({ chatSecret: 'archive', rsaPublicKey: 'public-pem', rsaPrivateKey: 'private-pem', expectedVersion: 6, requestId: 'archive-2' });
   });
 
-  it('uses the employee sync, status, and audit contracts under dashboard/company', async () => {
+  it('uses the employee, archive sync, status, and audit contracts under dashboard/company', async () => {
     const request = vi.fn().mockResolvedValue({});
     const api = createCompanyProfileApi({ request });
 
     await api.startEmployeeSync();
     await api.getSyncStatus();
+    await api.startArchiveSync({ requestId: 'archive-sync-1' });
+    await api.getArchiveSyncStatus();
     await api.listAudits({ page: 2, perPage: 10 });
 
     expect(request.mock.calls[0]).toEqual(['/company/employee-sync', { method: 'POST' }]);
     expect(request.mock.calls[1]).toEqual(['/company/sync-status']);
-    expect(request.mock.calls[2]).toEqual(['/company/audits?page=2&perPage=10']);
+    expect(request.mock.calls[2]?.[0]).toBe('/company/archive-sync');
+    expect(jsonBody(callInit(request, 2))).toEqual({ requestId: 'archive-sync-1' });
+    expect(request.mock.calls[3]).toEqual(['/company/archive-sync-status']);
+    expect(request.mock.calls[4]).toEqual(['/company/audits?page=2&perPage=10']);
   });
 });

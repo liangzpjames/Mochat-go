@@ -315,6 +315,18 @@ export type ConversationOverview = {
   }[];
 };
 
+export type ArchiveSyncStatus = {
+  status: 'idle' | 'queued' | 'syncing' | 'failed' | 'completed';
+  available: boolean;
+  unavailableReason?: string;
+  fetched: number;
+  processed: number;
+  skipped: number;
+  failed: number;
+  startedAt?: string;
+  finishedAt?: string;
+};
+
 export type ConversationGlobalApi = {
   search(input: ConversationSearch): Promise<ConversationPage>;
   overview?(input: Omit<ConversationSearch, 'page' | 'pageSize'>): Promise<ConversationOverview>;
@@ -337,6 +349,8 @@ export type ConversationGlobalApi = {
   exportTasks?(page?: number): Promise<ConversationExportTaskPage>;
   createExportTask?(input: ConversationExportTaskInput): Promise<{ task: ConversationExportTask; reused: boolean; limitations: readonly { key: string; reason: string }[] }>;
   downloadExport?(taskId: number): Promise<{ blob: Blob; filename: string }>;
+  getArchiveSyncStatus?(): Promise<ArchiveSyncStatus>;
+  startArchiveSync?(input: { requestId: string }): Promise<ArchiveSyncStatus>;
 };
 
 export type ConversationEmployee = {
@@ -356,6 +370,25 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value);
+}
+
+function parseArchiveSyncStatus(value: unknown): ArchiveSyncStatus {
+  if (!isRecord(value) || typeof value.status !== 'string' || typeof value.available !== 'boolean') {
+    throw new Error('会话同步状态接口返回了无效数据');
+  }
+  const status = value.status === 'idle' || value.status === 'queued' || value.status === 'syncing' || value.status === 'failed' || value.status === 'completed' ? value.status : 'idle';
+  const result: ArchiveSyncStatus = {
+    status,
+    available: value.available,
+    fetched: isFiniteNumber(value.fetched) ? value.fetched : 0,
+    processed: isFiniteNumber(value.processed) ? value.processed : 0,
+    skipped: isFiniteNumber(value.skipped) ? value.skipped : 0,
+    failed: isFiniteNumber(value.failed) ? value.failed : 0,
+  };
+  if (typeof value.unavailableReason === 'string' && value.unavailableReason !== '') result.unavailableReason = value.unavailableReason;
+  if (typeof value.startedAt === 'string' && value.startedAt !== '') result.startedAt = value.startedAt;
+  if (typeof value.finishedAt === 'string' && value.finishedAt !== '') result.finishedAt = value.finishedAt;
+  return result;
 }
 
 function isTargetType(value: unknown): value is ConversationTargetType {
@@ -927,6 +960,14 @@ export function createConversationGlobalApi(
       appendNonBlank(query, 'bucket', input.bucket ?? '');
       appendAllNonBlank(query, 'messageTypes', input.messageTypes ?? []);
       return parseOverview(await client.request(`/workMessage/globalOverview?${query.toString()}`));
+    },
+    async getArchiveSyncStatus() {
+      return parseArchiveSyncStatus(await client.request('/company/archive-sync-status'));
+    },
+    async startArchiveSync(input) {
+      return parseArchiveSyncStatus(await client.request('/company/archive-sync', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input),
+      }));
     },
     async detail(id) {
       const query = new URLSearchParams({ id });

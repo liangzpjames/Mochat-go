@@ -14,6 +14,7 @@ import type {
 import { AccessPermissionSelector } from "./access-permission-selector";
 
 type Api = {
+  employeeSync?: () => Promise<unknown>;
   employees: (input: { page: number; perPage: number }) => Promise<{
     list: AccessEmployee[];
     page: { total: number; totalPage: number };
@@ -85,6 +86,7 @@ export function AccessStaffPage({ api }: { api: Api }) {
     [],
   );
   const [temporaryPassword, setTemporaryPassword] = React.useState("");
+  const [syncFeedback, setSyncFeedback] = React.useState("");
   const hasProvisioningAccess = roleIds.length > 0 || direct.length > 0;
 
   const employees = useQuery({
@@ -114,6 +116,19 @@ export function AccessStaffPage({ api }: { api: Api }) {
 
   const refreshEmployees = () =>
     client.invalidateQueries({ queryKey: ["access-employees"] });
+
+  const employeeSync = useMutation({
+    mutationFn: async () => {
+      if (!api.employeeSync) throw new Error("人员同步暂不可用");
+      return api.employeeSync();
+    },
+    onMutate: () => setSyncFeedback(""),
+    onSuccess: () => {
+      setSyncFeedback("人员同步任务已提交，请稍后刷新查看最新人员。");
+      void refreshEmployees();
+    },
+    onError: () => setSyncFeedback("人员同步暂未提交，请先完成企业微信授权后再试。"),
+  });
 
   const provision = useMutation({
     mutationFn: () => {
@@ -172,8 +187,24 @@ export function AccessStaffPage({ api }: { api: Api }) {
     <Phase35PageShell
       title="员工账号与权限"
       description="从已同步的企业微信员工开通登录账号，并管理停用、密码和页面权限"
+      actions={api.employeeSync ? (
+        <ConfirmAction
+          title="确认立即同步人员信息？"
+          description="系统将更新企业微信部门和成员，现有员工账号与权限不会被删除。"
+          onConfirm={() => employeeSync.mutate()}
+        >
+          <button type="button" disabled={employeeSync.isPending}>
+            {employeeSync.isPending ? "正在提交…" : "立即同步人员"}
+          </button>
+        </ConfirmAction>
+      ) : undefined}
     >
       <div className="phase35-page">
+        {syncFeedback ? (
+          <p role={employeeSync.isError ? "alert" : "status"} className={employeeSync.isError ? "phase35-notice-error" : "phase35-notice-success"}>
+            {syncFeedback}
+          </p>
+        ) : null}
         <section className="phase35-card phase35-table-card">
           {employees.isLoading ? <p>正在加载员工…</p> : null}
           {employees.isError ? (

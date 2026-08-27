@@ -79,7 +79,7 @@ describe('EmployeePage', () => {
     renderPage(api(), new Set());
     await screen.findByText('张三');
     expect(screen.getByRole('button', { name: '条件筛选' })).not.toBeNull();
-    expect(screen.getByRole('button', { name: '同步企业微信通讯录' })).not.toBeNull();
+    expect(screen.getByRole('button', { name: '立即同步人员' })).not.toBeNull();
   });
 
   it('applies the member name filter', async () => {
@@ -98,9 +98,12 @@ describe('EmployeePage', () => {
     const client = api();
     renderPage(client);
     await screen.findByText('张三');
-    fireEvent.click(screen.getByRole('button', { name: '同步企业微信通讯录' }));
+    fireEvent.click(screen.getByRole('button', { name: '立即同步人员' }));
+    expect(client.sync).not.toHaveBeenCalled();
+    fireEvent.click(await screen.findByRole('button', { name: '确认' }));
     await waitFor(() => expect(client.sync).toHaveBeenCalledOnce());
     await waitFor(() => expect(client.list).toHaveBeenCalledTimes(2));
     expect(client.conditions).toHaveBeenCalledTimes(2);
+    expect(await screen.findByText('人员同步任务已提交')).not.toBeNull();
   });
 });

@@ -1,11 +1,12 @@
 import { ApiError } from '@mochat/api-client';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo, useState } from 'react';
 import type { FormEvent, KeyboardEvent, MouseEvent, ReactElement } from 'react';
 import { useSearchParams } from 'react-router';
 
 import { useDashboardAccess } from '../../app/access-context';
 import { DashboardPagination } from '../../components/dashboard-pagination';
+import { ConfirmAction } from '../../components/confirm-action';
 import { PageState } from '../../components/page-state/page-state';
 import { updateSearch } from '../../shared/query-state';
 import { ConversationArchiveUnavailableState, isConversationArchiveUnavailable } from './conversation-archive-state';
@@ -65,6 +66,7 @@ function ConversationCard({ item, onDetail, onFocus, focusing }: { item: Convers
 
 export function ConversationGlobalPage({ api, fixedConversationType }: { api: ConversationGlobalApi; fixedConversationType?: ConversationTargetType }) {
   const access = useDashboardAccess();
+  const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
   const currentFilters = filtersFromSearch(searchParams, fixedConversationType);
   const [draft, setDraft] = useState<FilterDraft>(currentFilters);
@@ -98,6 +100,15 @@ export function ConversationGlobalPage({ api, fixedConversationType }: { api: Co
   }, [input]);
   const listQuery = useQuery({ queryKey: ['corp', access.corp.id, 'conversation-global', input], queryFn: () => api.search(input) });
   const overviewQuery = useQuery({ queryKey: ['corp', access.corp.id, 'conversation-global-overview', overviewInput], queryFn: () => api.overview!(overviewInput), enabled: isGlobal && api.overview !== undefined });
+  const archiveSyncQuery = useQuery({ queryKey: ['company-archive-sync-status'], queryFn: () => api.getArchiveSyncStatus!(), enabled: isGlobal && api.getArchiveSyncStatus !== undefined });
+  const archiveSyncMutation = useMutation({
+    mutationFn: () => api.startArchiveSync!({ requestId: `archive-sync-${Date.now()}` }),
+    onSuccess: (status) => {
+      queryClient.setQueryData(['company-archive-sync-status'], status);
+      void queryClient.invalidateQueries({ queryKey: ['company-archive-sync-status'] });
+      void queryClient.invalidateQueries({ queryKey: ['corp', access.corp.id, 'conversation-global'] });
+    },
+  });
   const detailQuery = useQuery({ queryKey: ['corp', access.corp.id, 'conversation-global-detail', selectedID], queryFn: () => api.detail(selectedID ?? ''), enabled: selectedID !== null, retry: false });
   const data = listQuery.data;
   const overview = overviewQuery.data ?? (data === undefined ? null : fallbackOverview(data));
@@ -144,7 +155,11 @@ export function ConversationGlobalPage({ api, fixedConversationType }: { api: Co
       <label><span>结束日期</span><input aria-label="结束日期" onChange={(event) => setDraft((value) => ({ ...value, endAt: event.target.value }))} type="date" value={draft.endAt} /></label>
       <label className="conversation-global-message-types"><span>消息类型</span><div className="conversation-global-message-types-picker"><button aria-expanded={messageTypeOpen} aria-haspopup="listbox" aria-label={draft.messageTypes.length > 0 ? `已选 ${draft.messageTypes.length} 项消息类型` : '选择消息类型'} onClick={() => setMessageTypeOpen((open) => !open)} type="button">{draft.messageTypes.length > 0 ? `已选 ${draft.messageTypes.length} 项消息类型` : '全部消息类型'}<span aria-hidden="true">⌄</span></button>{messageTypeOpen && <div aria-label="消息类型选项" className="conversation-global-message-types-menu" role="group">{messageTypeOptions.map(([value, label]) => <label key={value}><input aria-label={label} checked={draft.messageTypes.includes(value)} onChange={() => toggleMessageType(value)} type="checkbox" /><span>{label}</span></label>)}</div>}</div></label>
       <button type="submit">查询</button><button aria-label="刷新消息" disabled={listQuery.isFetching} onClick={() => void listQuery.refetch()} type="button">{listQuery.isFetching && !listQuery.isPending ? '刷新中…' : '刷新消息'}</button><button onClick={resetFilters} type="button">重置</button>
+      {isGlobal && api.startArchiveSync !== undefined && <ConfirmAction danger={false} title="确认同步最新会话？" description="将从上次进度继续获取会话和媒体，已处理数据不会重复入库。" onConfirm={() => archiveSyncMutation.mutate()}><button disabled={archiveSyncQuery.data?.available !== true || archiveSyncQuery.data.status === 'queued' || archiveSyncQuery.data.status === 'syncing' || archiveSyncMutation.isPending} type="button">同步最新会话</button></ConfirmAction>}
     </form>
+    {isGlobal && archiveSyncQuery.data?.unavailableReason && <p className="conversation-global-capability-note" role="note">{archiveSyncQuery.data.unavailableReason}</p>}
+    {isGlobal && archiveSyncMutation.isSuccess && <p className="conversation-global-capability-note" role="status">会话同步任务已提交</p>}
+    {isGlobal && (archiveSyncQuery.isError || archiveSyncMutation.isError) && <p className="conversation-global-inline-error" role="alert">会话同步暂时不可用，已有数据不受影响。</p>}
     {filterError !== null && <p className="conversation-global-inline-error" role="alert">{filterError}</p>}{focusError !== null && <p className="conversation-global-inline-error" role="alert">{focusError}</p>}
     {overview?.capabilities.some((item) => !item.available) && <p className="conversation-global-capability-note" role="alert">部分能力暂无系统数据：{overview.capabilities.filter((item) => !item.available).map((item) => item.reason ?? item.key).join('；')}</p>}
     {(currentFilters.conversationType === 'room' || data?.list.some((item) => item.targetType === 'room') === true) && <p className="conversation-global-capability-note" role="note">群聊入站消息暂无法识别具体群成员，详情中统一显示“群成员”。</p>}

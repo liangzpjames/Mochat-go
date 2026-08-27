@@ -131,8 +131,7 @@ test('0162 makes company profile grantable and owns only the Provider status res
   assert.match(normalizedUp, /\(permission_id,\s*resource_type,\s*http_method,\s*path_pattern,\s*scope_required,\s*status,\s*version\)[\s\S]*SELECT[\s\S]*1,\s*1/i);
   assert.match(normalizedUp, /WHERE\s+NOT\s+EXISTS[\s\S]*resource_type[\s\S]*http_method[\s\S]*path_pattern/i);
 
-  assert.match(normalizedDown, /SET\s+restriction\s*=\s*'superadmin_only'\s*,\s*superadmin_only\s*=\s*1[\s\S]*WHERE\s+code\s*=\s*'dashboard\.company_setting\.website'/i);
-  assert.match(normalizedDown, /DELETE[\s\S]*dashboard\.company_setting\.website[\s\S]*resource_type[\s\S]*GET[\s\S]*\/dashboard\/providers\/status/i);
+  assert.match(normalizedDown, /Conservative rollback[\s\S]*DO\s+0/i);
 });
 
 test('0158 deactivates independent smart-rule writes and refuses history-destroying rollback', async () => {

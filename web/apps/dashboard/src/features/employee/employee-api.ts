@@ -52,7 +52,7 @@ export function createEmployeeApi(client: ApiClient) {
       return client.request('/workEmployee/searchCondition') as Promise<EmployeeConditions>;
     },
     async sync(): Promise<void> {
-      await client.request('/workEmployee/synEmployee', { method: 'PUT' });
+      await client.request('/company/employee-sync', { method: 'POST' });
     },
   };
 }

@@ -136,6 +136,8 @@ func TestCompanyCatalogAndRBACSeedUseOnlySingleCompanyEndpoints(t *testing.T) {
 		`"pathPattern": "/dashboard/company/verify"`,
 		`"pathPattern": "/dashboard/company/employee-sync"`,
 		`"pathPattern": "/dashboard/company/sync-status"`,
+		`"pathPattern": "/dashboard/company/archive-sync"`,
+		`"pathPattern": "/dashboard/company/archive-sync-status"`,
 		`"pathPattern": "/dashboard/company/wecom-credentials"`,
 		`"pathPattern": "/dashboard/company/agent-credentials"`,
 		`"pathPattern": "/dashboard/company/archive-credentials"`,

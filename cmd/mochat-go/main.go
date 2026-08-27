@@ -434,6 +434,18 @@ func main() {
 		companyProfileService := companyprofile.NewService(mysqlStore, companyProfileWeComVerifier{client: companyProfileWeComClient}).WithEmployeeSyncScheduler(
 			dashboard.NewCompanyEmployeeSyncScheduler(getRedisStore()),
 		)
+		if cfg.EnableDurableWorkMessageArchive {
+			companyArchiveBridgeClient, bridgeErr := archiveprovider.NewBridgeArchiveClient(
+				cfg.WorkMessageArchiveBridgeBaseURL,
+				cfg.WorkMessageArchiveBridgeToken,
+				nil,
+			)
+			if bridgeErr != nil {
+				log.Fatalf("build Dashboard manual archive synchronization: %v", bridgeErr)
+			}
+			companyArchiveRunner := archiveprovider.NewDurableBridgeRunner(mysqlStore, companyArchiveBridgeClient, cfg.WorkMessageArchiveSyncLimit)
+			companyProfileService.WithArchiveSyncScheduler(dashboard.NewCompanyArchiveSyncScheduler(companyArchiveRunner))
+		}
 		aiRuntime, err := buildDashboardAIStatusProvider(cfg)
 		if err != nil {
 			log.Fatalf("build AI Provider runtime: %v", err)
@@ -463,7 +475,7 @@ func main() {
 			compatserver.WithProviderStatusHandler(providerstatus.NewHTTPHandler(providerStatusService)),
 		)
 		log.Printf("go Dashboard identity routes enabled: POST /dashboard/user/auth POST /dashboard/user/authMFA POST /dashboard/auth/activate POST /dashboard/auth/password/reset-request POST /dashboard/auth/password/reset GET /dashboard/auth/session")
-		log.Printf("go Dashboard company profile routes enabled: GET/PUT /dashboard/company/profile PUT /dashboard/company/wecom-credentials PUT /dashboard/company/agent-credentials PUT /dashboard/company/archive-credentials POST /dashboard/company/verify POST /dashboard/company/employee-sync GET /dashboard/company/sync-status GET /dashboard/company/audits")
+		log.Printf("go Dashboard company profile routes enabled: GET/PUT /dashboard/company/profile PUT /dashboard/company/wecom-credentials PUT /dashboard/company/agent-credentials PUT /dashboard/company/archive-credentials POST /dashboard/company/verify POST /dashboard/company/employee-sync GET /dashboard/company/sync-status POST /dashboard/company/archive-sync GET /dashboard/company/archive-sync-status GET /dashboard/company/audits")
 	}
 
 	if cfg.MigrateUserIndex || cfg.MigrateUserShow || cfg.MigrateUserStore || cfg.MigrateUserUpdate || cfg.MigrateUserStatusUpdate || cfg.MigrateUserPasswordReset || cfg.MigrateUserPasswordUpdate {

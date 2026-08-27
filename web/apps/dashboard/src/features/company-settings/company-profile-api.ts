@@ -115,6 +115,18 @@ export type EmployeeSyncSnapshot = {
   errorCode?: string;
 };
 
+export type ArchiveSyncStatus = {
+  status: EmployeeSyncStatus;
+  available: boolean;
+  unavailableReason?: string;
+  fetched: number;
+  processed: number;
+  skipped: number;
+  failed: number;
+  startedAt?: string;
+  finishedAt?: string;
+};
+
 export type CompanyAudit = {
   id: number;
   action: string;
@@ -150,6 +162,8 @@ export type CompanyProfileApi = {
   verify(input: VerifyCompanyInput): Promise<CompanyProfile>;
   startEmployeeSync(): Promise<EmployeeSyncResult>;
   getSyncStatus(): Promise<EmployeeSyncSnapshot>;
+  startArchiveSync(input: { requestId: string }): Promise<ArchiveSyncStatus>;
+  getArchiveSyncStatus(): Promise<ArchiveSyncStatus>;
   listAudits(input?: { page?: number; perPage?: number }): Promise<CompanyAuditPage>;
 };
 
@@ -194,6 +208,12 @@ export function createCompanyProfileApi(client: ApiClient): CompanyProfileApi {
     },
     async getSyncStatus() {
       return normalizeSyncStatus(await client.request<unknown>('/company/sync-status'));
+    },
+    async startArchiveSync(input) {
+      return normalizeArchiveSyncStatus(await client.request<unknown>('/company/archive-sync', jsonRequest('POST', input)));
+    },
+    async getArchiveSyncStatus() {
+      return normalizeArchiveSyncStatus(await client.request<unknown>('/company/archive-sync-status'));
     },
     async listAudits(input = {}) {
       const query = new URLSearchParams();
@@ -340,6 +360,25 @@ function normalizeSyncStatus(value: unknown): EmployeeSyncSnapshot {
 
 function syncStatus(value: unknown): EmployeeSyncStatus {
   return value === 'idle' || value === 'syncing' || value === 'failed' || value === 'completed' ? value : 'queued';
+}
+
+function normalizeArchiveSyncStatus(value: unknown): ArchiveSyncStatus {
+  const source = record(value);
+  const result: ArchiveSyncStatus = {
+    status: syncStatus(source.status),
+    available: source.available === true,
+    fetched: numberValue(source.fetched),
+    processed: numberValue(source.processed),
+    skipped: numberValue(source.skipped),
+    failed: numberValue(source.failed),
+  };
+  const unavailableReason = stringValue(source.unavailableReason);
+  const startedAt = stringValue(source.startedAt);
+  const finishedAt = stringValue(source.finishedAt);
+  if (unavailableReason !== undefined) result.unavailableReason = unavailableReason;
+  if (startedAt !== undefined) result.startedAt = startedAt;
+  if (finishedAt !== undefined) result.finishedAt = finishedAt;
+  return result;
 }
 
 function normalizeAuditPage(value: unknown): CompanyAuditPage {

@@ -4,6 +4,7 @@ import { useState } from 'react';
 
 import { useDashboardAccess } from '../../app/access-context';
 import { DashboardPagination } from '../../components/dashboard-pagination';
+import { ConfirmAction } from '../../components/confirm-action';
 import type {
   EmployeeConditions,
   EmployeeListInput,
@@ -45,7 +46,7 @@ export function EmployeePage({ api }: { api: EmployeePageApi }) {
         queryClient.invalidateQueries({ queryKey: listKey }),
         queryClient.invalidateQueries({ queryKey: conditionKey }),
       ]);
-      setFeedback('通讯录同步完成');
+      setFeedback('人员同步任务已提交');
     },
   });
   const can = (action: string) => access.allowedActions.size === 0 || access.allowedActions.has(`/workEmployee/index@${action}`);
@@ -57,10 +58,14 @@ export function EmployeePage({ api }: { api: EmployeePageApi }) {
         {can('search') && <Button type="primary" onClick={() => setDrawerOpen(true)}>条件筛选</Button>}
         <span>最后一次同步时间：{conditionQuery.data?.syncTime || '-'}</span>
         {can('sync') && (
-          <Button loading={syncMutation.isPending} onClick={() => {
-            setFeedback(null);
-            syncMutation.mutate();
-          }}>同步企业微信通讯录</Button>
+          <ConfirmAction
+            danger={false}
+            title="确认同步人员信息？"
+            description="将提交当前企业的人员同步任务，不会创建登录账号或授予权限。"
+            onConfirm={() => { setFeedback(null); syncMutation.mutate(); }}
+          >
+            <Button loading={syncMutation.isPending}>立即同步人员</Button>
+          </ConfirmAction>
         )}
       </Space>
       {error !== null && <Alert role="alert" title={error instanceof Error ? error.message : '加载失败'} type="error" />}

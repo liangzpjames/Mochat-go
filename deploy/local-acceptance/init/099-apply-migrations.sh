@@ -109,7 +109,8 @@ for name in \
   0164_saas_tenant_ai_provider.up.sql \
   0165_ai_daily_insight_unification.up.sql \
   0166_wecom_integration_and_archive_media.up.sql \
-  0167_tenant_wecom_mode.up.sql
+  0167_tenant_wecom_mode.up.sql \
+  0168_company_archive_sync_rbac.up.sql
 do
 	if [ "${name}" = "0139_wecom_capability_ledger.up.sql" ]; then
 		mysql_exec < /local-acceptance-init/0139-parent-compat.sql

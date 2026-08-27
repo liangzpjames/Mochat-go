@@ -21,8 +21,6 @@ describe('employee api', () => {
     await api.conditions();
     expect(request).toHaveBeenCalledWith('/workEmployee/searchCondition');
     await api.sync();
-    expect(request).toHaveBeenLastCalledWith('/workEmployee/synEmployee', {
-      method: 'PUT',
-    });
+    expect(request).toHaveBeenLastCalledWith('/company/employee-sync', { method: 'POST' });
   });
 });

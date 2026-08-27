@@ -3753,6 +3753,7 @@ body {
 .company-binding-status-verified { background: #f0fff4; color: #2f855a; }
 .company-binding-status-suspended { background: #fff1f0; color: #cf4c4c; }
 .company-sync-status-queued { background: #f5f7fb; color: #667085; }
+.company-sync-status-idle { background: #f5f7fb; color: #667085; }
 .company-sync-status-syncing { background: #e6f4ff; color: #1677ff; }
 .company-sync-status-failed { background: #fff1f0; color: #cf4c4c; }
 .company-sync-status-completed { background: #f0fff4; color: #2f855a; }
@@ -3852,7 +3853,13 @@ body {
 .company-profile-inline-feedback { margin-top: 12px; }
 .company-profile-help { color: #8991a1; font-size: .76rem; line-height: 1.5; margin: 12px 0 0; }
 .company-sync-summary { color: #65708a; display: flex; flex-wrap: wrap; font-size: .8rem; gap: 16px; margin-top: 18px; }
-.company-sync-summary span:last-child { color: #cf4c4c; overflow-wrap: anywhere; }
+.company-sync-summary span { overflow-wrap: anywhere; }
+.company-sync-grid { display: grid; gap: 16px; grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: 18px; }
+.company-sync-card { border: 1px solid #e8ebf2; border-radius: 12px; padding: 18px; }
+.company-sync-card > header { align-items: flex-start; display: flex; gap: 16px; justify-content: space-between; }
+.company-sync-card h3 { color: #1f2937; font-size: 1rem; margin: 0 0 6px; }
+.company-sync-card p { margin: 0; }
+@media (max-width: 720px) { .company-sync-grid { grid-template-columns: 1fr; } }
 .company-inline-error { align-items: center; color: #cf4c4c; font-size: .8rem; justify-content: space-between; }
 .company-inline-error button { background: #fff !important; border-color: #ffccc7 !important; color: #cf4c4c !important; }
 .company-audit-list { display: grid; gap: 8px; margin-top: 18px; }

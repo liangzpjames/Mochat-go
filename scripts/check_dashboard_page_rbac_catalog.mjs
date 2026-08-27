@@ -891,6 +891,13 @@ async function main() {
       'utf8',
     ),
   });
+  const archiveSyncMappings = applyPermissionResourceReconciliation({
+    mappings: seededMappings,
+    overlaySource: await readFile(
+      'deploy/standalone/migrations/0168_company_archive_sync_rbac.up.sql',
+      'utf8',
+    ),
+  });
   const apiUsages = await scanFrontendAPIUsages();
   const backendRoutes = (await scanBackendRegisteredAPIs())
     .filter((route) => isDashboardRBACRoute(route.contract));
@@ -907,7 +914,7 @@ async function main() {
     registeredSources,
     exemptions: routePolicy.exactExempt,
     denyOnly: routePolicy.denyOnly,
-    seededMappings,
+    seededMappings: archiveSyncMappings,
   });
   console.log(
     `${result.pageCount} pages, ${result.ordinaryPageCount} ordinary, `

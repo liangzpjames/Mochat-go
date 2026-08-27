@@ -63,6 +63,16 @@
           "method": "DELETE",
           "pathPattern": "/dashboard/workMessage/focus",
           "scopeRequired": false
+        },
+        {
+          "method": "POST",
+          "pathPattern": "/dashboard/company/archive-sync",
+          "scopeRequired": false
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/company/archive-sync-status",
+          "scopeRequired": false
         }
       ]
     },
@@ -1797,6 +1807,16 @@
         {
           "method": "GET",
           "pathPattern": "/dashboard/company/sync-status",
+          "scopeRequired": false
+        },
+        {
+          "method": "POST",
+          "pathPattern": "/dashboard/company/archive-sync",
+          "scopeRequired": false
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/company/archive-sync-status",
           "scopeRequired": false
         },
         {

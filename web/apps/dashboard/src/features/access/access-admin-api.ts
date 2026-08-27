@@ -81,6 +81,8 @@ export type DashboardAccessAdminApi = ReturnType<
 
 export function createDashboardAccessAdminApi(client: Client) {
   return {
+    employeeSync: () =>
+      client.request('/company/employee-sync', { method: 'POST' }),
     employees: (input: {
       page: number;
       perPage: number;

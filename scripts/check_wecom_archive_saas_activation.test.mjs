@@ -48,6 +48,7 @@ test('acceptance database installs the complete non-controlled Dashboard schema'
     '0119_phase35_orders_settings.up.sql',
     '0148_ai_conversation_insights.up.sql',
     '0167_tenant_wecom_mode.up.sql',
+    '0168_company_archive_sync_rbac.up.sql',
   ]) {
     assert.ok(init.includes(migration), `acceptance init is missing ${migration}`);
   }

@@ -82,6 +82,29 @@ function withEmployeeLifecycle<
 }
 
 describe("access management pages", () => {
+  it("submits personnel synchronization from the reachable staff page after confirmation", async () => {
+    const employeeSync = vi.fn().mockResolvedValue({ status: "queued" });
+    const api = {
+      employees: vi.fn().mockResolvedValue({ list: [], page: { total: 0, totalPage: 1 } }),
+      provisionEmployeeAccount: vi.fn(),
+      updateEmployeeAccountStatus: vi.fn(),
+      resetEmployeePassword: vi.fn(),
+      user: vi.fn(),
+      replaceUser: vi.fn(),
+      roles: vi.fn().mockResolvedValue({ list: [], page: { total: 0, totalPage: 1 } }),
+      catalog: vi.fn().mockResolvedValue([]),
+      employeeSync,
+    };
+    wrap(<AccessStaffPage api={api} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "立即同步人员" }));
+    expect(employeeSync).not.toHaveBeenCalled();
+    fireEvent.click(await screen.findByRole("button", { name: "确认" }));
+
+    await waitFor(() => expect(employeeSync).toHaveBeenCalledTimes(1));
+    expect((await screen.findByRole("status")).textContent).toContain("人员同步任务已提交");
+  });
+
   it("groups and searches grantable permissions without exposing protected pages", () => {
     function SelectorHarness() {
       const [value, setValue] = React.useState<

@@ -30,36 +30,38 @@ func companyProfileTestPrincipal(superadmin bool, status dashboardprincipal.Corp
 }
 
 type companyProfileContractStore struct {
-	getCalls             int
-	updateCalls          int
-	verificationCalls    int
-	commitVerification   int
-	rotateCorpCalls      int
-	rotateAgentCalls     int
-	rotateArchiveCalls   int
-	configureAppCalls    int
-	callbackReadCalls    int
-	callbackRotateCalls  int
-	syncCalls            int
-	queueCalls           int
-	failureCalls         int
-	queueResult          EmployeeSyncQueueResult
-	queueErr             error
-	syncState            string
-	lastWeComInput       WeComCredentialsInput
-	lastAgentInput       AgentCredentialsInput
-	lastApplicationInput ApplicationCredentialsInput
-	lastArchiveInput     ArchiveCredentialsInput
-	lastCallbackInput    CallbackConfigurationInput
-	rotateAgentErr       error
-	profile              Profile
-	verificationSnapshot VerificationSnapshot
-	auditPage            AuditPage
-	syncStatus           SyncStatus
-	syncStatusCalls      int
-	syncStatusErr        error
-	archiveSourceStatus  providers.Status
-	archiveStatusCalls   int
+	getCalls               int
+	updateCalls            int
+	verificationCalls      int
+	commitVerification     int
+	rotateCorpCalls        int
+	rotateAgentCalls       int
+	rotateArchiveCalls     int
+	configureAppCalls      int
+	callbackReadCalls      int
+	callbackRotateCalls    int
+	syncCalls              int
+	queueCalls             int
+	failureCalls           int
+	queueResult            EmployeeSyncQueueResult
+	queueErr               error
+	syncState              string
+	lastWeComInput         WeComCredentialsInput
+	lastAgentInput         AgentCredentialsInput
+	lastApplicationInput   ApplicationCredentialsInput
+	lastArchiveInput       ArchiveCredentialsInput
+	lastCallbackInput      CallbackConfigurationInput
+	rotateAgentErr         error
+	profile                Profile
+	verificationSnapshot   VerificationSnapshot
+	auditPage              AuditPage
+	syncStatus             SyncStatus
+	syncStatusCalls        int
+	syncStatusErr          error
+	archiveSourceStatus    providers.Status
+	archiveStatusCalls     int
+	archiveSyncStatus      ArchiveSyncStatus
+	archiveSyncStatusCalls int
 }
 
 func (s *companyProfileContractStore) GetProfile(context.Context, dashboardprincipal.DashboardPrincipal) (Profile, error) {
@@ -482,6 +484,11 @@ func TestServiceEmployeeSyncRequiresVerifiedBinding(t *testing.T) {
 	if scheduler.calls != 0 || store.queueCalls != 0 || store.syncCalls != 0 {
 		t.Fatalf("scheduler calls=%d queue calls=%d sync calls=%d, want 0/0/0", scheduler.calls, store.queueCalls, store.syncCalls)
 	}
+}
+
+func (s *companyProfileContractStore) GetArchiveSyncStatus(context.Context, dashboardprincipal.DashboardPrincipal) (ArchiveSyncStatus, error) {
+	s.archiveSyncStatusCalls++
+	return s.archiveSyncStatus, nil
 }
 
 func TestServiceSyncStatusAllowsPendingUnconfiguredBinding(t *testing.T) {
