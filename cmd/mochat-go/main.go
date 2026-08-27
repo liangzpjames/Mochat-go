@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/x509"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -3599,11 +3600,22 @@ func runDurableArchiveMediaBatch(ctx context.Context, runner durableArchiveMedia
 	if _, err := runner.CleanupStaleAttempts(ctx); err != nil {
 		logger.Print("go durable archive media attempt cleanup failed")
 	}
+	failed := false
 	for index := 0; index < limit; index++ {
 		worked, err := runner.RunOne(ctx)
-		if err != nil || !worked {
-			return err
+		if err != nil {
+			failed = true
+			if !worked {
+				break
+			}
+			continue
 		}
+		if !worked {
+			break
+		}
+	}
+	if failed {
+		return errors.New("archive media batch completed with failed items")
 	}
 	return nil
 }

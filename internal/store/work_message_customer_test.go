@@ -424,6 +424,9 @@ func TestCustomerConversationBaseSQLUsesArchiveAvatarForRooms(t *testing.T) {
 	if strings.Contains(sqlText, "latest.current_member") {
 		t.Fatalf("direct customer conversation SQL must not depend on group-only current_member: %s", sqlText)
 	}
+	if strings.Contains(sqlText, "'none'") || !strings.Contains(sqlText, "'unknown'") {
+		t.Fatalf("direct relationship status must stay inside the Dashboard contract: %s", sqlText)
+	}
 }
 
 func TestCustomerConversationDecorationReportsUnavailableTables(t *testing.T) {

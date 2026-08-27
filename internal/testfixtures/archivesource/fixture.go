@@ -70,6 +70,7 @@ type FixtureMessage struct {
 
 type ArchiveFixture struct {
 	mu              sync.Mutex
+	marker          string
 	finance         *archivefixture.FinanceCipher
 	messages        []fixtureMessage
 	mediaFileIDs    map[string]string
@@ -79,44 +80,63 @@ type ArchiveFixture struct {
 	closed          bool
 }
 
+func (f *ArchiveFixture) MessageCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.messages)
+}
+
 func NewArchiveFixture() (*ArchiveFixture, error) {
-	finance, err := archivefixture.NewFinanceCipher(DatasetMarker + "-CORP")
+	return newArchiveFixture(DatasetMarker)
+}
+
+func NewArchiveFixtureForDataset(marker string) (*ArchiveFixture, error) {
+	marker = strings.TrimSpace(marker)
+	if !validSimulationMarker(marker) {
+		return nil, errors.New("local archive fixture dataset marker is invalid")
+	}
+	return newArchiveFixture(marker)
+}
+
+func newArchiveFixture(marker string) (*ArchiveFixture, error) {
+	finance, err := archivefixture.NewFinanceCipher(marker + "-CORP")
 	if err != nil {
 		return nil, err
 	}
 	mediaFileIDs := map[string]string{
-		"image":   DatasetMarker + "-SDKFILE-IMAGE",
-		"voice":   DatasetMarker + "-SDKFILE-VOICE",
-		"video":   DatasetMarker + "-SDKFILE-VIDEO",
-		"file":    DatasetMarker + "-SDKFILE-FILE",
-		"mixed":   DatasetMarker + "-SDKFILE-MIXED-IMAGE",
-		"missing": DatasetMarker + "-SDKFILE-MISSING-IMAGE",
-		"corrupt": DatasetMarker + "-SDKFILE-CORRUPT-IMAGE",
+		"image":   marker + "-SDKFILE-IMAGE",
+		"voice":   marker + "-SDKFILE-VOICE",
+		"video":   marker + "-SDKFILE-VIDEO",
+		"file":    marker + "-SDKFILE-FILE",
+		"mixed":   marker + "-SDKFILE-MIXED-IMAGE",
+		"missing": marker + "-SDKFILE-MISSING-IMAGE",
+		"corrupt": marker + "-SDKFILE-CORRUPT-IMAGE",
 	}
 	videoBytes, err := base64.StdEncoding.DecodeString(fixtureMP4Base64)
 	if err != nil {
 		return nil, fmt.Errorf("decode deterministic acceptance MP4: %w", err)
 	}
+	videoBytes = append(videoBytes, []byte(marker)...)
 	media := map[string][]byte{
-		mediaFileIDs["image"]:   fixturePNG(color.NRGBA{R: 29, G: 78, B: 216, A: 255}),
+		mediaFileIDs["image"]:   fixturePNG(marker, color.NRGBA{R: 29, G: 78, B: 216, A: 255}),
 		mediaFileIDs["voice"]:   fixtureWAV(),
 		mediaFileIDs["video"]:   videoBytes,
-		mediaFileIDs["file"]:    fixturePDF(),
-		mediaFileIDs["mixed"]:   fixturePNG(color.NRGBA{R: 20, G: 184, B: 166, A: 255}),
-		mediaFileIDs["missing"]: fixturePNG(color.NRGBA{R: 245, G: 158, B: 11, A: 255}),
-		mediaFileIDs["corrupt"]: fixturePNG(color.NRGBA{R: 239, G: 68, B: 68, A: 255}),
+		mediaFileIDs["file"]:    fixturePDF(marker),
+		mediaFileIDs["mixed"]:   fixturePNG(marker, color.NRGBA{R: 20, G: 184, B: 166, A: 255}),
+		mediaFileIDs["missing"]: fixturePNG(marker, color.NRGBA{R: 245, G: 158, B: 11, A: 255}),
+		mediaFileIDs["corrupt"]: fixturePNG(marker, color.NRGBA{R: 239, G: 68, B: 68, A: 255}),
 	}
 	plainMessages := []map[string]any{
-		baseMessage(1, "text", map[string]any{"content": DatasetMarker + " local contract text"}),
-		baseMessage(2, "image", map[string]any{"sdkfileid": mediaFileIDs["image"], "md5sum": mediaMD5(media[mediaFileIDs["image"]]), "filesize": len(media[mediaFileIDs["image"]])}),
-		baseMessage(3, "voice", map[string]any{"sdkfileid": mediaFileIDs["voice"], "voice_size": len(media[mediaFileIDs["voice"]]), "play_length": 2, "md5sum": mediaMD5(media[mediaFileIDs["voice"]])}),
-		baseMessage(4, "video", map[string]any{"sdkfileid": mediaFileIDs["video"], "filesize": len(media[mediaFileIDs["video"]]), "play_length": 3, "md5sum": mediaMD5(media[mediaFileIDs["video"]])}),
-		baseMessage(5, "file", map[string]any{"sdkfileid": mediaFileIDs["file"], "filename": DatasetMarker + "-fixture.pdf", "fileext": "pdf", "filesize": len(media[mediaFileIDs["file"]]), "md5sum": mediaMD5(media[mediaFileIDs["file"]])}),
-		baseMessage(6, "link", map[string]any{"title": DatasetMarker + " local link", "description": "local contract only", "link_url": "https://example.invalid/mochat-local-acceptance", "image_url": "https://example.invalid/local-image.png"}),
-		baseMessage(7, "location", map[string]any{"longitude": 121.4737, "latitude": 31.2304, "address": DatasetMarker + " local location", "title": "local contract", "zoom": 16}),
-		baseMessage(8, "image", map[string]any{"sdkfileid": mediaFileIDs["missing"], "md5sum": mediaMD5(media[mediaFileIDs["missing"]]), "filesize": len(media[mediaFileIDs["missing"]])}),
-		baseMessage(9, "mixed", map[string]any{"item": []map[string]any{
-			{"type": "text", "content": DatasetMarker + " mixed text"},
+		baseMessage(marker, 1, "text", map[string]any{"content": marker + " local contract text"}),
+		baseMessage(marker, 2, "image", map[string]any{"sdkfileid": mediaFileIDs["image"], "md5sum": mediaMD5(media[mediaFileIDs["image"]]), "filesize": len(media[mediaFileIDs["image"]])}),
+		baseMessage(marker, 3, "voice", map[string]any{"sdkfileid": mediaFileIDs["voice"], "voice_size": len(media[mediaFileIDs["voice"]]), "play_length": 2, "md5sum": mediaMD5(media[mediaFileIDs["voice"]])}),
+		baseMessage(marker, 4, "video", map[string]any{"sdkfileid": mediaFileIDs["video"], "filesize": len(media[mediaFileIDs["video"]]), "play_length": 3, "md5sum": mediaMD5(media[mediaFileIDs["video"]])}),
+		baseMessage(marker, 5, "file", map[string]any{"sdkfileid": mediaFileIDs["file"], "filename": marker + "-fixture.pdf", "fileext": "pdf", "filesize": len(media[mediaFileIDs["file"]]), "md5sum": mediaMD5(media[mediaFileIDs["file"]])}),
+		baseMessage(marker, 6, "link", map[string]any{"title": marker + " local link", "description": "local contract only", "link_url": "https://example.invalid/mochat-local-acceptance", "image_url": "https://example.invalid/local-image.png"}),
+		baseMessage(marker, 7, "location", map[string]any{"longitude": 121.4737, "latitude": 31.2304, "address": marker + " local location", "title": "local contract", "zoom": 16}),
+		baseMessage(marker, 8, "image", map[string]any{"sdkfileid": mediaFileIDs["missing"], "md5sum": mediaMD5(media[mediaFileIDs["missing"]]), "filesize": len(media[mediaFileIDs["missing"]])}),
+		baseMessage(marker, 9, "mixed", map[string]any{"item": []map[string]any{
+			{"type": "text", "content": marker + " mixed text"},
 			{"type": "image", "image": map[string]any{
 				"sdkfileid": mediaFileIDs["mixed"], "md5sum": mediaMD5(media[mediaFileIDs["mixed"]]), "filesize": len(media[mediaFileIDs["mixed"]]),
 			}},
@@ -124,7 +144,7 @@ func NewArchiveFixture() (*ArchiveFixture, error) {
 				"sdkfileid": mediaFileIDs["corrupt"], "md5sum": mediaMD5(media[mediaFileIDs["corrupt"]]), "filesize": len(media[mediaFileIDs["corrupt"]]),
 			}},
 		}}),
-		baseMessage(10, "future_archive_type", map[string]any{"opaque": DatasetMarker + " preserve unknown payload", "version": 1}),
+		baseMessage(marker, 10, "future_archive_type", map[string]any{"opaque": marker + " preserve unknown payload", "version": 1}),
 	}
 	messages := make([]fixtureMessage, 0, len(plainMessages))
 	for index, message := range plainMessages {
@@ -133,14 +153,14 @@ func NewArchiveFixture() (*ArchiveFixture, error) {
 			return nil, err
 		}
 		seq := uint64(index + 1)
-		envelope, err := finance.Encrypt(seq, fmt.Sprintf("%s-MSG-%02d", DatasetMarker, seq), plain)
+		envelope, err := finance.Encrypt(seq, fmt.Sprintf("%s-MSG-%02d", marker, seq), plain)
 		if err != nil {
 			return nil, err
 		}
 		messages = append(messages, fixtureMessage{envelope: envelope})
 	}
 	return &ArchiveFixture{
-		finance:  finance,
+		marker: marker, finance: finance,
 		messages: messages, mediaFileIDs: mediaFileIDs, media: media, mediaModes: map[string]MediaMode{
 			mediaFileIDs["missing"]: MediaMissing,
 			mediaFileIDs["corrupt"]: MediaCorrupt,
@@ -148,7 +168,7 @@ func NewArchiveFixture() (*ArchiveFixture, error) {
 	}, nil
 }
 
-func fixturePNG(fill color.NRGBA) []byte {
+func fixturePNG(marker string, fill color.NRGBA) []byte {
 	canvas := image.NewNRGBA(image.Rect(0, 0, 2, 2))
 	for y := 0; y < 2; y++ {
 		for x := 0; x < 2; x++ {
@@ -159,7 +179,7 @@ func fixturePNG(fill color.NRGBA) []byte {
 	if err := png.Encode(&encoded, canvas); err != nil {
 		panic(err)
 	}
-	return append(encoded.Bytes(), []byte(DatasetMarker)...)
+	return append(encoded.Bytes(), []byte(marker)...)
 }
 
 func fixtureWAV() []byte {
@@ -190,8 +210,8 @@ func fixtureWAV() []byte {
 	return result
 }
 
-func fixturePDF() []byte {
-	content := "BT /F1 12 Tf 36 72 Td (" + DatasetMarker + " local acceptance PDF) Tj ET\n"
+func fixturePDF(marker string) []byte {
+	content := "BT /F1 12 Tf 36 72 Td (" + marker + " local acceptance PDF) Tj ET\n"
 	objects := []string{
 		"<< /Type /Catalog /Pages 2 0 R >>",
 		"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
@@ -220,13 +240,25 @@ func mediaMD5(data []byte) string {
 	return hex.EncodeToString(sum[:])
 }
 
-func baseMessage(seq int, msgType string, payload any) map[string]any {
-	msgID := fmt.Sprintf("%s-MSG-%02d", DatasetMarker, seq)
+func baseMessage(marker string, seq int, msgType string, payload any) map[string]any {
+	msgID := fmt.Sprintf("%s-MSG-%02d", marker, seq)
 	return map[string]any{
-		"msgid": msgID, "action": "send", "from": DatasetMarker + "-STAFF-01",
-		"tolist": []string{DatasetMarker + "-EXTERNAL-01"}, "roomid": "",
+		"msgid": msgID, "action": "send", "from": marker + "-STAFF-01",
+		"tolist": []string{marker + "-EXTERNAL-01"}, "roomid": "",
 		"msgtime": int64(1787760000000 + seq), "msgtype": msgType, msgType: payload,
 	}
+}
+
+func validSimulationMarker(marker string) bool {
+	if !strings.HasPrefix(marker, "MOCHAT-LOCAL-SIM-") || len(marker) > 96 {
+		return false
+	}
+	for _, character := range marker {
+		if !(character == '-' || character == '_' || character >= '0' && character <= '9' || character >= 'A' && character <= 'Z' || character >= 'a' && character <= 'z') {
+			return false
+		}
+	}
+	return true
 }
 
 func (f *ArchiveFixture) PrivateKeyPEM() string {
@@ -262,7 +294,7 @@ func (f *ArchiveFixture) Append(input FixtureInput) (FixtureMessage, error) {
 		payload["content"] = string(input.Body)
 	case "image", "voice", "video", "file":
 		digest := sha256.Sum256([]byte(input.MessageID))
-		sdkFileID = DatasetMarker + "-SDKFILE-" + hex.EncodeToString(digest[:8])
+		sdkFileID = f.marker + "-SDKFILE-" + hex.EncodeToString(digest[:8])
 		f.media[sdkFileID] = append([]byte(nil), input.Body...)
 		payload["sdkfileid"] = sdkFileID
 		payload["md5sum"] = mediaMD5(input.Body)
@@ -273,7 +305,7 @@ func (f *ArchiveFixture) Append(input FixtureInput) (FixtureMessage, error) {
 		if input.Type == "file" {
 			name := strings.TrimSpace(input.FileName)
 			if name == "" {
-				name = DatasetMarker + "-fixture.bin"
+				name = f.marker + "-fixture.bin"
 			}
 			payload["filename"] = name
 		}
@@ -281,8 +313,8 @@ func (f *ArchiveFixture) Append(input FixtureInput) (FixtureMessage, error) {
 		return FixtureMessage{}, errors.New("local archive fixture message type is unsupported")
 	}
 	message := map[string]any{
-		"msgid": input.MessageID, "action": "send", "from": DatasetMarker + "-STAFF-01",
-		"tolist": []string{DatasetMarker + "-EXTERNAL-01"}, "roomid": "",
+		"msgid": input.MessageID, "action": "send", "from": f.marker + "-STAFF-01",
+		"tolist": []string{f.marker + "-EXTERNAL-01"}, "roomid": "",
 		"msgtime": int64(1787760000000 + input.Sequence), "msgtype": input.Type, input.Type: payload,
 	}
 	plain, err := json.Marshal(message)

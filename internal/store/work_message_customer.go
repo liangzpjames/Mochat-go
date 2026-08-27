@@ -510,7 +510,7 @@ func customerConversationBaseSQLWithSource(filter dashboard.WorkMessageCustomerC
 		latest.msg_data_time AS last_at, grouped.message_total,
 		'ARCHIVE_SOURCE' AS archive_source,
 		CASE WHEN NULLIF(latest.msgid,'') IS NOT NULL THEN CONCAT('msg:',latest.msgid) WHEN latest.seq>0 THEN CONCAT('seq:',latest.seq) ELSE CONCAT('table:',latest.table_index,':',latest.id) END AS archive_source_id,
-		CASE WHEN latest.to_user_type=1 THEN COALESCE(relation.relation_status,'none') ELSE '' END AS relation_status,
+		CASE WHEN latest.to_user_type=1 THEN COALESCE(relation.relation_status,'unknown') ELSE '' END AS relation_status,
 		MEMBERSHIP_STATUS_SQL AS membership_status`
 	joins := `
 		LEFT JOIN mc_work_employee employee ON employee.id=latest.work_employee_id AND employee.corp_id=? AND employee.deleted_at IS NULL
@@ -519,7 +519,7 @@ func customerConversationBaseSQLWithSource(filter dashboard.WorkMessageCustomerC
 		LEFT JOIN (
 			SELECT contact_id, employee_id,
 				CASE WHEN MAX(CASE WHEN status=1 AND deleted_at IS NULL THEN 1 ELSE 0 END)=1 THEN 'active'
-					WHEN MAX(CASE WHEN status IN (2,3) THEN 1 ELSE 0 END)=1 THEN 'lost' ELSE 'none' END AS relation_status
+					WHEN MAX(CASE WHEN status IN (2,3) THEN 1 ELSE 0 END)=1 THEN 'lost' ELSE 'unknown' END AS relation_status
 			FROM mc_work_contact_employee WHERE corp_id=? GROUP BY contact_id, employee_id
 		) relation ON relation.contact_id=latest.to_user_id AND relation.employee_id=latest.work_employee_id`
 	archiveSource = strings.ReplaceAll(archiveSource, "'", "")

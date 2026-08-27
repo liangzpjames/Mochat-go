@@ -25,9 +25,31 @@ func TestDurableArchiveMediaBatchContinuesAfterSanitizedCleanupError(t *testing.
 	}
 }
 
+func TestDurableArchiveMediaBatchContinuesAfterOneObjectFailsAndSanitizesResult(t *testing.T) {
+	const secret = "SECRET-UPSTREAM-MEDIA-LOCATOR"
+	runner := &fakeDurableArchiveMediaBatchRunner{results: []fakeMediaRunResult{
+		{worked: true, err: errors.New(secret)},
+		{worked: true},
+		{worked: false},
+	}}
+	err := runDurableArchiveMediaBatch(context.Background(), runner, 10, log.New(&bytes.Buffer{}, "", 0))
+	if err == nil || strings.Contains(err.Error(), secret) || !strings.Contains(err.Error(), "failed items") {
+		t.Fatalf("batch error=%v", err)
+	}
+	if runner.runCalls != 3 {
+		t.Fatalf("RunOne calls=%d, want 3", runner.runCalls)
+	}
+}
+
+type fakeMediaRunResult struct {
+	worked bool
+	err    error
+}
+
 type fakeDurableArchiveMediaBatchRunner struct {
 	cleanupErr error
 	runCalls   int
+	results    []fakeMediaRunResult
 }
 
 func (r *fakeDurableArchiveMediaBatchRunner) CleanupStaleAttempts(context.Context) (int, error) {
@@ -36,5 +58,10 @@ func (r *fakeDurableArchiveMediaBatchRunner) CleanupStaleAttempts(context.Contex
 
 func (r *fakeDurableArchiveMediaBatchRunner) RunOne(context.Context) (bool, error) {
 	r.runCalls++
+	if len(r.results) > 0 {
+		result := r.results[0]
+		r.results = r.results[1:]
+		return result.worked, result.err
+	}
 	return false, nil
 }

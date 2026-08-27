@@ -161,7 +161,7 @@ func (m *FixtureManager) Send(input FixtureSendInput) (FixtureSendResult, error)
 		entry.SelfMessages = append(entry.SelfMessages, fixtureStoredMessage{Sequence: sequence, MessageID: messageID, Type: messageType, Body: append([]byte(nil), body...), FileName: input.FileName, MIMEType: input.MIMEType})
 		result.SDKFileID = item.SDKFileID
 	} else if runtime.zone != nil {
-		_, err := runtime.zone.Append(archivefixture.DataZoneContent{Sequence: sequence, MessageID: messageID, Type: messageType, Sender: input.Dataset + "-STAFF", Receivers: []string{input.Dataset + "-EXTERNAL"}, Body: body, FileName: input.FileName, MIMEType: input.MIMEType})
+		_, err := runtime.zone.Append(archivefixture.DataZoneContent{Sequence: sequence, MessageID: messageID, Type: messageType, Sender: input.Dataset + "-STAFF-01", Receivers: []string{input.Dataset + "-EXTERNAL-01"}, Body: body, FileName: input.FileName, MIMEType: input.MIMEType})
 		if err != nil {
 			return FixtureSendResult{}, &BridgeError{Code: "FIXTURE_SEND_FAILED"}
 		}
@@ -209,8 +209,10 @@ func (m *FixtureManager) Status() FixtureStatus {
 
 func (m *FixtureManager) statusLocked() FixtureStatus {
 	status := FixtureStatus{Enabled: true, DatasetCount: len(m.state.Datasets)}
-	for _, entry := range m.state.Datasets {
-		status.MessageCount += len(entry.SelfMessages)
+	for key, entry := range m.state.Datasets {
+		if runtime := m.runtimes[key]; runtime.finance != nil {
+			status.MessageCount += runtime.finance.MessageCount()
+		}
 		if entry.DataZone != nil {
 			status.MessageCount += len(entry.DataZone.Entries)
 		}
@@ -293,7 +295,7 @@ func (m *FixtureManager) authorizeDelegatedLocked(entry *fixtureDataset) error {
 
 func (m *FixtureManager) createRuntime(entry *fixtureDataset, seed bool) (fixtureRuntime, error) {
 	if entry.Binding.IntegrationMode == ModeSelfBuilt {
-		fixture, err := archivesource.NewArchiveFixture()
+		fixture, err := archivesource.NewArchiveFixtureForDataset(entry.Dataset)
 		if err != nil {
 			return fixtureRuntime{}, errors.New("create finance fixture failed")
 		}
@@ -326,7 +328,7 @@ func (m *FixtureManager) createRuntime(entry *fixtureDataset, seed bool) (fixtur
 			zone.WithContentTTL(30 * 24 * time.Hour)
 			if seed {
 				for index, kind := range []string{"text", "image", "voice", "video", "file"} {
-					_, err = zone.Append(archivefixture.DataZoneContent{Sequence: int64(index + 1), MessageID: fmt.Sprintf("%s-DELEGATED-%02d", entry.Dataset, index+1), Type: kind, Sender: entry.Dataset + "-STAFF", Receivers: []string{entry.Dataset + "-EXTERNAL"}, Body: []byte(entry.Dataset + " delegated " + kind), FileName: entry.Dataset + ".bin", MIMEType: fixtureMIME(kind)})
+					_, err = zone.Append(archivefixture.DataZoneContent{Sequence: int64(index + 1), MessageID: fmt.Sprintf("%s-DELEGATED-%02d", entry.Dataset, index+1), Type: kind, Sender: entry.Dataset + "-STAFF-01", Receivers: []string{entry.Dataset + "-EXTERNAL-01"}, Body: []byte(entry.Dataset + " delegated " + kind), FileName: entry.Dataset + ".bin", MIMEType: fixtureMIME(kind)})
 					if err != nil {
 						break
 					}

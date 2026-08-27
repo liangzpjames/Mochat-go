@@ -392,3 +392,54 @@ func TestArchiveFixtureAppendUsesEncryptedSDKAndChunkedMediaContracts(t *testing
 		t.Fatalf("media=%q", assembled)
 	}
 }
+
+func TestArchiveFixtureForDatasetScopesEveryGeneratedMessageAndMedia(t *testing.T) {
+	const marker = "MOCHAT-LOCAL-SIM-clean-replay"
+	fixture, err := NewArchiveFixtureForDataset(marker)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer fixture.Close()
+
+	raw, err := fixture.GetChatData(0, 100, 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var envelope struct {
+		ChatData []struct {
+			MessageID string `json:"msgid"`
+		} `json:"chatdata"`
+	}
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if len(envelope.ChatData) != 10 {
+		t.Fatalf("messages=%d", len(envelope.ChatData))
+	}
+	for _, item := range envelope.ChatData {
+		if !strings.HasPrefix(item.MessageID, marker+"-") || strings.Contains(item.MessageID, DatasetMarker) {
+			t.Fatalf("message id is not dataset scoped: %q", item.MessageID)
+		}
+	}
+	for kind, sdkFileID := range fixture.MediaFileIDs() {
+		if !strings.HasPrefix(sdkFileID, marker+"-") {
+			t.Fatalf("%s media id is not dataset scoped: %q", kind, sdkFileID)
+		}
+	}
+
+	message, err := fixture.Append(FixtureInput{Sequence: 11, MessageID: marker + "-DYNAMIC-11", Type: "file", Body: []byte("dataset-file")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(message.SDKFileID, marker+"-") {
+		t.Fatalf("dynamic media id is not dataset scoped: %q", message.SDKFileID)
+	}
+}
+
+func TestArchiveFixtureForDatasetRejectsUnsafeMarker(t *testing.T) {
+	for _, marker := range []string{"", "MOCHAT-LOCAL-ACCEPTANCE-foreign", "MOCHAT-LOCAL-SIM-with space"} {
+		if _, err := NewArchiveFixtureForDataset(marker); err == nil {
+			t.Fatalf("marker %q should be rejected", marker)
+		}
+	}
+}

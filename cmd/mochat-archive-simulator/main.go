@@ -72,6 +72,8 @@ func runWith(args []string, getenv environmentReader, open mysqlOpener) error {
 
 	var path string
 	var request any
+	var database *sql.DB
+	var resolvedBinding archivebridge.Binding
 	if action == "status" {
 		path, request = "/v1/fixture/status", struct{}{}
 	} else {
@@ -91,13 +93,20 @@ func runWith(args []string, getenv environmentReader, open mysqlOpener) error {
 			return err
 		}
 		defer db.Close()
+		database = db
 		if err := db.PingContext(ctx); err != nil {
 			return fmt.Errorf("connect database: %w", err)
 		}
-		binding, err := resolveBinding(ctx, db, *tenantID, requestedMode)
+		var binding archivebridge.Binding
+		if action == "seed" {
+			binding, err = resolveSeedBinding(ctx, db, *tenantID, requestedMode)
+		} else {
+			binding, err = resolveBinding(ctx, db, *tenantID, requestedMode)
+		}
 		if err != nil {
 			return err
 		}
+		resolvedBinding = binding
 		switch action {
 		case "seed":
 			path, request = "/v1/fixture/seed", map[string]any{"binding": binding, "dataset": *dataset}
@@ -118,6 +127,38 @@ func runWith(args []string, getenv environmentReader, open mysqlOpener) error {
 			path, request = "/v1/fixture/cleanup", map[string]any{"binding": binding, "dataset": *dataset, "confirmDataset": *confirmDataset}
 		}
 	}
+	if action == "seed" {
+		var bridgeOutput bytes.Buffer
+		if err := postFixture(ctx, http.DefaultClient, bridgeURL+path, adminBearer, request, &bridgeOutput); err != nil {
+			return err
+		}
+		if err := activateFixtureBinding(ctx, database, resolvedBinding, *dataset); err != nil {
+			return err
+		}
+		var bridgeResult any
+		if json.Unmarshal(bridgeOutput.Bytes(), &bridgeResult) != nil {
+			return errors.New("fixture bridge returned invalid seed result")
+		}
+		encoder := json.NewEncoder(os.Stdout)
+		encoder.SetIndent("", "  ")
+		return encoder.Encode(map[string]any{"status": "seeded", "dataset": strings.TrimSpace(*dataset), "mode": resolvedBinding.IntegrationMode, "bridge": bridgeResult})
+	}
+	if action == "cleanup" {
+		cleanup, err := cleanupIngestedFixture(ctx, database, resolvedBinding, *dataset, getenv("MOCHAT_FILE_STORAGE_ROOT"))
+		if err != nil {
+			return err
+		}
+		// Delete the durable downstream state first. If the bridge request then
+		// fails, its retained upstream fixture can be replayed or cleaned by a
+		// retry; deleting upstream first would make a downstream refusal harder
+		// to recover from.
+		if err := postFixture(ctx, http.DefaultClient, bridgeURL+path, adminBearer, request, io.Discard); err != nil {
+			return err
+		}
+		encoder := json.NewEncoder(os.Stdout)
+		encoder.SetIndent("", "  ")
+		return encoder.Encode(map[string]any{"status": "cleaned", "cleanup": cleanup})
+	}
 	return postFixture(ctx, http.DefaultClient, bridgeURL+path, adminBearer, request, os.Stdout)
 }
 
@@ -133,8 +174,11 @@ func resolveBinding(ctx context.Context, db bindingQuery, tenantID int64, reques
 		INNER JOIN mochat_go_tenant_corp_bindings binding ON binding.tenant_id=integration.tenant_id AND binding.corp_id=integration.corp_id
 		INNER JOIN mc_tenant tenant ON tenant.id=integration.tenant_id AND tenant.deleted_at IS NULL
 		INNER JOIN mc_corp corp ON corp.id=integration.corp_id AND corp.tenant_id=integration.tenant_id AND corp.deleted_at IS NULL
-		WHERE integration.tenant_id=? AND integration.deleted_at IS NULL
-		ORDER BY integration.id DESC LIMIT 1
+		WHERE integration.tenant_id=?
+		  AND integration.slot='current' AND integration.status='active'
+		  AND integration.mode=binding.wecom_integration_mode
+		  AND binding.status=2 AND integration.verified_wx_corpid<>''
+		LIMIT 1
 	`, tenantID).Scan(&binding.TenantID, &binding.CorpID, &binding.WXCorpID, &binding.IntegrationMode)
 	if errors.Is(err, sql.ErrNoRows) {
 		return archivebridge.Binding{}, errors.New("tenant has no available enterprise binding")

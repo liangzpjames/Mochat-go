@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"jiyi/mochat-go/internal/testfixtures/archivesource"
 )
 
 const testFixtureAdminBearer = "local-fixture-admin-012345678901234567890123456789"
@@ -43,7 +45,7 @@ func TestFixtureAdminSeedsSendsPersistsAndCleansBothModes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if status := restored.Status(); status.DatasetCount != 2 || status.MessageCount < 2 || status.DelegatedAuthorizedCount != 1 {
+	if status := restored.Status(); status.DatasetCount != 2 || status.MessageCount != 17 || status.DelegatedAuthorizedCount != 1 {
 		t.Fatalf("restored status=%+v", status)
 	}
 	restoredHandler, err := NewHandler(Config{BearerToken: testBridgeBearer, FixtureEnabled: true, FixtureAdminToken: testFixtureAdminBearer, FixtureManager: restored}, restoredStore)
@@ -58,6 +60,12 @@ func TestFixtureAdminSeedsSendsPersistsAndCleansBothModes(t *testing.T) {
 		restoredHandler.ServeHTTP(response, request)
 		if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "MOCHAT-LOCAL-SIM-contract") {
 			t.Fatalf("restored mode=%s response=%d %s", binding.IntegrationMode, response.Code, response.Body.String())
+		}
+		if !strings.Contains(response.Body.String(), "MOCHAT-LOCAL-SIM-contract-STAFF-01") || !strings.Contains(response.Body.String(), "MOCHAT-LOCAL-SIM-contract-EXTERNAL-01") {
+			t.Fatalf("restored mode=%s did not preserve dataset-scoped participants: %s", binding.IntegrationMode, response.Body.String())
+		}
+		if binding.IntegrationMode == ModeSelfBuilt && strings.Contains(response.Body.String(), archivesource.DatasetMarker) {
+			t.Fatalf("self-built fixture escaped its dataset scope: %s", response.Body.String())
 		}
 	}
 	for _, binding := range bindings {
