@@ -126,6 +126,44 @@ function Wait-CheckpointState([string]$State, [int]$Attempts = 120) {
     throw "acceptance checkpoint state '$State' was not observed"
 }
 
+function Invoke-SaaSAuthRequest([string]$Path, [hashtable]$Payload) {
+    $client = [Net.Http.HttpClient]::new()
+    $content = [Net.Http.StringContent]::new(($Payload | ConvertTo-Json -Compress), [Text.Encoding]::UTF8, 'application/json')
+    try {
+        $response = $client.PostAsync("http://127.0.0.1:19080$Path", $content).GetAwaiter().GetResult()
+        $body = $response.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+        return @{ Status = [int]$response.StatusCode; Envelope = ($body | ConvertFrom-Json) }
+    } finally {
+        $content.Dispose()
+        $client.Dispose()
+    }
+}
+
+function Initialize-SaaSAdminPassword {
+    $passwordPath = Join-Path $RuntimeDirectory 'saas-admin-password'
+    $currentPassword = [IO.File]::ReadAllText($passwordPath, [Text.Encoding]::ASCII).TrimEnd([char[]]"`r`n")
+    if ([string]::IsNullOrWhiteSpace($currentPassword)) {
+        throw 'SaaS acceptance password file is empty'
+    }
+    $login = Invoke-SaaSAuthRequest '/saas/auth/login' @{ login = 'mochat-local-acceptance-admin'; password = $currentPassword }
+    if ($login.Status -eq 200 -and -not $login.Envelope.data.mustRotatePassword -and -not [string]::IsNullOrWhiteSpace([string]$login.Envelope.data.token)) {
+        return
+    }
+    if ($login.Status -ne 428 -or [int]$login.Envelope.code -ne 428 -or $login.Envelope.errorCode -ne 'PASSWORD_CHANGE_REQUIRED' -or $login.Envelope.data.mustRotatePassword -ne $true -or [string]::IsNullOrWhiteSpace([string]$login.Envelope.data.passwordChangeToken)) {
+        throw 'SaaS acceptance bootstrap did not return the expected password rotation challenge'
+    }
+    $newPassword = "Aa1!$(New-RandomText 36)"
+    $changed = Invoke-SaaSAuthRequest '/saas/auth/password' @{ passwordChangeToken = [string]$login.Envelope.data.passwordChangeToken; newPassword = $newPassword }
+    if ($changed.Status -ne 200 -or [int]$changed.Envelope.code -ne 200 -or $changed.Envelope.data.mustRotatePassword -eq $true -or [string]::IsNullOrWhiteSpace([string]$changed.Envelope.data.token)) {
+        throw 'SaaS acceptance password rotation failed'
+    }
+    $temporaryPath = Join-Path $RuntimeDirectory 'saas-admin-password.next'
+    [IO.File]::WriteAllText($temporaryPath, $newPassword, [Text.Encoding]::ASCII)
+    Protect-RuntimePath $RuntimeDirectory
+    Move-Item -LiteralPath $temporaryPath -Destination $passwordPath -Force
+    Protect-RuntimePath $RuntimeDirectory
+}
+
 function Start-AcceptanceServices {
     $arguments = @('up', '-d')
     if (-not $NoBuild) {
@@ -142,8 +180,9 @@ switch ($Action) {
     'seed' {
         Ensure-AcceptanceImage
         Start-AcceptanceServices
-		Invoke-Compose @('stop', 'worker')
+        Invoke-Compose @('stop', 'worker')
         Invoke-Compose @('--profile', 'tools', 'run', '--rm', 'bootstrap')
+		Initialize-SaaSAdminPassword
 		Invoke-Compose @('--profile', 'tools', 'run', '--rm', 'acceptance', 'seed', '-defer-media')
 		if (-not (Test-CheckpointState 'recovered')) {
 			Invoke-Compose @('up', '-d', 'worker')

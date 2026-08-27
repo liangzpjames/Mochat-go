@@ -64,3 +64,11 @@ test('acceptance cleanup scopes the durable run key and verifies orphan removal'
   assert.match(source, /DELETE FROM mochat_go_archive_sync_runs[^`]*idempotency_key=\?/);
   assert.ok(source.includes('verifyCleanupOrphans'), 'cleanup does not verify database and filesystem orphans');
 });
+
+test('acceptance initializes the bootstrap SaaS password only through the formal HTTP challenge', async () => {
+  const script = await readFile('scripts/run_wecom_archive_saas_activation_acceptance.ps1', 'utf8');
+  for (const contract of ['/saas/auth/login', '/saas/auth/password', 'PASSWORD_CHANGE_REQUIRED', 'passwordChangeToken', 'Protect-RuntimePath']) {
+    assert.ok(script.includes(contract), `acceptance SaaS password initialization missing ${contract}`);
+  }
+  assert.doesNotMatch(script, /UPDATE\s+mochat_go_saas_admin_users[\s\S]{0,200}must_rotate/i);
+});
