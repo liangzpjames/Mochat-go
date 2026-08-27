@@ -144,3 +144,37 @@ Compose project：`mochat-wecom-acceptance-20260827`
 - 未验证真实网络抖动、企微限流、真实证书/域名配置及线上授权企业永久授权码换取企业凭证。
 - 因此可以确认的是本地协议、解析、持久化、幂等、恢复、鉴权和 UI 合同通过；真实企微线上联调仍需由具备真实企业授权和受控生产环境的后续验收完成。
 - SaaS 顶栏的“系统异常”是上线就绪检查，不是页面请求失败。本地环境当前显示 21/29 项正常；其中数据库账本为 `0167_tenant_wecom_mode/164`，因为受控身份迁移 `0130/0131` 不允许在无签名维护请求的本地脚本中伪装执行，`0152` 已折叠进基础 schema 但未伪造账本。另有生产备份、生产证据等本地未配置项，因此本报告不宣称系统健康检查 PASS。
+
+## 9. 运营界面信息收敛补充验收
+
+本节记录 2026-08-27 对唯一企业资料运行状态、第三方模式 Dashboard 隐藏和 SaaS 能力范围维护的后续优化。
+
+### 9.1 实施结果
+
+- Dashboard 将原“Provider 运行状态”收敛为“服务运行状态”，仅展示企业微信、会话存档、文件与录音、智能分析四项业务名称，以及“运行正常 / 需要完善 / 暂不可用”和一条受控中文说明。
+- 页面不再展示 Provider/source、状态码、环境变量、原始 capability、技术 action/reason、同步时间或内部错误码；超级管理员也不在业务页面展开诊断字段。
+- 第三方代开发租户的唯一企业资料不再渲染独立“企微对接”占位卡，也不渲染自建应用、回调、存档、验证和员工同步配置；企业身份中的对接模式事实与企业配置审计继续保留。
+- SaaS 第三方能力范围改为“会话内容与媒体归档”“通讯录与客户资料”中文复选项。首次空配置默认全选；已有非空范围严格按服务端现值回显；未知历史 scope 保存时保留但不在界面暴露。
+- 摘要仅显示“全部能力已开启”或“已开启 N 项”和中文能力名；缺失能力同样进行中文投影，未知项只显示通用阻塞提示。
+
+### 9.2 自动化门禁
+
+- `pnpm lint`：PASS，覆盖 12 个工作区项目及四前端。
+- `pnpm typecheck`：PASS。
+- `pnpm test`：PASS；Dashboard 143 文件 / 940 项，SaaS Admin 6 文件 / 49 项，Operation 5 文件 / 74 项，Sidebar 14 文件 / 153 项，共享包同时通过。
+- `pnpm build`：PASS，Dashboard、SaaS Admin、Operation、Sidebar 均完成生产构建。
+- `go test ./... -count=1`：PASS。
+- `pnpm check:phase4-dashboard-page-rbac`：PASS，并包含 Provider completion。
+- `pnpm check:dashboard-all-pages-evidence`：PASS（12/12）。
+- `pnpm check:yuanhu-benchmark`：PASS（53 页）。
+- `pnpm check:wecom-archive-saas-activation`：PASS（11/11）。
+- `git diff --check`：PASS；仅提示用户既有 `.superpowers/sdd/progress.md` 的行尾属性，本次未修改或提交该文件。
+- 本轮未设置外部 `MOCHAT_GO_MYSQL_INTEGRATION_DSN`，因此未把外部 MariaDB integration 记为 PASS；本轮没有数据库或迁移改动。专项隔离 MariaDB 的既有 apply/down/apply 证据仍见 3.1。
+
+### 9.3 Docker 与浏览器
+
+- 仅重新构建并重建了 `app`，镜像 `sha256:6fa61d19860f789f443742760c5c275b5efdcdd7d12ccf7215c90dbfa8d175bc`；bridge、MariaDB、Redis 和命名卷未重建。
+- app 重启后健康检查为 `healthy`；专项 `verify -NoBuild` 再次 PASS：cursor 10、消息 10、媒体 7（ready 5 / missing 1 / corrupt 1）、恢复对象 1、worker run 1。
+- 已登录第三方租户 `租户信息003` 的唯一企业资料实际刷新：服务摘要四项可见，Provider/raw code 均不存在；独立第三方企微配置卡及所有自建控件均不存在；企业模式事实和审计仍可见。
+- SaaS 实际打开租户详情和第三方配置弹窗：无 textarea 和 raw scope；两个中文能力首次均已勾选；取消一项后“全部开启”可恢复两项；取消弹窗不发送保存请求；刷新后两项仍按空配置默认全选。
+- Dashboard 与 SaaS 页面控制台 error 均为 0；重建后刷新未出现加载失败。
