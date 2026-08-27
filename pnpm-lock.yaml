@@ -167,6 +167,9 @@ importers:
       '@tailwindcss/vite':
         specifier: 4.1.7
         version: 4.1.7(vite@6.4.3(@types/node@20.19.43)(jiti@2.7.0)(lightningcss@1.33.0))
+      '@testing-library/dom':
+        specifier: 10.4.1
+        version: 10.4.1
       '@types/node':
         specifier: 20.19.43
         version: 20.19.43

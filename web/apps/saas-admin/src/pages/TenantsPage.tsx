@@ -104,7 +104,7 @@ interface WeComOperationContext {
 }
 
 interface WeComSaveOperation extends WeComOperationContext {
-  payload: Parameters<typeof saveDelegatedWeComIntegration>[1]
+  payload: Omit<Parameters<typeof saveDelegatedWeComIntegration>[1], 'permanentCode'>
 }
 
 interface ProvisionOperation {
@@ -272,7 +272,7 @@ function WeComIntegrationSummary({ label, record }: { label: '当前' | '候选'
     </dl>
     {record.verificationLevel === 'local_contract' && <p className="mt-3 text-xs font-medium text-violet-700">本地合同验证（不代表真实企微线上可用）</p>}
     {record.missingCapabilities.length > 0 && <p role="alert" className="mt-2 text-xs text-red-700">{missingCapabilities.length > 0 && <>缺失能力：{missingCapabilities.map((capability) => capability.name).join('、')}</>}{hasUnknownMissingCapabilities && <>{missingCapabilities.length > 0 ? '；' : ''}部分能力暂不可用，请联系管理员。</>}</p>}
-    {record.lastErrorCode && <p role="alert" className="mt-2 break-all text-xs text-red-700">阻塞原因：{record.lastErrorCode}</p>}
+    {record.lastErrorCode && <p role="alert" className="mt-2 text-xs text-red-700">当前配置暂不可用，请重新保存或联系管理员。</p>}
   </div>
 }
 
@@ -309,7 +309,7 @@ const emptyCreateForm = (): CreateTenantForm => ({
 })
 
 function errorMessage(error: unknown, fallback: string) {
-  if (error instanceof ApiError) return `${error.machineCode}：${error.message}${error.status === 409 ? '；请刷新治理列表后重试，当前选择已保留。' : ''}`
+  if (error instanceof ApiError) return error.status === 409 ? `${fallback}；请刷新治理列表后重试，当前选择已保留。` : fallback
   return error instanceof Error ? error.message : fallback
 }
 
@@ -317,10 +317,10 @@ function aiProviderErrorMessage(error: unknown) {
   return errorMessage(error, 'AI 模型配置保存失败，API Key 已从页面清除')
 }
 
-function aiProviderConflictMessage(error: ApiError, refreshed: boolean) {
+function aiProviderConflictMessage(refreshed: boolean) {
   return refreshed
-    ? `${error.machineCode}：配置已由其他管理员更新；页面已载入最新版本，请重新确认后保存。`
-    : `${error.machineCode}：配置已由其他管理员更新，但最新版本刷新失败；请检查网络后重试。`
+    ? '配置已由其他管理员更新；页面已载入最新版本，请重新确认后保存。'
+    : '配置已由其他管理员更新，但最新版本刷新失败；请检查网络后重试。'
 }
 
 function packageLimitsSnapshot(plan: PackagePlan) {
@@ -356,6 +356,7 @@ export default function TenantsPage({ profile, approvalMode, activationMutationO
   const selectedTenantIDRef = useRef(0)
   const activationOperationEpochRef = useRef(0)
   const weComOperationEpochRef = useRef(0)
+  const weComPermanentCodesRef = useRef(new Map<number, string>())
   const createMutationResetRef = useRef<() => void>(() => undefined)
   const resendMutationResetRef = useRef<() => void>(() => undefined)
   const observedCreateOperationEpochRef = useRef(0)
@@ -460,7 +461,7 @@ export default function TenantsPage({ profile, approvalMode, activationMutationO
         const refreshed = await aiProviderQuery.refetch()
         const refreshSucceeded = !refreshed.isError && Boolean(refreshed.data?.configured)
         if (refreshSucceeded && refreshed.data?.provider) setAIProviderForm(providerFormFromData(refreshed.data.provider))
-        const message = aiProviderConflictMessage(error, refreshSucceeded)
+        const message = aiProviderConflictMessage(refreshSucceeded)
         setAIProviderSaveError(message)
         toast.error(message)
         return
@@ -473,12 +474,14 @@ export default function TenantsPage({ profile, approvalMode, activationMutationO
 
   const closeWeComEditor = () => {
     weComOperationEpochRef.current += 1
+    weComPermanentCodesRef.current.clear()
     setWeComEditorOpen(false)
     setWeComForm((form) => ({ ...form, employeeSecret: '', contactSecret: '', agentSecret: '', chatSecret: '', permanentCode: '' }))
   }
 
   const openWeComEditor = () => {
     weComOperationEpochRef.current += 1
+    weComPermanentCodesRef.current.clear()
     setWeComError('')
     setWeComForm(emptyWeComIntegrationForm(weComIntegrationQuery.data?.current))
     setWeComEditorOpen(true)
@@ -500,8 +503,8 @@ export default function TenantsPage({ profile, approvalMode, activationMutationO
       if (!isCurrentWeComOperation(operation)) return
       setWeComForm(refreshed ? emptyWeComIntegrationForm(refreshed.current) : (form) => ({ ...form, employeeSecret: '', contactSecret: '', agentSecret: '', chatSecret: '', permanentCode: '' }))
       const message = !refreshed
-        ? `${error.machineCode}：企微配置版本冲突，最新状态刷新失败，请检查网络后重试。`
-        : `${error.machineCode}：企微配置已由其他管理员更新；页面已刷新至最新企微配置，请重新确认。`
+        ? '企微配置版本冲突，最新状态刷新失败，请检查网络后重试。'
+        : '企微配置已由其他管理员更新；页面已刷新至最新企微配置，请重新确认。'
       setWeComError(message)
       toast.error(message)
       return
@@ -514,7 +517,11 @@ export default function TenantsPage({ profile, approvalMode, activationMutationO
   }
 
   const saveWeComMutation = useMutation<WeComIntegrationRecord, unknown, WeComSaveOperation>({
-    mutationFn: (operation) => saveDelegatedWeComIntegration(operation.tenantId, operation.payload),
+    mutationFn: (operation) => {
+      const permanentCode = weComPermanentCodesRef.current.get(operation.operationEpoch) || ''
+      weComPermanentCodesRef.current.delete(operation.operationEpoch)
+      return saveDelegatedWeComIntegration(operation.tenantId, { ...operation.payload, permanentCode })
+    },
     onSuccess: async (integration, operation) => {
       queryClient.setQueryData<WeComIntegrationView>(['tenant-wecom-integration', operation.tenantId], (current) => current ? { ...current, current: integration, candidate: null } : current)
       await invalidateWeComAudit(operation.tenantId)
@@ -531,11 +538,15 @@ export default function TenantsPage({ profile, approvalMode, activationMutationO
       const tenantId = selectedTenantIDRef.current
       if (!tenantId) throw new Error('租户详情已经关闭，请重新打开后保存')
       const selectedScope = selectedDelegatedCapabilities(weComForm.scope)
-      if (selectedScope.length === 0) throw new Error('请至少选择一项能力')
+      const scope = mergeDelegatedScope(selectedScope.map((capability) => capability.code), weComForm.scope)
+      if (scope.length === 0) throw new Error('请至少选择一项能力')
       if (weComForm.mode !== 'third_party_delegated') throw new Error('自建应用配置只能在 Dashboard 唯一企业资料中维护')
       if (!weComForm.providerAppId.trim()) throw new Error('第三方代开发应用必须填写 Provider App ID')
-      const payload = { mode: weComForm.mode, scope: mergeDelegatedScope(selectedScope.map((capability) => capability.code), weComForm.scope), version: weComForm.version, providerAppId: weComForm.providerAppId.trim(), permanentCode: weComForm.permanentCode.trim() }
-      saveWeComMutation.mutate({ tenantId, payload, operationEpoch: ++weComOperationEpochRef.current })
+      const operationEpoch = ++weComOperationEpochRef.current
+      const payload = { mode: weComForm.mode, scope, version: weComForm.version, providerAppId: weComForm.providerAppId.trim() }
+      weComPermanentCodesRef.current.set(operationEpoch, weComForm.permanentCode.trim())
+      setWeComForm((form) => ({ ...form, employeeSecret: '', contactSecret: '', agentSecret: '', chatSecret: '', permanentCode: '' }))
+      saveWeComMutation.mutate({ tenantId, payload, operationEpoch })
     } catch (error) {
       setWeComForm((form) => ({ ...form, employeeSecret: '', contactSecret: '', agentSecret: '', chatSecret: '', permanentCode: '' }))
       const message = errorMessage(error, '企微候选配置无效')
@@ -945,7 +956,7 @@ export default function TenantsPage({ profile, approvalMode, activationMutationO
           <Field label="配置版本"><div className="flex h-9 items-center rounded-md border border-zinc-200 bg-zinc-50 px-3 text-sm text-zinc-700">v{weComForm.version}</div></Field>
           <Field label="Provider App ID"><Input value={weComForm.providerAppId} onChange={(event) => setWeComForm((form) => ({ ...form, providerAppId: event.target.value }))} placeholder="Provider App ID" /></Field>
           <Field label="永久授权码" hint="仅安全写入或轮换，保存后立即从页面清除且不会回显。"><Input type="password" autoComplete="new-password" value={weComForm.permanentCode} onChange={(event) => setWeComForm((form) => ({ ...form, permanentCode: event.target.value }))} placeholder="永久授权码" /></Field>
-          <Field label="授权能力" hint="请选择当前应用需要的数据范围。" className="sm:col-span-2"><div className="space-y-3 rounded-md border border-zinc-200 bg-white p-3"><div className="flex items-center justify-between gap-3"><p className="text-sm text-zinc-700">可授权能力</p><Button type="button" variant="secondary" onClick={() => setWeComForm((form) => ({ ...form, scope: mergeDelegatedScope(delegatedCapabilityCatalog.map((capability) => capability.code), form.scope) }))}>全部开启</Button></div><div className="grid gap-2" role="group" aria-label="可授权能力">{delegatedCapabilityCatalog.map((capability) => <label key={capability.code} className="flex cursor-pointer items-start gap-3 rounded-md border border-zinc-200 p-3 text-sm text-zinc-700"><input type="checkbox" className="mt-0.5 h-4 w-4" checked={weComForm.scope.includes(capability.code)} onChange={(event) => setWeComForm((form) => ({ ...form, scope: mergeDelegatedScope(event.target.checked ? [...selectedDelegatedCapabilities(form.scope).map((item) => item.code), capability.code] : selectedDelegatedCapabilities(form.scope).map((item) => item.code).filter((code) => code !== capability.code), form.scope) }))} /><span><strong className="block font-medium text-zinc-900">{capability.name}</strong><span className="mt-1 block text-xs text-zinc-500">{capability.description}</span></span></label>)}</div></div></Field>
+          <fieldset className="min-w-0 space-y-1.5 text-sm text-zinc-700 sm:col-span-2"><legend className="font-medium">授权能力</legend><div className="space-y-3 rounded-md border border-zinc-200 bg-white p-3"><div className="flex items-center justify-between gap-3"><p className="text-sm text-zinc-700">可授权能力</p><Button type="button" variant="secondary" onClick={() => setWeComForm((form) => ({ ...form, scope: mergeDelegatedScope(delegatedCapabilityCatalog.map((capability) => capability.code), form.scope) }))}>全部开启</Button></div><div className="grid gap-2">{delegatedCapabilityCatalog.map((capability) => { const inputId = `wecom-capability-${capability.code.replace('.', '-')}`; const descriptionId = `${inputId}-description`; return <div key={capability.code} className="flex items-start gap-3 rounded-md border border-zinc-200 p-3 text-sm text-zinc-700"><input id={inputId} type="checkbox" aria-describedby={descriptionId} className="mt-0.5 h-4 w-4" checked={weComForm.scope.includes(capability.code)} onChange={(event) => setWeComForm((form) => ({ ...form, scope: mergeDelegatedScope(event.target.checked ? [...selectedDelegatedCapabilities(form.scope).map((item) => item.code), capability.code] : selectedDelegatedCapabilities(form.scope).map((item) => item.code).filter((code) => code !== capability.code), form.scope) }))} /><div><label htmlFor={inputId} className="cursor-pointer font-medium text-zinc-900">{capability.name}</label><p id={descriptionId} className="mt-1 text-xs text-zinc-500">{capability.description}</p></div></div> })}</div></div><p className="text-xs font-normal text-zinc-500">请选择当前应用需要的数据范围。</p></fieldset>
           {weComError && <p role="alert" className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 sm:col-span-2">{weComError}</p>}
           <p className="text-xs leading-5 text-zinc-500 sm:col-span-2">未填写第三方配置也不影响 Dashboard 浏览；保存只更新当前模式的加密授权，不会调用真实企微。</p>
         </div>

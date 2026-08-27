@@ -3,6 +3,7 @@
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { getByRole } from '@testing-library/dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => {
@@ -298,7 +299,8 @@ describe('SaaS 客户租户治理页面', () => {
     clickButton('确认执行')
     await settle()
     expect(target.value).toBe('900')
-    expect(document.body.textContent).toContain('VERSION_CONFLICT')
+    expect(document.body.textContent).toContain('请刷新治理列表后重试')
+    expect(document.body.textContent).not.toContain('VERSION_CONFLICT')
   })
 
   it('390px 宽度仍保持表格横向滚动、治理操作换行和对话框可用宽度', async () => {
@@ -412,7 +414,8 @@ describe('SaaS 客户租户治理页面', () => {
     clickButton('保存 AI 配置')
     await settle()
     expect((document.querySelector('input[placeholder="留空则保留现有密钥"]') as HTMLInputElement).value).toBe('')
-    expect(document.body.textContent).toContain('VERSION_CONFLICT')
+    expect(document.body.textContent).toContain('页面已载入最新版本')
+    expect(document.body.textContent).not.toContain('VERSION_CONFLICT')
 
     setValue('API Key', 'fixture-discard-on-close')
     const closeButtons = [...document.querySelectorAll('button[aria-label="关闭"]')]
@@ -541,7 +544,47 @@ describe('SaaS 客户租户治理页面', () => {
     expect(payload).not.toHaveProperty('chatSecret')
     expect(document.body.textContent).not.toContain('permanent-secret')
     expect(JSON.stringify(client.getQueryCache().getAll().map((query) => query.state.data))).not.toContain('permanent-secret')
+    expect(JSON.stringify(client.getMutationCache().getAll().map((mutation) => mutation.state.variables))).not.toContain('permanent-secret')
     expect(document.body.textContent).not.toContain('切换为候选')
+  })
+
+  it('第三方配置失败后授权码不会残留在表单、ref 对应行为或 React Query 缓存', async () => {
+    integrationView = { ...integrationView, current: { ...delegatedCandidate, id: 'delegated-current', slot: 'current', version: 9 }, candidate: null }
+    await settle()
+    clickButton('详情')
+    await settle()
+    await settle()
+    clickButton('配置第三方应用')
+    setValue('永久授权码', 'failed-permanent-secret')
+    mocks.apiRequest.mockImplementationOnce(async () => { throw new mocks.ApiError('raw backend failure', 500, 'WECOM_SAVE_FAILED') })
+    clickButton('安全保存')
+    await settle()
+
+    expect((document.querySelector('input[placeholder="永久授权码"]') as HTMLInputElement).value).toBe('')
+    expect(document.body.textContent).toContain('第三方应用配置保存失败，敏感输入已清空')
+    expect(document.body.textContent).not.toContain('failed-permanent-secret')
+    expect(document.body.textContent).not.toContain('WECOM_SAVE_FAILED')
+    expect(JSON.stringify(client.getQueryCache().getAll().map((query) => query.state.data))).not.toContain('failed-permanent-secret')
+    expect(JSON.stringify(client.getMutationCache().getAll().map((mutation) => mutation.state.variables))).not.toContain('failed-permanent-secret')
+  })
+
+  it('关闭第三方配置弹窗会清空未提交授权码且不会写入 React Query 缓存', async () => {
+    integrationView = { ...integrationView, current: { ...delegatedCandidate, id: 'delegated-current', slot: 'current', version: 9 }, candidate: null }
+    await settle()
+    clickButton('详情')
+    await settle()
+    await settle()
+    clickButton('配置第三方应用')
+    setValue('永久授权码', 'closed-permanent-secret')
+    const editor = getByRole(document.body, 'dialog', { name: '配置第三方代开发应用' })
+    const close = getByRole(editor, 'button', { name: '关闭' })
+    act(() => close.dispatchEvent(new MouseEvent('click', { bubbles: true })))
+    clickButton('配置第三方应用')
+
+    expect((document.querySelector('input[placeholder="永久授权码"]') as HTMLInputElement).value).toBe('')
+    expect(document.body.textContent).not.toContain('closed-permanent-secret')
+    expect(JSON.stringify(client.getQueryCache().getAll().map((query) => query.state.data))).not.toContain('closed-permanent-secret')
+    expect(JSON.stringify(client.getMutationCache().getAll().map((mutation) => mutation.state.variables))).not.toContain('closed-permanent-secret')
   })
 
   it('首次配置默认开启全部公开能力，并以两个能力 code 保存', async () => {
@@ -629,7 +672,7 @@ describe('SaaS 客户租户治理页面', () => {
     expect(document.body.textContent).not.toContain('future.scope')
   })
 
-  it('仅有未知历史能力时摘要显示已开启 0 项', async () => {
+  it('仅有未知历史能力时允许不扩权轮换并精确保留最终 scope', async () => {
     integrationView = { ...integrationView, current: { ...delegatedCandidate, id: 'delegated-current', slot: 'current', scope: ['future.scope'], version: 9 }, candidate: null }
     await settle()
     clickButton('详情')
@@ -639,6 +682,24 @@ describe('SaaS 客户租户治理页面', () => {
     expect(document.body.textContent).toContain('已开启 0 项')
     expect(document.body.textContent).not.toContain('未开启公开能力')
     expect(document.body.textContent).not.toContain('future.scope')
+    clickButton('配置第三方应用')
+    setValue('永久授权码', 'unknown-only-secret')
+    clickButton('安全保存')
+    await settle()
+
+    expect(JSON.parse(String(latestWeComSave()?.[1]?.body)).scope).toEqual(['future.scope'])
+    expect(JSON.stringify(client.getMutationCache().getAll().map((mutation) => mutation.state.variables))).not.toContain('unknown-only-secret')
+  })
+
+  it.each(['WECOM_CREDENTIAL_INVALID', 'FUTURE_BACKEND_FAILURE'])('企微摘要将技术错误码 %s 收敛为受控中文', async (lastErrorCode) => {
+    integrationView = { ...integrationView, current: { ...delegatedCandidate, id: 'delegated-current', slot: 'current', lastErrorCode }, candidate: null }
+    await settle()
+    clickButton('详情')
+    await settle()
+    await settle()
+
+    expect(document.body.textContent).toContain('当前配置暂不可用，请重新保存或联系管理员。')
+    expect(document.body.textContent).not.toContain(lastErrorCode)
   })
 
   it('第三方配置版本冲突刷新当前版本、清空授权码并允许重试', async () => {
@@ -655,6 +716,7 @@ describe('SaaS 客户租户治理页面', () => {
     await settle()
     await settle()
     expect(document.body.textContent).toContain('页面已刷新至最新企微配置')
+    expect(document.body.textContent).not.toContain('VERSION_CONFLICT')
     expect((document.querySelector('input[placeholder="永久授权码"]') as HTMLInputElement).value).toBe('')
     setValue('永久授权码', 'retry-secret')
     clickButton('安全保存')
@@ -732,9 +794,7 @@ function setValue(labelOrPlaceholder: string, value: string) {
 }
 
 function scopeCheckbox(label: string) {
-  const input = [...document.querySelectorAll('input[type="checkbox"]')].find((item) => item.closest('label')?.textContent?.includes(label)) as HTMLInputElement | undefined
-  if (!input) throw new Error(`scope checkbox ${label} not found`)
-  return input
+  return getByRole(document.body, 'checkbox', { name: label }) as HTMLInputElement
 }
 
 function setCheckbox(label: string, checked: boolean) {
