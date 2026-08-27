@@ -79,19 +79,18 @@ describe('provider status page', () => {
   });
 
   it('retries an ordinary error and recovers to a service summary', async () => {
-    const api: ProviderStatusApi = {
-      getStatus: vi.fn()
-        .mockRejectedValueOnce(new Error('unexpected'))
-        .mockResolvedValueOnce({
-          providers: [{ kind: 'wecom_standard', state: 'ready', code: 'wecom.runtime_verified', source: 'external', capabilities: [], capabilityStatuses: [] }],
-          freshAt: '2026-08-14T08:00:00Z',
-        }),
-    };
+    const getStatus = vi.fn()
+      .mockRejectedValueOnce(new Error('unexpected'))
+      .mockResolvedValueOnce({
+        providers: [{ kind: 'wecom_standard', state: 'ready', code: 'wecom.runtime_verified', source: 'external', capabilities: [], capabilityStatuses: [] }],
+        freshAt: '2026-08-14T08:00:00Z',
+      });
+    const api: ProviderStatusApi = { getStatus };
     renderPage(api, true);
 
     expect(await screen.findByText('服务状态读取失败，请稍后重试。')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: '重试' }));
-    await waitFor(() => expect(api.getStatus).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(getStatus).toHaveBeenCalledTimes(2));
     expect(await screen.findByText('服务运行正常')).toBeTruthy();
   });
 });
