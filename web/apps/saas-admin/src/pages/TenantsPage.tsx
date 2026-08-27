@@ -256,11 +256,11 @@ function WeComIntegrationSummary({ label, record }: { label: '当前' | '候选'
     return <div className="rounded-md border border-dashed border-zinc-300 bg-white p-3"><strong className="text-sm">{label}：未配置</strong><p className="mt-1 text-xs text-zinc-500">服务端没有返回该槽位配置。</p></div>
   }
   const selectedCapabilities = selectedDelegatedCapabilities(record.scope)
+  const missingCapabilities = selectedDelegatedCapabilities(record.missingCapabilities)
+  const hasUnknownMissingCapabilities = record.missingCapabilities.some((capability) => !delegatedCapabilityCodes.has(capability))
   const scopeLabel = selectedCapabilities.length === delegatedCapabilityCatalog.length
     ? '全部能力已开启'
-    : selectedCapabilities.length > 0
-      ? `已开启 ${selectedCapabilities.length} 项`
-      : '未开启公开能力'
+    : `已开启 ${selectedCapabilities.length} 项`
   return <div className="rounded-md border border-violet-100 bg-white p-3" aria-label={`${label}企微集成`}>
     <div className="flex flex-wrap items-center justify-between gap-2"><strong className="text-sm">{label}：{weComModeLabel(record.mode)}</strong><Badge tone={weComStatusTone(record.status)}>{weComStatusLabel(record.status)}</Badge></div>
     <dl className="mt-3 grid gap-2 text-xs text-zinc-600 sm:grid-cols-2">
@@ -271,7 +271,7 @@ function WeComIntegrationSummary({ label, record }: { label: '当前' | '候选'
       <div className="sm:col-span-2"><dt className="text-zinc-400">能力范围</dt><dd className="break-words"><span>{scopeLabel}</span>{selectedCapabilities.length > 0 && <span>：{selectedCapabilities.map((capability) => capability.name).join('、')}</span>}</dd></div>
     </dl>
     {record.verificationLevel === 'local_contract' && <p className="mt-3 text-xs font-medium text-violet-700">本地合同验证（不代表真实企微线上可用）</p>}
-    {record.missingCapabilities.length > 0 && <p role="alert" className="mt-2 text-xs text-red-700">缺失能力：{record.missingCapabilities.join('、')}</p>}
+    {record.missingCapabilities.length > 0 && <p role="alert" className="mt-2 text-xs text-red-700">{missingCapabilities.length > 0 && <>缺失能力：{missingCapabilities.map((capability) => capability.name).join('、')}</>}{hasUnknownMissingCapabilities && <>{missingCapabilities.length > 0 ? '；' : ''}部分能力暂不可用，请联系管理员。</>}</p>}
     {record.lastErrorCode && <p role="alert" className="mt-2 break-all text-xs text-red-700">阻塞原因：{record.lastErrorCode}</p>}
   </div>
 }

@@ -615,6 +615,31 @@ describe('SaaS 客户租户治理页面', () => {
     expect(JSON.parse(String(latestWeComSave()?.[1]?.body)).scope).toEqual(['archive.read', 'future.scope'])
   })
 
+  it('缺失能力仅显示中文已知名，并为未知能力提供通用提示', async () => {
+    integrationView = { ...integrationView, current: { ...delegatedCandidate, id: 'delegated-current', slot: 'current', scope: ['archive.read'], missingCapabilities: ['archive.read', 'future.scope'], version: 9 }, candidate: null }
+    await settle()
+    clickButton('详情')
+    await settle()
+    await settle()
+
+    expect(document.body.textContent).toContain('缺失能力：会话内容与媒体归档')
+    expect(document.body.textContent).toContain('部分能力暂不可用，请联系管理员。')
+    expect(document.body.textContent).not.toContain('archive.read')
+    expect(document.body.textContent).not.toContain('future.scope')
+  })
+
+  it('仅有未知历史能力时摘要显示已开启 0 项', async () => {
+    integrationView = { ...integrationView, current: { ...delegatedCandidate, id: 'delegated-current', slot: 'current', scope: ['future.scope'], version: 9 }, candidate: null }
+    await settle()
+    clickButton('详情')
+    await settle()
+    await settle()
+
+    expect(document.body.textContent).toContain('已开启 0 项')
+    expect(document.body.textContent).not.toContain('未开启公开能力')
+    expect(document.body.textContent).not.toContain('future.scope')
+  })
+
   it('第三方配置版本冲突刷新当前版本、清空授权码并允许重试', async () => {
     integrationView = { ...integrationView, current: { ...delegatedCandidate, id: 'delegated-current', slot: 'current', version: 9 }, candidate: null }
     await settle()
