@@ -465,11 +465,13 @@ func prepareActivationFixtures(ctx context.Context, db *sql.DB, archiveStore *st
 	authService := dashboardauth.NewService(identityStore)
 	states := map[string]string{}
 	now := time.Now().UTC()
+	const fixtureStartsAt = "2026-08-27T00:00:00Z"
+	const fixtureExpiresAt = "2027-08-27T00:00:00Z"
 	for index, state := range []string{"valid", "expired", "activated", "revoked"} {
 		key := datasetID + "-ACTIVATION-" + strings.ToUpper(state)
 		result, err := provisioning.ProvisionDashboardTenant(ctx, actor, dashboardadmin.ProvisionDashboardTenant{
 			TenantName: datasetID + " 激活状态 " + state + "（非生产）", PackageID: acceptancePackageID, Limits: acceptanceActivationLimits(),
-			Subscription:         dashboardadmin.SubscriptionInput{PackageCode: acceptancePackageCode, Status: "trialing", BillingCycle: "custom", StartsAt: now.Add(-time.Hour).Format(time.RFC3339), ExpiresAt: now.Add(30 * 24 * time.Hour).Format(time.RFC3339)},
+			Subscription:         dashboardadmin.SubscriptionInput{PackageCode: acceptancePackageCode, Status: "trialing", BillingCycle: "custom", StartsAt: fixtureStartsAt, ExpiresAt: fixtureExpiresAt},
 			AdminLoginIdentifier: fmt.Sprintf("1900820827%d", index+1), AdminName: datasetID + " 激活管理员 " + state,
 			IdempotencyKey: key, ExpectedVersion: 1, RequestID: key,
 		})
