@@ -26,7 +26,7 @@ const (
 	bridgeComponentPath     = "/v1/archive/component/session"
 	legacyBridgeMessagePath = "/work-message/archive/messages"
 	legacyBridgeMediaPath   = "/work-message/archive/media"
-	maxBridgeBody           = 16 << 20
+	maxBridgeBody           = 28 << 20
 
 	IntegrationModeSelfBuilt           = "self_built"
 	IntegrationModeThirdPartyDelegated = "third_party_delegated"
@@ -138,7 +138,9 @@ func (c *BridgeArchiveClient) FetchMedia(ctx context.Context, scope Scope, wxCor
 	}
 	if err := c.postJSON(ctx, bridgeMediaPath, request, &response); err != nil {
 		var statusErr *bridgeHTTPStatusError
-		if errors.As(err, &statusErr) && statusErr.status == http.StatusNotFound {
+		// A 404 carrying a protocol errcode is a terminal media result, not
+		// evidence that this bridge only supports the legacy path.
+		if errors.As(err, &statusErr) && statusErr.status == http.StatusNotFound && rawErrorCode(response.ErrCode) == "" {
 			response = struct {
 				ErrCode      json.RawMessage `json:"errcode"`
 				DataBase64   string          `json:"dataBase64"`
@@ -319,7 +321,7 @@ func (s *BridgeSource) Fetch(ctx context.Context, scope Scope, cursor Cursor, li
 	}
 	result := Page{NextCursor: cursor}
 	for _, raw := range page.Messages {
-		message, err := parseBridgeMessage(raw, s.sourceID)
+		message, err := parseBridgeMessage(raw, s.sourceID, s.integrationMode)
 		if err != nil {
 			return Page{}, err
 		}
@@ -335,12 +337,15 @@ func (s *BridgeSource) Fetch(ctx context.Context, scope Scope, cursor Cursor, li
 	return result, nil
 }
 
-func parseBridgeMessage(raw json.RawMessage, sourceID string) (Message, error) {
+func parseBridgeMessage(raw json.RawMessage, sourceID, expectedMode string) (Message, error) {
 	var object map[string]any
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.UseNumber()
 	if err := decoder.Decode(&object); err != nil {
 		return Message{}, errors.New("archive bridge message is invalid")
+	}
+	if anyString(object["source_mode"]) != expectedMode {
+		return Message{}, errors.New("archive bridge message mode mismatch")
 	}
 	seq := anyInt64(object["seq"])
 	msgID := anyString(object["msgid"])

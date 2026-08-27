@@ -255,6 +255,33 @@ func TestStandaloneComposeRequiresRealmSecretsFromEnvironment(t *testing.T) {
 	}
 }
 
+func TestStandaloneComposeFailsClosedForArchiveSecretsAndFixtures(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "..", "deploy", "standalone", "docker-compose.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(raw)
+	for _, name := range []string{"MOCHAT_ARCHIVE_BRIDGE_BEARER", "MOCHAT_GO_WECOM_CREDENTIAL_ENCRYPTION_KEY"} {
+		if !strings.Contains(text, "${"+name+":?") || strings.Contains(text, "${"+name+":-local-") {
+			t.Fatalf("compose must require protected %s without a public default", name)
+		}
+	}
+	if !strings.Contains(text, `MOCHAT_ARCHIVE_FIXTURE_ENABLED: "${MOCHAT_ARCHIVE_FIXTURE_ENABLED:-false}"`) {
+		t.Fatal("archive fixture endpoints must be disabled by default")
+	}
+	if strings.Contains(text, "local-desktop-fixture-admin-") {
+		t.Fatal("compose contains a public fixed fixture administrator bearer")
+	}
+	if !strings.Contains(text, `MOCHAT_GO_ENABLE_WECOM_SUITE_CALLBACK: "${MOCHAT_GO_ENABLE_WECOM_SUITE_CALLBACK:-false}"`) {
+		t.Fatal("suite callback must use its own production switch instead of inheriting the fixture switch")
+	}
+	for _, value := range []string{"local-fixture-suite-secret", "local-fixture-callback-token", "abcdefghijklmnopqrstuvwxyz0123456789ABCDEFG"} {
+		if strings.Contains(text, value) {
+			t.Fatalf("compose contains public suite callback fixture credential %q", value)
+		}
+	}
+}
+
 func TestLoadProvidesIndependentRealmTokenConfiguration(t *testing.T) {
 	clearEnv(t)
 	t.Setenv("MOCHAT_SAAS_ADMIN_JWT_SECRET", "saas-admin-secret-012345678901234567890")

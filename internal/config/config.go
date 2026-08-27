@@ -136,6 +136,11 @@ type Config struct {
 	WorkMessageArchiveSyncLimit                        int
 	WorkMessageArchiveBridgeBaseURL                    string
 	WorkMessageArchiveBridgeToken                      string
+	EnableWeComSuiteCallback                           bool
+	WeComSuiteID                                       string
+	WeComSuiteSecret                                   string
+	WeComSuiteCallbackToken                            string
+	WeComSuiteEncodingAESKey                           string
 	EnableConversationExportWorker                     bool
 	ConversationExportWorkerInterval                   time.Duration
 	ConversationExportRoot                             string
@@ -1379,6 +1384,11 @@ func FromEnv() (Config, error) {
 		WorkMessageArchiveSyncLimit:                        workMessageArchiveSyncLimit,
 		WorkMessageArchiveBridgeBaseURL:                    os.Getenv("MOCHAT_GO_WORK_MESSAGE_ARCHIVE_BRIDGE_BASE_URL"),
 		WorkMessageArchiveBridgeToken:                      os.Getenv("MOCHAT_GO_WORK_MESSAGE_ARCHIVE_BRIDGE_TOKEN"),
+		EnableWeComSuiteCallback:                           envBool("MOCHAT_GO_ENABLE_WECOM_SUITE_CALLBACK"),
+		WeComSuiteID:                                       os.Getenv("MOCHAT_GO_WECOM_SUITE_ID"),
+		WeComSuiteSecret:                                   os.Getenv("MOCHAT_GO_WECOM_SUITE_SECRET"),
+		WeComSuiteCallbackToken:                            os.Getenv("MOCHAT_GO_WECOM_SUITE_CALLBACK_TOKEN"),
+		WeComSuiteEncodingAESKey:                           os.Getenv("MOCHAT_GO_WECOM_SUITE_ENCODING_AES_KEY"),
 		EnableConversationExportWorker:                     envBool("MOCHAT_GO_ENABLE_CONVERSATION_EXPORT_WORKER"),
 		ConversationExportWorkerInterval:                   time.Duration(conversationExportWorkerInterval) * time.Second,
 		ConversationExportRoot:                             envOrDefault("MOCHAT_GO_CONVERSATION_EXPORT_ROOT", defaultConversationExportRoot),
@@ -2028,6 +2038,14 @@ func FromEnv() (Config, error) {
 	}
 	if cfg.EnableDurableWorkMessageArchive && cfg.EnableWorkMessageArchiveSyncCron {
 		return Config{}, fmt.Errorf("legacy and durable work message archive pipelines are mutually exclusive")
+	}
+	if cfg.EnableWeComSuiteCallback {
+		if strings.TrimSpace(cfg.MySQLDSN) == "" || strings.TrimSpace(cfg.WeComSuiteID) == "" || strings.TrimSpace(cfg.WeComSuiteSecret) == "" || strings.TrimSpace(cfg.WeComSuiteCallbackToken) == "" || len(strings.TrimSpace(cfg.WeComSuiteEncodingAESKey)) != 43 {
+			return Config{}, fmt.Errorf("WeCom suite callback requires MySQL, suite identity, secret, callback token, and a 43-character encoding AES key")
+		}
+		if strings.TrimSpace(cfg.WorkMessageArchiveBridgeBaseURL) == "" || len(strings.TrimSpace(cfg.WorkMessageArchiveBridgeToken)) < 40 {
+			return Config{}, fmt.Errorf("WeCom suite callback requires the authenticated archive bridge")
+		}
 	}
 	settlementBridgeConfigured := strings.TrimSpace(cfg.SaaSPaymentSettlementBridgeBaseURL) != "" || len(cfg.SaaSPaymentSettlementProviders) > 0
 	if settlementBridgeConfigured {

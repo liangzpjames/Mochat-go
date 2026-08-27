@@ -162,7 +162,7 @@ func TestArchiveSourceStatusUsesCurrentCorpArchiveMode(t *testing.T) {
 	ctx := context.Background()
 	if status, err := store.GetArchiveSourceStatus(ctx, principal); err != nil {
 		t.Fatal(err)
-	} else if status.Source != providers.SourceExternal || status.Code != "archive.getchatdata_unimplemented" {
+	} else if status.Source != providers.SourceExternal || status.Code != "archive.bridge_ready" || status.State != providers.StateReady {
 		t.Fatalf("real mode status=%#v", status)
 	}
 	if _, err := db.Exec(`UPDATE mc_corp SET chat_status=0 WHERE id=27 AND tenant_id=11`); err != nil {

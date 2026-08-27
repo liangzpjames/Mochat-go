@@ -1,5 +1,7 @@
 # 双模式企微归档模拟器实施计划
 
+状态：已实施并通过本地验收；逐项结果见专项验收报告。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 在不调用真实企微的前提下，实现自建应用 Finance SDK 与第三方代开发/数据专区两种协议边界的真实加解密、传递、主动同步、Dashboard 回读及 `seed/send/status/cleanup` 操作接口。

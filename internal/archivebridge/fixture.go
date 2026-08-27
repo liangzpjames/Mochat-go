@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -34,7 +35,6 @@ type FixtureSendResult struct {
 	Mode      string `json:"mode"`
 	Sequence  int64  `json:"sequence"`
 	MessageID string `json:"messageId"`
-	SDKFileID string `json:"sdkFileId,omitempty"`
 }
 
 type FixtureStatus struct {
@@ -42,6 +42,23 @@ type FixtureStatus struct {
 	DatasetCount             int  `json:"datasetCount"`
 	MessageCount             int  `json:"messageCount"`
 	DelegatedAuthorizedCount int  `json:"delegatedAuthorizedCount"`
+}
+
+type FixtureCallback struct {
+	EventType string `json:"eventType"`
+	Timestamp string `json:"timestamp"`
+	Nonce     string `json:"nonce"`
+	Signature string `json:"signature"`
+	Encrypted string `json:"encrypted"`
+}
+
+func (callback FixtureCallback) Values() url.Values {
+	return url.Values{"timestamp": {callback.Timestamp}, "nonce": {callback.Nonce}, "msg_signature": {callback.Signature}}
+}
+
+type FixtureSeedResult struct {
+	FixtureStatus
+	Callbacks []FixtureCallback `json:"callbacks,omitempty"`
 }
 
 type fixtureState struct {
@@ -55,6 +72,7 @@ type fixtureDataset struct {
 	SelfMessages    []fixtureStoredMessage        `json:"selfMessages,omitempty"`
 	DataZone        *archivefixture.DataZoneState `json:"dataZone,omitempty"`
 	SuiteAuthorized bool                          `json:"suiteAuthorized,omitempty"`
+	Callbacks       []FixtureCallback             `json:"callbacks,omitempty"`
 }
 
 type fixtureStoredMessage struct {
@@ -96,23 +114,32 @@ func NewFixtureManager(statePath string, store *Store) (*FixtureManager, error) 
 	return manager, nil
 }
 
-func (m *FixtureManager) Seed(binding Binding, dataset string) (FixtureStatus, error) {
+func (m *FixtureManager) Seed(binding Binding, dataset string) (FixtureSeedResult, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if normalizeBinding(&binding) != nil || !validFixtureDataset(dataset) {
-		return FixtureStatus{}, &BridgeError{Code: "FIXTURE_REQUEST_INVALID"}
+		return FixtureSeedResult{}, &BridgeError{Code: "FIXTURE_REQUEST_INVALID"}
 	}
 	key := fixtureDatasetKey(binding, dataset)
 	if existing, ok := m.state.Datasets[key]; ok {
 		if existing.Binding != binding {
-			return FixtureStatus{}, &BridgeError{Code: "FIXTURE_BINDING_CONFLICT"}
+			return FixtureSeedResult{}, &BridgeError{Code: "FIXTURE_BINDING_CONFLICT"}
 		}
-		return m.statusLocked(), nil
+		callbacks := append([]FixtureCallback(nil), existing.Callbacks...)
+		if existing.SuiteAuthorized {
+			callbacks = nil
+		}
+		return FixtureSeedResult{FixtureStatus: m.statusLocked(), Callbacks: callbacks}, nil
+	}
+	for _, existing := range m.state.Datasets {
+		if existing != nil && existing.Binding == binding && existing.Dataset != dataset {
+			return FixtureSeedResult{}, &BridgeError{Code: "FIXTURE_BINDING_CONFLICT"}
+		}
 	}
 	entry := &fixtureDataset{Binding: binding, Dataset: dataset}
 	runtime, err := m.createRuntime(entry, true)
 	if err != nil {
-		return FixtureStatus{}, err
+		return FixtureSeedResult{}, err
 	}
 	m.state.Datasets[key] = entry
 	m.runtimes[key] = runtime
@@ -121,16 +148,40 @@ func (m *FixtureManager) Seed(binding Binding, dataset string) (FixtureStatus, e
 			delete(m.state.Datasets, key)
 			delete(m.runtimes, key)
 			_ = m.store.Unregister(binding)
-			return FixtureStatus{}, err
+			return FixtureSeedResult{}, err
 		}
 	}
 	if err := m.persistLocked(); err != nil {
 		delete(m.state.Datasets, key)
 		delete(m.runtimes, key)
 		_ = m.store.Unregister(binding)
-		return FixtureStatus{}, err
+		return FixtureSeedResult{}, err
 	}
-	return m.statusLocked(), nil
+	return FixtureSeedResult{FixtureStatus: m.statusLocked(), Callbacks: append([]FixtureCallback(nil), entry.Callbacks...)}, nil
+}
+
+func (m *FixtureManager) ExchangeAuthorization(suiteID, suiteSecret, ticket, authCode string) (archivefixture.SuiteAuthorization, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	token, err := m.suite.ExchangeSuiteToken(suiteID, suiteSecret, ticket)
+	if err != nil {
+		return archivefixture.SuiteAuthorization{}, &BridgeError{Code: "FIXTURE_SUITE_AUTH_FAILED"}
+	}
+	authorization, err := m.suite.ExchangePermanentCode(token.Value, authCode)
+	if err != nil {
+		return archivefixture.SuiteAuthorization{}, &BridgeError{Code: "FIXTURE_SUITE_AUTH_FAILED"}
+	}
+	matched := false
+	for _, entry := range m.state.Datasets {
+		if entry != nil && entry.Binding.IntegrationMode == ModeThirdPartyDelegated && int(entry.Binding.TenantID) == authorization.TenantID && entry.Binding.WXCorpID == authorization.CorpID {
+			entry.SuiteAuthorized = true
+			matched = true
+		}
+	}
+	if !matched || m.persistLocked() != nil {
+		return archivefixture.SuiteAuthorization{}, &BridgeError{Code: "FIXTURE_SUITE_AUTH_FAILED"}
+	}
+	return authorization, nil
 }
 
 func (m *FixtureManager) Send(input FixtureSendInput) (FixtureSendResult, error) {
@@ -154,12 +205,11 @@ func (m *FixtureManager) Send(input FixtureSendInput) (FixtureSendResult, error)
 	messageID := fmt.Sprintf("%s-%s-%04d", input.Dataset, strings.ReplaceAll(input.IntegrationMode, "_", "-"), sequence)
 	result := FixtureSendResult{Dataset: input.Dataset, Mode: input.IntegrationMode, Sequence: sequence, MessageID: messageID}
 	if runtime.finance != nil {
-		item, err := runtime.finance.Append(archivesource.FixtureInput{Sequence: uint64(sequence), MessageID: messageID, Type: messageType, Body: body, FileName: input.FileName, MIMEType: input.MIMEType})
+		_, err := runtime.finance.Append(archivesource.FixtureInput{Sequence: uint64(sequence), MessageID: messageID, Type: messageType, Body: body, FileName: input.FileName, MIMEType: input.MIMEType})
 		if err != nil {
 			return FixtureSendResult{}, &BridgeError{Code: "FIXTURE_SEND_FAILED"}
 		}
 		entry.SelfMessages = append(entry.SelfMessages, fixtureStoredMessage{Sequence: sequence, MessageID: messageID, Type: messageType, Body: append([]byte(nil), body...), FileName: input.FileName, MIMEType: input.MIMEType})
-		result.SDKFileID = item.SDKFileID
 	} else if runtime.zone != nil {
 		_, err := runtime.zone.Append(archivefixture.DataZoneContent{Sequence: sequence, MessageID: messageID, Type: messageType, Sender: input.Dataset + "-STAFF-01", Receivers: []string{input.Dataset + "-EXTERNAL-01"}, Body: body, FileName: input.FileName, MIMEType: input.MIMEType})
 		if err != nil {
@@ -207,6 +257,29 @@ func (m *FixtureManager) Status() FixtureStatus {
 	return m.statusLocked()
 }
 
+func (m *FixtureManager) StatusFor(binding Binding, dataset string) (FixtureStatus, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if normalizeBinding(&binding) != nil || !validFixtureDataset(dataset) {
+		return FixtureStatus{}, &BridgeError{Code: "FIXTURE_REQUEST_INVALID"}
+	}
+	entry, ok := m.state.Datasets[fixtureDatasetKey(binding, dataset)]
+	if !ok || entry == nil || entry.Binding != binding {
+		return FixtureStatus{Enabled: true}, nil
+	}
+	status := FixtureStatus{Enabled: true, DatasetCount: 1}
+	if runtime := m.runtimes[fixtureDatasetKey(binding, dataset)]; runtime.finance != nil {
+		status.MessageCount = runtime.finance.MessageCount()
+	}
+	if entry.DataZone != nil {
+		status.MessageCount = len(entry.DataZone.Entries)
+	}
+	if entry.SuiteAuthorized {
+		status.DelegatedAuthorizedCount = 1
+	}
+	return status, nil
+}
+
 func (m *FixtureManager) statusLocked() FixtureStatus {
 	status := FixtureStatus{Enabled: true, DatasetCount: len(m.state.Datasets)}
 	for key, entry := range m.state.Datasets {
@@ -251,7 +324,7 @@ func (m *FixtureManager) load() error {
 			return err
 		}
 		m.runtimes[key] = runtime
-		if entry.Binding.IntegrationMode == ModeThirdPartyDelegated {
+		if entry.Binding.IntegrationMode == ModeThirdPartyDelegated && len(entry.Callbacks) != 2 {
 			if err := m.authorizeDelegatedLocked(entry); err != nil {
 				return err
 			}
@@ -282,20 +355,21 @@ func (m *FixtureManager) authorizeDelegatedLocked(entry *fixtureDataset) error {
 	if err != nil {
 		return &BridgeError{Code: "FIXTURE_SUITE_AUTH_FAILED"}
 	}
-	authorization, err := m.suite.ExchangePermanentCode(suiteToken.Value, authCode)
+	authValues, authEncrypted, err := m.suite.BuildAuthorizationCallback(authCode, timestamp, "fixture-auth-nonce-"+fmt.Sprint(entry.Binding.TenantID))
 	if err != nil {
 		return &BridgeError{Code: "FIXTURE_SUITE_AUTH_FAILED"}
 	}
-	if _, err = m.suite.CorpToken(suiteToken.Value, int(entry.Binding.TenantID), entry.Binding.WXCorpID, authorization.PermanentCode); err != nil {
-		return &BridgeError{Code: "FIXTURE_SUITE_AUTH_FAILED"}
+	entry.Callbacks = []FixtureCallback{
+		{EventType: "suite_ticket", Timestamp: values.Get("timestamp"), Nonce: values.Get("nonce"), Signature: values.Get("msg_signature"), Encrypted: encrypted},
+		{EventType: "create_auth", Timestamp: authValues.Get("timestamp"), Nonce: authValues.Get("nonce"), Signature: authValues.Get("msg_signature"), Encrypted: authEncrypted},
 	}
-	entry.SuiteAuthorized = true
+	entry.SuiteAuthorized = false
 	return nil
 }
 
 func (m *FixtureManager) createRuntime(entry *fixtureDataset, seed bool) (fixtureRuntime, error) {
 	if entry.Binding.IntegrationMode == ModeSelfBuilt {
-		fixture, err := archivesource.NewArchiveFixtureForDataset(entry.Dataset)
+		fixture, err := archivesource.NewArchiveFixtureForBinding(entry.Dataset, entry.Binding.WXCorpID)
 		if err != nil {
 			return fixtureRuntime{}, errors.New("create finance fixture failed")
 		}

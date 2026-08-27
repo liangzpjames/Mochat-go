@@ -3,6 +3,7 @@ package archivebridge
 import (
 	"bytes"
 	"encoding/json"
+	"encoding/xml"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -10,6 +11,7 @@ import (
 	"testing"
 
 	"jiyi/mochat-go/internal/testfixtures/archivesource"
+	"jiyi/mochat-go/internal/wecomarchivedemo"
 )
 
 const testFixtureAdminBearer = "local-fixture-admin-012345678901234567890123456789"
@@ -39,13 +41,17 @@ func TestFixtureAdminSeedsSendsPersistsAndCleansBothModes(t *testing.T) {
 			t.Fatalf("send mode=%s status=%d body=%s", binding.IntegrationMode, response.Code, response.Body.String())
 		}
 	}
+	conflict := postFixture(t, handler, "/v1/fixture/seed", map[string]any{"binding": bindings[0], "dataset": "MOCHAT-LOCAL-SIM-other"})
+	if conflict.Code != http.StatusConflict {
+		t.Fatalf("second dataset for one binding status=%d body=%s", conflict.Code, conflict.Body.String())
+	}
 
 	restoredStore := NewStore()
 	restored, err := NewFixtureManager(statePath, restoredStore)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if status := restored.Status(); status.DatasetCount != 2 || status.MessageCount != 17 || status.DelegatedAuthorizedCount != 1 {
+	if status := restored.Status(); status.DatasetCount != 2 || status.MessageCount != 17 || status.DelegatedAuthorizedCount != 0 {
 		t.Fatalf("restored status=%+v", status)
 	}
 	restoredHandler, err := NewHandler(Config{BearerToken: testBridgeBearer, FixtureEnabled: true, FixtureAdminToken: testFixtureAdminBearer, FixtureManager: restored}, restoredStore)
@@ -76,6 +82,57 @@ func TestFixtureAdminSeedsSendsPersistsAndCleansBothModes(t *testing.T) {
 	}
 	if restored.Status().DatasetCount != 0 {
 		t.Fatalf("cleanup status=%+v", restored.Status())
+	}
+}
+
+func TestDelegatedSeedReturnsEncryptedCallbacksAndBridgeExchangesAuthorization(t *testing.T) {
+	store := NewStore()
+	statePath := filepath.Join(t.TempDir(), "fixture-state.json")
+	manager, err := NewFixtureManager(statePath, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler, err := NewHandler(Config{BearerToken: testBridgeBearer, FixtureEnabled: true, FixtureAdminToken: testFixtureAdminBearer, FixtureManager: manager}, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding := Binding{TenantID: 21, CorpID: 37, WXCorpID: "ww-delegated", IntegrationMode: ModeThirdPartyDelegated}
+	seed := postFixture(t, handler, "/v1/fixture/seed", map[string]any{"binding": binding, "dataset": "MOCHAT-LOCAL-SIM-callback"})
+	if seed.Code != http.StatusOK {
+		t.Fatalf("seed=%d %s", seed.Code, seed.Body.String())
+	}
+	var result struct {
+		Callbacks []FixtureCallback `json:"callbacks"`
+	}
+	if json.Unmarshal(seed.Body.Bytes(), &result) != nil || len(result.Callbacks) != 2 {
+		t.Fatalf("callbacks=%s", seed.Body.String())
+	}
+	for _, callback := range result.Callbacks {
+		if callback.Timestamp == "" || callback.Nonce == "" || callback.Signature == "" || callback.Encrypted == "" {
+			t.Fatalf("incomplete callback=%+v", callback)
+		}
+	}
+	callback := result.Callbacks[1]
+	plain, err := wecomarchivedemo.VerifyAndDecryptCallback("local-fixture-callback-token", "abcdefghijklmnopqrstuvwxyz0123456789ABCDEFG", "ww-local-fixture-suite", callback.Values(), callback.Encrypted)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var event struct {
+		AuthCode string `xml:"AuthCode"`
+	}
+	if xml.Unmarshal(plain.Message, &event) != nil || strings.TrimSpace(event.AuthCode) == "" {
+		t.Fatalf("authorization callback did not contain auth code")
+	}
+	response := postBridge(t, handler, "/v1/suite/authorization/exchange", map[string]any{
+		"suiteId": "ww-local-fixture-suite", "suiteSecret": "local-fixture-suite-secret",
+		"suiteTicket": "MOCHAT-LOCAL-SIM-callback-suite-ticket", "authCode": event.AuthCode,
+	})
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"tenantId":21`) || !strings.Contains(response.Body.String(), `"corpId":"ww-delegated"`) || strings.Contains(response.Body.String(), event.AuthCode) {
+		t.Fatalf("exchange=%d %s", response.Code, response.Body.String())
+	}
+	restored, err := NewFixtureManager(statePath, NewStore())
+	if err != nil || restored.Status().DelegatedAuthorizedCount != 1 {
+		t.Fatalf("restored authorization status=%+v err=%v", restored.Status(), err)
 	}
 }
 

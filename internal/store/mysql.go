@@ -8626,6 +8626,15 @@ func (s *MySQLStore) RecordSaaSAdminOperationLog(ctx context.Context, item dashb
 	return id, nil
 }
 
+// RecordSaaSAdminOperationLogInTx lets a caller keep its domain mutation and
+// the integrity-chain audit record in the same database transaction.
+func (s *MySQLStore) RecordSaaSAdminOperationLogInTx(ctx context.Context, tx *sql.Tx, item dashboard.SaaSAdminOperationLog) (int64, error) {
+	if s == nil || s.db == nil || tx == nil {
+		return 0, errors.New("SaaS admin operation log transaction is unavailable")
+	}
+	return insertSaaSAdminOperationLogTx(ctx, tx, item)
+}
+
 func (s *MySQLStore) SaaSAdminBillingEvents(ctx context.Context, options dashboard.SaaSAdminBillingEventOptions) ([]dashboard.SaaSAdminBillingEvent, error) {
 	if options.Limit <= 0 {
 		options.Limit = 20

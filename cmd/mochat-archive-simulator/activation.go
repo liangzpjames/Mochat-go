@@ -12,6 +12,8 @@ import (
 	"strings"
 
 	"jiyi/mochat-go/internal/archivebridge"
+	"jiyi/mochat-go/internal/dashboard"
+	"jiyi/mochat-go/internal/store"
 )
 
 func resolveSeedBinding(ctx context.Context, db bindingQuery, tenantID int64, requestedMode string) (archivebridge.Binding, error) {
@@ -44,6 +46,117 @@ func resolveSeedBinding(ctx context.Context, db bindingQuery, tenantID int64, re
 		binding.WXCorpID = localFixtureWXCorpID(binding.TenantID)
 	}
 	return binding, nil
+}
+
+func ensureFixtureSourceOwnership(ctx context.Context, db *sql.DB, binding archivebridge.Binding, dataset string) error {
+	dataset = strings.TrimSpace(dataset)
+	if db == nil || !strings.HasPrefix(dataset, archivebridge.FixtureDatasetPrefix) {
+		return errors.New("fixture dataset ownership scope is invalid")
+	}
+	sourceID := "wecom:" + binding.IntegrationMode + ":" + binding.WXCorpID
+	rows, err := db.QueryContext(ctx, `
+		SELECT msgid
+		FROM mochat_go_archive_message_sources
+		WHERE tenant_id=? AND corp_id=? AND source_kind='external' AND source_id=? AND namespace=?
+		ORDER BY id
+	`, binding.TenantID, binding.CorpID, sourceID, sourceID)
+	if err != nil {
+		return fmt.Errorf("check fixture dataset ownership: %w", err)
+	}
+	defer rows.Close()
+	messageIDs := make([]string, 0)
+	for rows.Next() {
+		var messageID string
+		if err := rows.Scan(&messageID); err != nil {
+			return err
+		}
+		messageIDs = append(messageIDs, messageID)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if err := validateFixtureCleanupMessageIDs(dataset, messageIDs); err != nil {
+		return errors.New("another local simulator dataset already owns this tenant and mode; clean it before seeding a new dataset")
+	}
+	return nil
+}
+
+func claimFixtureDataset(ctx context.Context, db *sql.DB, binding archivebridge.Binding, dataset string) error {
+	dataset = strings.TrimSpace(dataset)
+	if db == nil || !strings.HasPrefix(dataset, archivebridge.FixtureDatasetPrefix) {
+		return errors.New("fixture dataset ledger scope is invalid")
+	}
+	sourceID := "wecom:" + binding.IntegrationMode + ":" + binding.WXCorpID
+	_, err := db.ExecContext(ctx, `
+		INSERT INTO mochat_go_archive_fixture_datasets (dataset,tenant_id,corp_id,integration_mode,source_identity,status,created_at,updated_at)
+		VALUES (?,?,?,?,?,'seeding',NOW(6),NOW(6))
+		ON DUPLICATE KEY UPDATE status=IF(dataset=VALUES(dataset),'seeding',status),updated_at=IF(dataset=VALUES(dataset),NOW(6),updated_at)
+	`, dataset, binding.TenantID, binding.CorpID, binding.IntegrationMode, sourceID)
+	if err != nil {
+		return fmt.Errorf("claim fixture dataset ledger: %w", err)
+	}
+	var owner string
+	if err := db.QueryRowContext(ctx, `SELECT dataset FROM mochat_go_archive_fixture_datasets WHERE tenant_id=? AND corp_id=? AND source_identity=? LIMIT 1`, binding.TenantID, binding.CorpID, sourceID).Scan(&owner); err != nil {
+		return err
+	}
+	if owner != dataset {
+		return errors.New("another local simulator dataset already owns this tenant and mode")
+	}
+	return nil
+}
+
+func updateFixtureDatasetStatus(ctx context.Context, db *sql.DB, binding archivebridge.Binding, dataset, status string) error {
+	if db == nil || (status != "ready" && status != "cleaning") {
+		return errors.New("fixture dataset status update is invalid")
+	}
+	result, err := db.ExecContext(ctx, `UPDATE mochat_go_archive_fixture_datasets SET status=?,updated_at=NOW(6) WHERE dataset=? AND tenant_id=? AND corp_id=? AND integration_mode=?`, status, strings.TrimSpace(dataset), binding.TenantID, binding.CorpID, binding.IntegrationMode)
+	if err != nil {
+		return err
+	}
+	if rows, _ := result.RowsAffected(); rows != 1 {
+		return errors.New("fixture dataset ledger ownership was lost")
+	}
+	return nil
+}
+
+func deleteFixtureDataset(ctx context.Context, db *sql.DB, binding archivebridge.Binding, dataset string) error {
+	result, err := db.ExecContext(ctx, `DELETE FROM mochat_go_archive_fixture_datasets WHERE dataset=? AND tenant_id=? AND corp_id=? AND integration_mode=?`, strings.TrimSpace(dataset), binding.TenantID, binding.CorpID, binding.IntegrationMode)
+	if err != nil {
+		return err
+	}
+	if rows, _ := result.RowsAffected(); rows > 1 {
+		return errors.New("fixture dataset ledger cleanup exceeded its scope")
+	}
+	return nil
+}
+
+func prepareDelegatedFixtureAuthorization(ctx context.Context, db *sql.DB, binding archivebridge.Binding) error {
+	if db == nil || binding.IntegrationMode != archivebridge.ModeThirdPartyDelegated || !fixtureWXCorpIDAllowed(binding.TenantID, binding.WXCorpID) || strings.TrimSpace(binding.WXCorpID) == "" {
+		return errors.New("delegated fixture authorization scope is invalid")
+	}
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `UPDATE mc_corp SET wx_corpid=?,updated_at=NOW() WHERE id=? AND tenant_id=? AND deleted_at IS NULL`, binding.WXCorpID, binding.CorpID, binding.TenantID); err != nil {
+		return err
+	}
+	result, err := tx.ExecContext(ctx, `UPDATE mochat_go_wecom_integrations SET provider_app_id='ww-local-fixture-suite',status='pending_verification',verified_wx_corpid='',last_error_code='',last_error_at=NULL,version=version+1,updated_at=NOW(6) WHERE tenant_id=? AND corp_id=? AND mode='third_party_delegated' AND slot='current' AND (provider_app_id<>'ww-local-fixture-suite' OR credential_ciphertext='' OR credential_key_id='')`, binding.TenantID, binding.CorpID)
+	if err != nil {
+		return err
+	}
+	if rows, _ := result.RowsAffected(); rows > 1 {
+		return errors.New("delegated fixture integration changed before authorization")
+	}
+	var currentCount int
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM mochat_go_wecom_integrations WHERE tenant_id=? AND corp_id=? AND mode='third_party_delegated' AND slot='current'`, binding.TenantID, binding.CorpID).Scan(&currentCount); err != nil {
+		return err
+	}
+	if currentCount != 1 {
+		return errors.New("delegated fixture integration changed before authorization")
+	}
+	return tx.Commit()
 }
 
 func activateFixtureBinding(ctx context.Context, db *sql.DB, binding archivebridge.Binding, dataset string) error {
@@ -116,7 +229,11 @@ func activateFixtureBinding(ctx context.Context, db *sql.DB, binding archivebrid
 	}
 	beforeJSON, _ := json.Marshal(map[string]any{"status": status, "verifiedWxCorpId": verifiedWXCorpID, "mode": mode})
 	afterJSON, _ := json.Marshal(map[string]any{"status": "active", "verifiedWxCorpId": binding.WXCorpID, "mode": mode, "scope": scope, "verificationLevel": "local_contract", "dataset": dataset})
-	if _, err := tx.ExecContext(ctx, `INSERT INTO mochat_go_saas_admin_operation_logs (tenant_id,actor_user_id,actor_tenant_id,action,target_type,target_id,target_name,before_json,after_json,remark,created_at) VALUES (?,0,0,'wecom.integration.fixture.activate','wecom_integration',?,? ,?,?,?,NOW())`, binding.TenantID, integrationID, dataset, string(beforeJSON), string(afterJSON), "仅用于本地企微契约验收；未调用真实企微"); err != nil {
+	if _, err := store.NewMySQLStore(db).RecordSaaSAdminOperationLogInTx(ctx, tx, dashboard.SaaSAdminOperationLog{
+		TenantID: int(binding.TenantID), Action: "wecom.integration.fixture.activate",
+		TargetType: "wecom_integration", TargetID: integrationID, TargetName: dataset,
+		BeforeJSON: string(beforeJSON), AfterJSON: string(afterJSON), Remark: "仅用于本地企微契约验收；未调用真实企微",
+	}); err != nil {
 		return err
 	}
 	return tx.Commit()

@@ -77,6 +77,24 @@ func TestAuthorizationCredentialIsTenantAndIntegrationBound(t *testing.T) {
 	}
 }
 
+func TestSuiteTicketCredentialIsEncryptedAndSuiteBound(t *testing.T) {
+	manager, err := NewManager(Config{EncryptionKey: testKey(6), EncryptionKeyID: "wecom-v1", RequireEncryption: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ciphertext, keyID, err := manager.EncryptSuiteTicket("suite-a", "sensitive-ticket")
+	if err != nil || strings.Contains(ciphertext, "sensitive-ticket") {
+		t.Fatalf("ciphertext=%q key=%q err=%v", ciphertext, keyID, err)
+	}
+	ticket, err := manager.DecryptSuiteTicket("suite-a", keyID, ciphertext)
+	if err != nil || ticket != "sensitive-ticket" {
+		t.Fatalf("ticket=%q err=%v", ticket, err)
+	}
+	if _, err := manager.DecryptSuiteTicket("suite-b", keyID, ciphertext); err == nil {
+		t.Fatal("cross-suite ticket decrypt succeeded")
+	}
+}
+
 func TestArchiveMediaCredentialIsTenantAndObjectBound(t *testing.T) {
 	manager, err := NewManager(Config{EncryptionKey: testKey(4), EncryptionKeyID: "wecom-v1", RequireEncryption: true})
 	if err != nil {

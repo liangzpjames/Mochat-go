@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"jiyi/mochat-go/internal/modules/providers"
@@ -30,9 +31,37 @@ func TestBridgeSourceUsesRealArchiveFixtureMixedShape(t *testing.T) {
 	}
 	const token = "MOCHAT-LOCAL-ACCEPTANCE-BEARER-0123456789"
 	const wxCorpID = "ww-local-acceptance"
-	server := httptest.NewServer(wecomarchivedemo.NewAdminHandler(wecomarchivedemo.Config{
+	financeHandler := wecomarchivedemo.NewAdminHandler(wecomarchivedemo.Config{
 		AdminToken: token, CorpID: wxCorpID, PullLimit: 100, TimeoutSeconds: 5,
-	}, evidence, service))
+	}, evidence, service)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		recorded := httptest.NewRecorder()
+		financeHandler.ServeHTTP(recorded, r)
+		for key, values := range recorded.Header() {
+			w.Header()[key] = append([]string(nil), values...)
+		}
+		if recorded.Code != http.StatusOK || !strings.Contains(r.URL.Path, "messages") {
+			w.WriteHeader(recorded.Code)
+			_, _ = w.Write(recorded.Body.Bytes())
+			return
+		}
+		var payload map[string]any
+		if json.Unmarshal(recorded.Body.Bytes(), &payload) != nil {
+			t.Fatal("invalid Finance adapter response")
+		}
+		items, _ := payload["messages"].([]any)
+		if len(items) == 0 {
+			items, _ = payload["chatdata"].([]any)
+		}
+		for _, item := range items {
+			if object, ok := item.(map[string]any); ok {
+				object["source_mode"] = IntegrationModeSelfBuilt
+			}
+		}
+		payload["messages"] = items
+		w.WriteHeader(recorded.Code)
+		_ = json.NewEncoder(w).Encode(payload)
+	}))
 	defer server.Close()
 
 	client, err := NewBridgeArchiveClient(server.URL, token, server.Client())
@@ -78,7 +107,9 @@ func TestBridgeMediaNon2xxReturnsBoundedSanitizedFetchError(t *testing.T) {
 	const secretLocator = "MOCHAT-LOCAL-ACCEPTANCE-SECRET-LOCATOR"
 	for _, code := range []string{"ARCHIVE_MEDIA_MISSING", "ARCHIVE_MEDIA_CORRUPT"} {
 		t.Run(code, func(t *testing.T) {
+			var requests atomic.Int32
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				requests.Add(1)
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusNotFound)
 				_, _ = w.Write([]byte(`{"errcode":"` + code + `","errmsg":"` + secretLocator + `"}`))
@@ -95,6 +126,9 @@ func TestBridgeMediaNon2xxReturnsBoundedSanitizedFetchError(t *testing.T) {
 			}
 			if strings.Contains(err.Error(), secretLocator) || strings.Contains(err.Error(), "errmsg") {
 				t.Fatalf("error leaked bridge response: %v", err)
+			}
+			if requests.Load() != 1 {
+				t.Fatalf("terminal media response triggered %d requests, want no legacy endpoint fallback", requests.Load())
 			}
 		})
 	}
@@ -123,15 +157,15 @@ func TestBridgeSourceParsesSupportedMessagesAndKeepsSDKFileIDInternal(t *testing
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"errcode":0,"errmsg":"ok","messages":[
-			{"seq":41,"msgid":"text-1","action":"send","from":"employee","tolist":["contact"],"msgtime":1700000000000,"msgtype":"text","text":{"content":"hello"}},
-			{"seq":42,"msgid":"image-1","action":"send","from":"contact","tolist":["employee"],"msgtime":1700000001000,"msgtype":"image","image":{"sdkfileid":"` + sdkFileID + `","md5sum":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","filesize":21}},
-			{"seq":43,"msgid":"voice-1","action":"send","from":"employee","tolist":["contact"],"msgtime":1700000002000,"msgtype":"voice","voice":{"sdkfileid":"voice-secret","voice_size":22,"play_length":3}},
-			{"seq":44,"msgid":"video-1","action":"send","from":"employee","tolist":["contact"],"msgtime":1700000003000,"msgtype":"video","video":{"sdkfileid":"video-secret","filesize":23}},
-			{"seq":45,"msgid":"file-1","action":"send","from":"employee","tolist":["contact"],"msgtime":1700000004000,"msgtype":"file","file":{"sdkfileid":"file-secret","filename":"../../proposal.pdf","fileext":"pdf","filesize":24}},
-			{"seq":46,"msgid":"link-1","action":"send","from":"employee","tolist":["contact"],"msgtime":1700000005000,"msgtype":"link","link":{"title":"safe title","link_url":"https://example.invalid"}},
-			{"seq":47,"msgid":"location-1","action":"send","from":"employee","tolist":["contact"],"msgtime":1700000006000,"msgtype":"location","location":{"address":"Shanghai","latitude":31.2,"longitude":121.5}},
-			{"seq":48,"msgid":"mixed-1","action":"send","from":"employee","tolist":["contact"],"msgtime":1700000007000,"msgtype":"mixed","mixed":{"item":[{"type":"text","content":"mixed text"},{"type":"image","content":{"sdkfileid":"mixed-image-secret","filesize":25}}]}},
-			{"seq":49,"msgid":"unknown-1","action":"send","from":"employee","tolist":["contact"],"msgtime":1700000008000,"msgtype":"future_type","future_type":{"sdkfileid":"unknown-secret","value":"retained"}}
+			{"source_mode":"self_built","seq":41,"msgid":"text-1","action":"send","from":"employee","tolist":["contact"],"msgtime":1700000000000,"msgtype":"text","text":{"content":"hello"}},
+			{"source_mode":"self_built","seq":42,"msgid":"image-1","action":"send","from":"contact","tolist":["employee"],"msgtime":1700000001000,"msgtype":"image","image":{"sdkfileid":"` + sdkFileID + `","md5sum":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","filesize":21}},
+			{"source_mode":"self_built","seq":43,"msgid":"voice-1","action":"send","from":"employee","tolist":["contact"],"msgtime":1700000002000,"msgtype":"voice","voice":{"sdkfileid":"voice-secret","voice_size":22,"play_length":3}},
+			{"source_mode":"self_built","seq":44,"msgid":"video-1","action":"send","from":"employee","tolist":["contact"],"msgtime":1700000003000,"msgtype":"video","video":{"sdkfileid":"video-secret","filesize":23}},
+			{"source_mode":"self_built","seq":45,"msgid":"file-1","action":"send","from":"employee","tolist":["contact"],"msgtime":1700000004000,"msgtype":"file","file":{"sdkfileid":"file-secret","filename":"../../proposal.pdf","fileext":"pdf","filesize":24}},
+			{"source_mode":"self_built","seq":46,"msgid":"link-1","action":"send","from":"employee","tolist":["contact"],"msgtime":1700000005000,"msgtype":"link","link":{"title":"safe title","link_url":"https://example.invalid"}},
+			{"source_mode":"self_built","seq":47,"msgid":"location-1","action":"send","from":"employee","tolist":["contact"],"msgtime":1700000006000,"msgtype":"location","location":{"address":"Shanghai","latitude":31.2,"longitude":121.5}},
+			{"source_mode":"self_built","seq":48,"msgid":"mixed-1","action":"send","from":"employee","tolist":["contact"],"msgtime":1700000007000,"msgtype":"mixed","mixed":{"item":[{"type":"text","content":"mixed text"},{"type":"image","content":{"sdkfileid":"mixed-image-secret","filesize":25}}]}},
+			{"source_mode":"self_built","seq":49,"msgid":"unknown-1","action":"send","from":"employee","tolist":["contact"],"msgtime":1700000008000,"msgtype":"future_type","future_type":{"sdkfileid":"unknown-secret","value":"retained"}}
 		]}`))
 	}))
 	defer server.Close()
@@ -172,6 +206,23 @@ func TestBridgeSourceParsesSupportedMessagesAndKeepsSDKFileIDInternal(t *testing
 	}
 	if got := page.Messages[8].Media; len(got) != 0 {
 		t.Fatalf("unknown media must not be scheduled: %#v", got)
+	}
+}
+
+func TestBridgeSourceRejectsMissingOrMismatchedResponseMode(t *testing.T) {
+	for _, sourceMode := range []string{"", IntegrationModeThirdPartyDelegated} {
+		t.Run("mode_"+sourceMode, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				_, _ = w.Write([]byte(`{"errcode":0,"messages":[{"source_mode":"` + sourceMode + `","seq":1,"msgid":"m-1","msgtype":"text","text":{"content":"hello"}}]}`))
+			}))
+			defer server.Close()
+			client, _ := NewBridgeArchiveClient(server.URL, "MOCHAT-LOCAL-ACCEPTANCE-BEARER-0123456789", server.Client())
+			source, _ := NewBridgeSource(client, Scope{TenantID: 11, CorpID: 27}, "ww-local", IntegrationModeSelfBuilt)
+			page, err := source.Fetch(context.Background(), Scope{TenantID: 11, CorpID: 27}, Cursor{}, 10)
+			if err == nil || len(page.Messages) != 0 || page.NextCursor.Sequence != 0 {
+				t.Fatalf("page=%#v err=%v", page, err)
+			}
+		})
 	}
 }
 
@@ -225,7 +276,7 @@ func TestBridgeSourceParsesDelegatedComponentWithoutPlaintextOrMedia(t *testing.
 			t.Fatalf("request=%#v", request)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"errcode":0,"messages":[{"seq":1,"msgid":"dz-1","msgtype":"voice","from":"a","tolist":["b"],"content_policy":"component","component_locator":{"msgid":"dz-1","public_key_ver":1,"encrypted_secret_key":"private-wrapped-key"}}]}`))
+		_, _ = w.Write([]byte(`{"errcode":0,"messages":[{"source_mode":"third_party_delegated","seq":1,"msgid":"dz-1","msgtype":"voice","from":"a","tolist":["b"],"content_policy":"component","component_locator":{"msgid":"dz-1","public_key_ver":1,"encrypted_secret_key":"private-wrapped-key"}}]}`))
 	}))
 	defer server.Close()
 	client, err := NewBridgeArchiveClient(server.URL, bearer, server.Client())

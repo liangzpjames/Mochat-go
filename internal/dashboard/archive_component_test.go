@@ -47,8 +47,9 @@ func TestArchiveComponentCreatesBoundOneTimeSessionAndServesContent(t *testing.T
 	}
 	var payload struct {
 		SessionURL string `json:"sessionUrl"`
+		ExpiresIn  int    `json:"expiresIn"`
 	}
-	if json.Unmarshal(response.Body.Bytes(), &payload) != nil || !strings.HasPrefix(payload.SessionURL, "/dashboard/archive/components/session/") || strings.Contains(payload.SessionURL, "wrapped-key") {
+	if json.Unmarshal(response.Body.Bytes(), &payload) != nil || payload.ExpiresIn != 60 || !strings.HasPrefix(payload.SessionURL, "/dashboard/archive/components/session/") || strings.Contains(payload.SessionURL, "wrapped-key") {
 		t.Fatalf("session payload=%s", response.Body.String())
 	}
 	view := archiveComponentRequest(http.MethodGet, payload.SessionURL)
@@ -61,6 +62,28 @@ func TestArchiveComponentCreatesBoundOneTimeSessionAndServesContent(t *testing.T
 	handler.ServeHTTP(replay, archiveComponentRequest(http.MethodGet, payload.SessionURL))
 	if replay.Code != http.StatusNotFound || bridge.calls != 1 {
 		t.Fatalf("replay status/calls=%d/%d", replay.Code, bridge.calls)
+	}
+}
+
+func TestArchiveComponentSessionRejectsChangedAuthVersion(t *testing.T) {
+	const id = "8ff7bf2d-5604-43bc-a600-3ec91d575085"
+	store := &fakeArchiveComponentStore{found: true, object: ArchiveComponentObject{ID: id, TenantID: 11, CorpID: 27, WXCorpID: "ww-local", MessageID: "dz-1", PublicKeyVersion: 1, EncryptedSecretKey: "wrapped-key"}}
+	bridge := &fakeArchiveComponentBridge{content: ArchiveComponentContent{Type: "text", MIMEType: "text/plain", Body: []byte("hello")}}
+	handler := NewArchiveComponentHandler(store, bridge)
+	create := httptest.NewRecorder()
+	handler.ServeHTTP(create, archiveComponentRequest(http.MethodPost, "/dashboard/archive/components/"+id+"/session"))
+	var payload struct {
+		SessionURL string `json:"sessionUrl"`
+	}
+	_ = json.Unmarshal(create.Body.Bytes(), &payload)
+	request := archiveComponentRequest(http.MethodGet, payload.SessionURL)
+	principal, _ := DashboardPrincipalFromContext(request.Context())
+	principal.AuthVersion++
+	request = request.WithContext(dashboardprincipal.WithPrincipal(request.Context(), principal))
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusNotFound || bridge.calls != 0 {
+		t.Fatalf("status/calls=%d/%d", response.Code, bridge.calls)
 	}
 }
 

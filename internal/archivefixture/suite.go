@@ -83,6 +83,7 @@ type SuiteProvider struct {
 	preAuthCodes   map[string]*suitePreAuth
 	authCodes      map[string]*suiteAuthCode
 	authorizations map[string]*suiteAuthorizationState
+	callbackNonces map[string]time.Time
 }
 
 func NewSuiteProvider(suiteID, suiteSecret, callbackToken, encodingAESKey string) (*SuiteProvider, error) {
@@ -97,7 +98,7 @@ func NewSuiteProvider(suiteID, suiteSecret, callbackToken, encodingAESKey string
 	return &SuiteProvider{
 		suiteID: suiteID, suiteSecret: suiteSecret, callbackToken: callbackToken, encodingAESKey: encodingAESKey,
 		now: time.Now, suiteTokens: map[string]time.Time{}, preAuthCodes: map[string]*suitePreAuth{},
-		authCodes: map[string]*suiteAuthCode{}, authorizations: map[string]*suiteAuthorizationState{},
+		authCodes: map[string]*suiteAuthCode{}, authorizations: map[string]*suiteAuthorizationState{}, callbackNonces: map[string]time.Time{},
 	}, nil
 }
 
@@ -141,9 +142,42 @@ func (p *SuiteProvider) BuildTicketCallback(ticket, timestamp, nonce string) (ur
 	return values, encrypted, nil
 }
 
+func (p *SuiteProvider) BuildAuthorizationCallback(authCode, timestamp, nonce string) (url.Values, string, error) {
+	if p == nil || strings.TrimSpace(authCode) == "" || strings.TrimSpace(timestamp) == "" || strings.TrimSpace(nonce) == "" {
+		return nil, "", protocolError("AUTH_CODE_INVALID")
+	}
+	message, err := xml.Marshal(struct {
+		XMLName  xml.Name `xml:"xml"`
+		SuiteID  string   `xml:"SuiteId"`
+		InfoType string   `xml:"InfoType"`
+		AuthCode string   `xml:"AuthCode"`
+	}{SuiteID: p.suiteID, InfoType: "create_auth", AuthCode: strings.TrimSpace(authCode)})
+	if err != nil {
+		return nil, "", protocolError("AUTH_CODE_INVALID")
+	}
+	encrypted, err := encryptSuiteCallback(p.encodingAESKey, message, p.suiteID)
+	if err != nil {
+		return nil, "", protocolError("SUITE_CALLBACK_ENCRYPT_FAILED")
+	}
+	values := url.Values{"timestamp": {timestamp}, "nonce": {nonce}}
+	values.Set("msg_signature", suiteCallbackSignature(p.callbackToken, timestamp, nonce, encrypted))
+	return values, encrypted, nil
+}
+
 func (p *SuiteProvider) ReceiveTicket(values url.Values, encrypted string) error {
 	if p == nil {
 		return protocolError("SUITE_TICKET_INVALID")
+	}
+	timestamp := strings.TrimSpace(values.Get("timestamp"))
+	nonce := strings.TrimSpace(values.Get("nonce"))
+	unixTime, err := strconv.ParseInt(timestamp, 10, 64)
+	if err != nil || nonce == "" {
+		return protocolError("SUITE_CALLBACK_INVALID")
+	}
+	now := p.now().UTC()
+	callbackTime := time.Unix(unixTime, 0).UTC()
+	if callbackTime.Before(now.Add(-5*time.Minute)) || callbackTime.After(now.Add(5*time.Minute)) {
+		return protocolError("SUITE_CALLBACK_EXPIRED")
 	}
 	plain, err := wecomarchivedemo.VerifyAndDecryptCallback(p.callbackToken, p.encodingAESKey, p.suiteID, values, encrypted)
 	if err != nil {
@@ -158,8 +192,17 @@ func (p *SuiteProvider) ReceiveTicket(values url.Values, encrypted string) error
 		return protocolError("SUITE_TICKET_INVALID")
 	}
 	p.mu.Lock()
+	defer p.mu.Unlock()
+	for seenNonce, expiresAt := range p.callbackNonces {
+		if !now.Before(expiresAt) {
+			delete(p.callbackNonces, seenNonce)
+		}
+	}
+	if _, replayed := p.callbackNonces[nonce]; replayed {
+		return protocolError("SUITE_CALLBACK_REPLAYED")
+	}
+	p.callbackNonces[nonce] = now.Add(10 * time.Minute)
 	p.latestTicket = strings.TrimSpace(event.SuiteTicket)
-	p.mu.Unlock()
 	return nil
 }
 

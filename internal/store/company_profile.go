@@ -383,15 +383,22 @@ func (s *MySQLStore) GetCallbackConfiguration(ctx context.Context, principal das
 	if !found || current.TenantID != binding.TenantID {
 		return companyprofile.CallbackConfiguration{}, companyprofile.ErrNotFound
 	}
+	return companyCallbackConfigurationFromCredential(s, binding, current), nil
+}
+
+func companyCallbackConfigurationFromCredential(s *MySQLStore, binding companyBindingRecord, current corpCredentialRecord) companyprofile.CallbackConfiguration {
+	configuration := companyprofile.CallbackConfiguration{CorpID: binding.CorpID, BindingVersion: binding.Version}
 	credential, err := companyCredentialForRotation(s, current)
 	if err != nil {
-		return companyprofile.CallbackConfiguration{}, companyprofile.ErrStoreUnavailable
+		// A read must remain a usable repair surface when a legacy key is no
+		// longer available. Rotation still decrypts the full credential inside
+		// its transaction and therefore fails closed instead of dropping fields.
+		return configuration
 	}
-	return companyprofile.CallbackConfiguration{
-		CorpID: binding.CorpID, Token: credential.CallbackToken, EncodingAESKey: credential.EncodingAESKey,
-		Configured:     companyCallbackConfigurationValid(credential.CallbackToken, credential.EncodingAESKey),
-		BindingVersion: binding.Version,
-	}, nil
+	configuration.Token = credential.CallbackToken
+	configuration.EncodingAESKey = credential.EncodingAESKey
+	configuration.Configured = companyCallbackConfigurationValid(credential.CallbackToken, credential.EncodingAESKey)
+	return configuration
 }
 
 func companyCallbackConfigurationValid(token, encodingAESKey string) bool {
@@ -827,20 +834,24 @@ func (s *MySQLStore) companyProfileFromBinding(ctx context.Context, queryer comp
 	callbackTokenConfigured := false
 	callbackAESConfigured := false
 	archiveConfigured := false
-	if strings.TrimSpace(binding.Ciphertext) != "" && s != nil {
-		credential, decryptErr := s.decodeEncryptedCorpCredential(corpCredentialRecord{
-			ID: binding.CorpID, TenantID: binding.TenantID, WXCorpID: binding.LegacyWXCorpID,
-			Ciphertext: binding.Ciphertext, KeyID: binding.KeyID,
-		})
-		if decryptErr != nil {
-			return companyprofile.Profile{}, companyprofile.ErrStoreUnavailable
+	if strings.TrimSpace(binding.Ciphertext) != "" {
+		// The profile is a repair surface as well as a status page. Keep it
+		// readable when an older encryption key has been retired or the stored
+		// envelope is damaged; mutations and provider execution still decrypt
+		// the credential and therefore remain fail-closed.
+		corpConfigured = true
+		if s != nil && s.weComCredentialCipher != nil && s.weComCredentialCipher.HasKey(binding.KeyID) {
+			credential, decryptErr := s.decodeEncryptedCorpCredential(corpCredentialRecord{
+				ID: binding.CorpID, TenantID: binding.TenantID, WXCorpID: binding.LegacyWXCorpID,
+				Ciphertext: binding.Ciphertext, KeyID: binding.KeyID,
+			})
+			if decryptErr == nil {
+				employeeConfigured, contactConfigured, callbackTokenConfigured, callbackAESConfigured = deriveCorpCredentialFacts(credential)
+				corpConfigured = employeeConfigured || contactConfigured || callbackTokenConfigured || callbackAESConfigured || strings.TrimSpace(credential.ChatSecret) != ""
+				archiveConfigured = strings.TrimSpace(credential.ChatSecret) != "" &&
+					strings.TrimSpace(credential.ArchiveRSAPublicKey) != "" && strings.TrimSpace(credential.ArchiveRSAPrivateKey) != ""
+			}
 		}
-		employeeConfigured, contactConfigured, callbackTokenConfigured, callbackAESConfigured = deriveCorpCredentialFacts(credential)
-		corpConfigured = employeeConfigured || contactConfigured || callbackTokenConfigured || callbackAESConfigured || strings.TrimSpace(credential.ChatSecret) != ""
-		archiveConfigured = strings.TrimSpace(credential.ChatSecret) != "" &&
-			strings.TrimSpace(credential.ArchiveRSAPublicKey) != "" && strings.TrimSpace(credential.ArchiveRSAPrivateKey) != ""
-	} else if strings.TrimSpace(binding.Ciphertext) != "" || strings.TrimSpace(binding.KeyID) != "" {
-		return companyprofile.Profile{}, companyprofile.ErrStoreUnavailable
 	}
 	var agentRecord companyAgentCredentialRecord
 	agentIDConfigured := false

@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -63,6 +65,9 @@ func cleanupIngestedFixture(ctx context.Context, db *sql.DB, binding archivebrid
 	if err := validateFixtureCleanupMessageIDs(dataset, messageIDs); err != nil {
 		return result, err
 	}
+	if err := reconcileFixtureMediaQuarantine(storageRoot, dataset, len(messageIDs) > 0); err != nil {
+		return result, err
+	}
 	mediaIDs := make([]string, 0)
 	for _, messageID := range messageIDs {
 		mediaRows, err := tx.QueryContext(ctx, `SELECT id FROM mochat_go_archive_media_objects WHERE tenant_id=? AND corp_id=? AND msgid=? FOR UPDATE`, binding.TenantID, binding.CorpID, messageID)
@@ -118,10 +123,15 @@ func cleanupIngestedFixture(ctx context.Context, db *sql.DB, binding archivebrid
 	} else {
 		result.RemovedParticipants += int(removed)
 	}
-	if err := tx.Commit(); err != nil {
+	staged, err := stageFixtureMediaFiles(storageRoot, dataset, mediaIDs)
+	if err != nil {
 		return result, err
 	}
-	removedFiles, err := removeFixtureMediaFiles(storageRoot, mediaIDs)
+	if err := tx.Commit(); err != nil {
+		_ = restoreFixtureMediaFiles(staged)
+		return result, err
+	}
+	removedFiles, err := purgeFixtureMediaFiles(staged)
 	result.RemovedFiles = removedFiles
 	return result, err
 }
@@ -147,37 +157,141 @@ func deleteFixtureRows(ctx context.Context, tx *sql.Tx, query string, args ...an
 	return result.RowsAffected()
 }
 
-func removeFixtureMediaFiles(storageRoot string, mediaIDs []string) (int, error) {
+type stagedFixtureMediaFile struct {
+	Original string
+	Staged   string
+}
+
+type stagedFixtureMedia struct {
+	QuarantineRoot string
+	Files          []stagedFixtureMediaFile
+}
+
+func stageFixtureMediaFiles(storageRoot, dataset string, mediaIDs []string) (stagedFixtureMedia, error) {
 	storageRoot = strings.TrimSpace(storageRoot)
 	if len(mediaIDs) == 0 {
-		return 0, nil
+		return stagedFixtureMedia{}, nil
 	}
 	if storageRoot == "" {
-		return 0, errors.New("fixture media storage root is required for cleanup")
+		return stagedFixtureMedia{}, errors.New("fixture media storage root is required for cleanup")
 	}
 	archiveRoot, err := filepath.Abs(filepath.Join(storageRoot, "archive-media"))
 	if err != nil {
-		return 0, errors.New("fixture media storage root is invalid")
+		return stagedFixtureMedia{}, errors.New("fixture media storage root is invalid")
 	}
-	removed := 0
+	quarantineRoot := fixtureMediaQuarantineRoot(archiveRoot, dataset)
+	if err := os.MkdirAll(quarantineRoot, 0o700); err != nil {
+		return stagedFixtureMedia{}, err
+	}
+	staged := stagedFixtureMedia{QuarantineRoot: quarantineRoot}
 	for _, rawID := range mediaIDs {
 		parsed, err := uuid.Parse(strings.TrimSpace(rawID))
 		if err != nil || parsed.String() != strings.ToLower(strings.TrimSpace(rawID)) {
-			return removed, errors.New("fixture media ledger contains an unsafe object id")
+			_ = restoreFixtureMediaFiles(staged)
+			return stagedFixtureMedia{}, errors.New("fixture media ledger contains an unsafe object id")
 		}
 		paths := []string{filepath.Join(archiveRoot, parsed.String())}
 		parts, err := filepath.Glob(filepath.Join(archiveRoot, parsed.String()+".attempt-*.part"))
 		if err != nil {
-			return removed, err
+			_ = restoreFixtureMediaFiles(staged)
+			return stagedFixtureMedia{}, err
 		}
 		paths = append(paths, parts...)
 		for _, path := range paths {
-			if err := os.Remove(path); err == nil {
-				removed++
-			} else if !errors.Is(err, os.ErrNotExist) {
-				return removed, err
+			if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+				continue
+			} else if err != nil {
+				_ = restoreFixtureMediaFiles(staged)
+				return stagedFixtureMedia{}, err
 			}
+			destination := filepath.Join(quarantineRoot, filepath.Base(path))
+			if err := os.Rename(path, destination); err != nil {
+				_ = restoreFixtureMediaFiles(staged)
+				return stagedFixtureMedia{}, err
+			}
+			staged.Files = append(staged.Files, stagedFixtureMediaFile{Original: path, Staged: destination})
 		}
 	}
+	return staged, nil
+}
+
+func restoreFixtureMediaFiles(staged stagedFixtureMedia) error {
+	var restoreErr error
+	for index := len(staged.Files) - 1; index >= 0; index-- {
+		item := staged.Files[index]
+		if _, err := os.Stat(item.Staged); errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err := os.Rename(item.Staged, item.Original); err != nil && restoreErr == nil {
+			restoreErr = err
+		}
+	}
+	if staged.QuarantineRoot != "" {
+		_ = os.Remove(staged.QuarantineRoot)
+		_ = os.Remove(filepath.Dir(staged.QuarantineRoot))
+	}
+	return restoreErr
+}
+
+func purgeFixtureMediaFiles(staged stagedFixtureMedia) (int, error) {
+	removed := 0
+	for _, item := range staged.Files {
+		if err := os.Remove(item.Staged); err == nil {
+			removed++
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return removed, err
+		}
+	}
+	if staged.QuarantineRoot != "" {
+		if err := os.Remove(staged.QuarantineRoot); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return removed, err
+		}
+		_ = os.Remove(filepath.Dir(staged.QuarantineRoot))
+	}
 	return removed, nil
+}
+
+func reconcileFixtureMediaQuarantine(storageRoot, dataset string, restore bool) error {
+	storageRoot = strings.TrimSpace(storageRoot)
+	if storageRoot == "" {
+		return nil
+	}
+	archiveRoot, err := filepath.Abs(filepath.Join(storageRoot, "archive-media"))
+	if err != nil {
+		return errors.New("fixture media storage root is invalid")
+	}
+	quarantineRoot := fixtureMediaQuarantineRoot(archiveRoot, dataset)
+	entries, err := os.ReadDir(quarantineRoot)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	staged := stagedFixtureMedia{QuarantineRoot: quarantineRoot}
+	for _, entry := range entries {
+		if entry.IsDir() || !safeFixtureMediaFileName(entry.Name()) {
+			return errors.New("fixture media quarantine contains an unsafe entry")
+		}
+		staged.Files = append(staged.Files, stagedFixtureMediaFile{Original: filepath.Join(archiveRoot, entry.Name()), Staged: filepath.Join(quarantineRoot, entry.Name())})
+	}
+	if restore {
+		return restoreFixtureMediaFiles(staged)
+	}
+	_, err = purgeFixtureMediaFiles(staged)
+	return err
+}
+
+func fixtureMediaQuarantineRoot(archiveRoot, dataset string) string {
+	digest := sha256.Sum256([]byte(strings.TrimSpace(dataset)))
+	return filepath.Join(archiveRoot, ".fixture-cleanup", hex.EncodeToString(digest[:16]))
+}
+
+func safeFixtureMediaFileName(name string) bool {
+	base := strings.TrimSuffix(name, filepath.Ext(name))
+	if strings.Contains(name, ".attempt-") && strings.HasSuffix(name, ".part") {
+		base = strings.SplitN(name, ".attempt-", 2)[0]
+	}
+	parsed, err := uuid.Parse(base)
+	return err == nil && parsed.String() == strings.ToLower(base) && filepath.Base(name) == name
 }

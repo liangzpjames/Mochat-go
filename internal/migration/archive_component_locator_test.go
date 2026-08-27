@@ -34,3 +34,20 @@ func TestArchiveComponentLocatorMigrationIsTenantScopedAndReversible(t *testing.
 		t.Fatal("0169 down migration does not remove component locator table")
 	}
 }
+
+func TestControlledIdentityDependentMigrationsAreNotMariaDBInitScripts(t *testing.T) {
+	compose, err := os.ReadFile(filepath.Join("..", "..", "deploy", "standalone", "docker-compose.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := string(compose)
+	for _, migration := range []string{
+		"0169_archive_component_locator.up.sql:/docker-entrypoint-initdb.d",
+		"0170_wecom_suite_callback_state.up.sql:/docker-entrypoint-initdb.d",
+		"0171_archive_fixture_dataset_ledger.up.sql:/docker-entrypoint-initdb.d",
+	} {
+		if strings.Contains(source, migration) {
+			t.Errorf("controlled-schema dependent migration runs before the migration ledger: %s", migration)
+		}
+	}
+}

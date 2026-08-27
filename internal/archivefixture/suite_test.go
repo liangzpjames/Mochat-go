@@ -1,19 +1,24 @@
 package archivefixture
 
 import (
+	"encoding/xml"
 	"strings"
 	"testing"
 	"time"
+
+	"jiyi/mochat-go/internal/wecomarchivedemo"
 )
 
 const suiteTestAESKey = "abcdefghijklmnopqrstuvwxyz0123456789ABCDEFG"
 
 func TestSuiteProviderReceivesEncryptedTicketAndRejectsTamper(t *testing.T) {
+	now := time.Date(2026, 8, 27, 12, 0, 0, 0, time.UTC)
 	provider, err := NewSuiteProvider("ww-suite-local", "suite-secret-local", "callback-token-local", suiteTestAESKey)
 	if err != nil {
 		t.Fatal(err)
 	}
-	values, encrypted, err := provider.BuildTicketCallback("ticket-new", "1787760000", "nonce-a")
+	provider.WithClock(func() time.Time { return now })
+	values, encrypted, err := provider.BuildTicketCallback("ticket-new", "1787832000", "nonce-a")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -31,6 +36,29 @@ func TestSuiteProviderReceivesEncryptedTicketAndRejectsTamper(t *testing.T) {
 	}
 }
 
+func TestSuiteProviderRejectsExpiredAndReplayedCallbacks(t *testing.T) {
+	now := time.Date(2026, 8, 27, 12, 0, 0, 0, time.UTC)
+	provider, err := NewSuiteProvider("ww-suite-local", "suite-secret-local", "callback-token-local", suiteTestAESKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider.WithClock(func() time.Time { return now })
+	values, encrypted, err := provider.BuildTicketCallback("ticket-new", "1787832000", "nonce-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := provider.ReceiveTicket(values, encrypted); err != nil {
+		t.Fatal(err)
+	}
+	if err := provider.ReceiveTicket(values, encrypted); ErrorCode(err) != "SUITE_CALLBACK_REPLAYED" {
+		t.Fatalf("replay error=%v", err)
+	}
+	expiredValues, expired, _ := provider.BuildTicketCallback("ticket-old", "1787831000", "nonce-old")
+	if err := provider.ReceiveTicket(expiredValues, expired); ErrorCode(err) != "SUITE_CALLBACK_EXPIRED" {
+		t.Fatalf("expired error=%v", err)
+	}
+}
+
 func TestSuiteProviderAuthorizationLifecycleIsTenantAndCorpIsolated(t *testing.T) {
 	now := time.Date(2026, 8, 27, 12, 0, 0, 0, time.UTC)
 	provider, err := NewSuiteProvider("ww-suite-local", "suite-secret-local", "callback-token-local", suiteTestAESKey)
@@ -38,7 +66,7 @@ func TestSuiteProviderAuthorizationLifecycleIsTenantAndCorpIsolated(t *testing.T
 		t.Fatal(err)
 	}
 	provider.WithClock(func() time.Time { return now })
-	values, encrypted, err := provider.BuildTicketCallback("ticket-new", "1787760000", "nonce-a")
+	values, encrypted, err := provider.BuildTicketCallback("ticket-new", "1787832000", "nonce-a")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,7 +112,7 @@ func TestSuiteProviderExpiresTokensAndNeverLeaksSecrets(t *testing.T) {
 		t.Fatal(err)
 	}
 	provider.WithClock(func() time.Time { return now })
-	values, encrypted, _ := provider.BuildTicketCallback("ticket-new", "1787760000", "nonce-a")
+	values, encrypted, _ := provider.BuildTicketCallback("ticket-new", "1787832000", "nonce-a")
 	if err := provider.ReceiveTicket(values, encrypted); err != nil {
 		t.Fatal(err)
 	}
@@ -107,5 +135,28 @@ func TestSuiteProviderExpiresTokensAndNeverLeaksSecrets(t *testing.T) {
 func TestSuiteAuthorizationKeyUsesStableDecimalTenantIdentity(t *testing.T) {
 	if got, want := suiteAuthorizationKey(201, "ww-corp-a"), "201\x00ww-corp-a"; got != want {
 		t.Fatalf("suite authorization key=%q want=%q", got, want)
+	}
+}
+
+func TestSuiteProviderBuildsEncryptedCreateAuthCallback(t *testing.T) {
+	provider, err := NewSuiteProvider("ww-suite-local", "suite-secret-local", "callback-token-local", suiteTestAESKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	values, encrypted, err := provider.BuildAuthorizationCallback("auth-code-local", "1787832000", "nonce-auth")
+	if err != nil {
+		t.Fatal(err)
+	}
+	plain, err := wecomarchivedemo.VerifyAndDecryptCallback("callback-token-local", suiteTestAESKey, "ww-suite-local", values, encrypted)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var event struct {
+		SuiteID  string `xml:"SuiteId"`
+		InfoType string `xml:"InfoType"`
+		AuthCode string `xml:"AuthCode"`
+	}
+	if err := xml.Unmarshal(plain.Message, &event); err != nil || event.SuiteID != "ww-suite-local" || event.InfoType != "create_auth" || event.AuthCode != "auth-code-local" {
+		t.Fatalf("event=%+v err=%v", event, err)
 	}
 }

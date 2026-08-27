@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
+	"encoding/xml"
 	"errors"
 	"flag"
 	"fmt"
@@ -52,6 +53,7 @@ func runWith(args []string, getenv environmentReader, open mysqlOpener) error {
 	textValue := flags.String("text", "", "text message content")
 	filePath := flags.String("file", "", "media fixture path")
 	confirmDataset := flags.String("confirm-dataset", "", "exact dataset confirmation for cleanup")
+	dryRun := flags.Bool("dry-run", false, "preview cleanup without deleting data")
 	enableSimulation := flags.Bool("enable-simulation", false, "explicitly enable local fixture requests")
 	if err := flags.Parse(args[1:]); err != nil {
 		return err
@@ -74,76 +76,122 @@ func runWith(args []string, getenv environmentReader, open mysqlOpener) error {
 	var request any
 	var database *sql.DB
 	var resolvedBinding archivebridge.Binding
-	if action == "status" {
-		path, request = "/v1/fixture/status", struct{}{}
+	if *tenantID <= 0 {
+		return errors.New("--tenant-id is required")
+	}
+	requestedMode := strings.TrimSpace(*mode)
+	if requestedMode != archivebridge.ModeSelfBuilt && requestedMode != archivebridge.ModeThirdPartyDelegated {
+		return errors.New("--mode must match self_built or third_party_delegated")
+	}
+	dsn := strings.TrimSpace(getenv("MOCHAT_MYSQL_DSN"))
+	if dsn == "" {
+		return errors.New("MOCHAT_MYSQL_DSN is required")
+	}
+	db, err := open("mysql", dsn)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	database = db
+	if err := db.PingContext(ctx); err != nil {
+		return fmt.Errorf("connect database: %w", err)
+	}
+	var binding archivebridge.Binding
+	if action == "seed" {
+		binding, err = resolveSeedBinding(ctx, db, *tenantID, requestedMode)
 	} else {
-		if *tenantID <= 0 {
-			return errors.New("--tenant-id is required")
-		}
-		requestedMode := strings.TrimSpace(*mode)
-		if requestedMode != archivebridge.ModeSelfBuilt && requestedMode != archivebridge.ModeThirdPartyDelegated {
-			return errors.New("--mode must match self_built or third_party_delegated")
-		}
-		dsn := strings.TrimSpace(getenv("MOCHAT_MYSQL_DSN"))
-		if dsn == "" {
-			return errors.New("MOCHAT_MYSQL_DSN is required")
-		}
-		db, err := open("mysql", dsn)
-		if err != nil {
-			return err
-		}
-		defer db.Close()
-		database = db
-		if err := db.PingContext(ctx); err != nil {
-			return fmt.Errorf("connect database: %w", err)
-		}
-		var binding archivebridge.Binding
-		if action == "seed" {
-			binding, err = resolveSeedBinding(ctx, db, *tenantID, requestedMode)
-		} else {
-			binding, err = resolveBinding(ctx, db, *tenantID, requestedMode)
-		}
-		if err != nil {
-			return err
-		}
-		resolvedBinding = binding
-		switch action {
-		case "seed":
-			path, request = "/v1/fixture/seed", map[string]any{"binding": binding, "dataset": *dataset}
-		case "send":
-			input := map[string]any{"binding": binding, "dataset": *dataset, "type": strings.ToLower(strings.TrimSpace(*messageType)), "text": *textValue}
-			if input["type"] != "text" {
-				data, mimeType, fileName, err := readFixtureFile(*filePath)
-				if err != nil {
-					return err
-				}
-				input["dataBase64"], input["mimeType"], input["fileName"] = base64.StdEncoding.EncodeToString(data), mimeType, fileName
-			}
-			path, request = "/v1/fixture/send", input
-		case "cleanup":
-			if strings.TrimSpace(*confirmDataset) != strings.TrimSpace(*dataset) {
-				return errors.New("cleanup is dry-run only until --confirm-dataset exactly matches --dataset")
-			}
-			path, request = "/v1/fixture/cleanup", map[string]any{"binding": binding, "dataset": *dataset, "confirmDataset": *confirmDataset}
-		}
+		binding, err = resolveBinding(ctx, db, *tenantID, requestedMode)
+	}
+	if err != nil {
+		return err
 	}
 	if action == "seed" {
+		if err := ensureFixtureSourceOwnership(ctx, db, binding, *dataset); err != nil {
+			return err
+		}
+		if err := claimFixtureDataset(ctx, db, binding, *dataset); err != nil {
+			return err
+		}
+	}
+	resolvedBinding = binding
+	switch action {
+	case "seed":
+		path, request = "/v1/fixture/seed", map[string]any{"binding": binding, "dataset": *dataset}
+	case "send":
+		kind := strings.ToLower(strings.TrimSpace(*messageType))
+		if err := validateSendArguments(kind, *textValue, *filePath); err != nil {
+			return err
+		}
+		input := map[string]any{"binding": binding, "dataset": *dataset, "type": kind, "text": *textValue}
+		if kind != "text" {
+			inputRoot := strings.TrimSpace(getenv("MOCHAT_ARCHIVE_FIXTURE_INPUT_ROOT"))
+			if inputRoot == "" {
+				inputRoot = "/fixtures/input"
+			}
+			data, mimeType, fileName, err := readFixtureFile(*filePath, inputRoot, kind)
+			if err != nil {
+				return err
+			}
+			input["dataBase64"], input["mimeType"], input["fileName"] = base64.StdEncoding.EncodeToString(data), mimeType, fileName
+		}
+		path, request = "/v1/fixture/send", input
+	case "cleanup":
+		if *dryRun {
+			path, request = "/v1/fixture/status", map[string]any{"binding": binding, "dataset": *dataset}
+			break
+		}
+		if strings.TrimSpace(*confirmDataset) != strings.TrimSpace(*dataset) {
+			return errors.New("cleanup requires --dry-run or an exact --confirm-dataset match")
+		}
+		path, request = "/v1/fixture/cleanup", map[string]any{"binding": binding, "dataset": *dataset, "confirmDataset": *confirmDataset}
+	case "status":
+		path, request = "/v1/fixture/status", map[string]any{"binding": binding, "dataset": *dataset}
+	}
+	if action == "seed" {
+		if resolvedBinding.IntegrationMode == archivebridge.ModeThirdPartyDelegated {
+			if err := prepareDelegatedFixtureAuthorization(ctx, database, resolvedBinding); err != nil {
+				return err
+			}
+		}
 		var bridgeOutput bytes.Buffer
 		if err := postFixture(ctx, http.DefaultClient, bridgeURL+path, adminBearer, request, &bridgeOutput); err != nil {
 			return err
 		}
-		if err := activateFixtureBinding(ctx, database, resolvedBinding, *dataset); err != nil {
-			return err
+		var bridgeResult struct {
+			DelegatedAuthorizedCount int                             `json:"delegatedAuthorizedCount"`
+			Callbacks                []archivebridge.FixtureCallback `json:"callbacks"`
 		}
-		var bridgeResult any
 		if json.Unmarshal(bridgeOutput.Bytes(), &bridgeResult) != nil {
 			return errors.New("fixture bridge returned invalid seed result")
 		}
+		if resolvedBinding.IntegrationMode == archivebridge.ModeThirdPartyDelegated {
+			if bridgeResult.DelegatedAuthorizedCount == 0 {
+				callbackURL := strings.TrimSpace(getenv("MOCHAT_ARCHIVE_FIXTURE_CALLBACK_URL"))
+				if callbackURL == "" || len(bridgeResult.Callbacks) != 2 {
+					return errors.New("delegated fixture callback boundary is unavailable")
+				}
+				if err := dispatchFixtureCallbacks(ctx, http.DefaultClient, callbackURL, bridgeResult.Callbacks); err != nil {
+					return err
+				}
+			}
+		}
+		if err := activateFixtureBinding(ctx, database, resolvedBinding, *dataset); err != nil {
+			return err
+		}
+		if err := updateFixtureDatasetStatus(ctx, database, resolvedBinding, *dataset, "ready"); err != nil {
+			return err
+		}
 		encoder := json.NewEncoder(os.Stdout)
 		encoder.SetIndent("", "  ")
-		return encoder.Encode(map[string]any{"status": "seeded", "dataset": strings.TrimSpace(*dataset), "mode": resolvedBinding.IntegrationMode, "bridge": bridgeResult})
+		return encoder.Encode(map[string]any{"status": "seeded", "dataset": strings.TrimSpace(*dataset), "mode": resolvedBinding.IntegrationMode, "bridge": safeFixtureBridgeSummary(bridgeResult.DelegatedAuthorizedCount, bridgeResult.Callbacks)})
 	}
 	if action == "cleanup" {
+		if *dryRun {
+			return postFixture(ctx, http.DefaultClient, bridgeURL+path, adminBearer, request, os.Stdout)
+		}
+		if err := updateFixtureDatasetStatus(ctx, database, resolvedBinding, *dataset, "cleaning"); err != nil {
+			return err
+		}
 		cleanup, err := cleanupIngestedFixture(ctx, database, resolvedBinding, *dataset, getenv("MOCHAT_FILE_STORAGE_ROOT"))
 		if err != nil {
 			return err
@@ -155,11 +203,60 @@ func runWith(args []string, getenv environmentReader, open mysqlOpener) error {
 		if err := postFixture(ctx, http.DefaultClient, bridgeURL+path, adminBearer, request, io.Discard); err != nil {
 			return err
 		}
+		if err := deleteFixtureDataset(ctx, database, resolvedBinding, *dataset); err != nil {
+			return err
+		}
 		encoder := json.NewEncoder(os.Stdout)
 		encoder.SetIndent("", "  ")
 		return encoder.Encode(map[string]any{"status": "cleaned", "cleanup": cleanup})
 	}
 	return postFixture(ctx, http.DefaultClient, bridgeURL+path, adminBearer, request, os.Stdout)
+}
+
+func safeFixtureBridgeSummary(delegatedAuthorizedCount int, callbacks []archivebridge.FixtureCallback) map[string]any {
+	eventTypes := make([]string, 0, len(callbacks))
+	for _, callback := range callbacks {
+		if eventType := strings.TrimSpace(callback.EventType); eventType != "" {
+			eventTypes = append(eventTypes, eventType)
+		}
+	}
+	return map[string]any{
+		"delegatedAuthorizedCount": delegatedAuthorizedCount,
+		"callbackCount":            len(callbacks),
+		"callbackEventTypes":       eventTypes,
+	}
+}
+
+func dispatchFixtureCallbacks(ctx context.Context, client httpDoer, callbackURL string, callbacks []archivebridge.FixtureCallback) error {
+	callbackURL = strings.TrimSpace(callbackURL)
+	if client == nil || callbackURL == "" || len(callbacks) == 0 {
+		return errors.New("fixture callback delivery is unavailable")
+	}
+	for _, callback := range callbacks {
+		body, err := xml.Marshal(struct {
+			XMLName xml.Name `xml:"xml"`
+			Encrypt string   `xml:"Encrypt"`
+		}{Encrypt: callback.Encrypted})
+		if err != nil {
+			return errors.New("encode fixture callback failed")
+		}
+		values := callback.Values()
+		request, err := http.NewRequestWithContext(ctx, http.MethodPost, callbackURL+"?"+values.Encode(), bytes.NewReader(body))
+		if err != nil {
+			return errors.New("build fixture callback failed")
+		}
+		request.Header.Set("Content-Type", "application/xml")
+		response, err := client.Do(request)
+		if err != nil {
+			return fmt.Errorf("deliver fixture callback: %w", err)
+		}
+		payload, readErr := io.ReadAll(io.LimitReader(response.Body, 1024))
+		response.Body.Close()
+		if readErr != nil || response.StatusCode != http.StatusOK || strings.TrimSpace(string(payload)) != "success" {
+			return fmt.Errorf("fixture callback %s rejected: HTTP %d", callback.EventType, response.StatusCode)
+		}
+	}
+	return nil
 }
 
 type bindingQuery interface {
@@ -228,20 +325,76 @@ func postFixture(ctx context.Context, client httpDoer, target, bearer string, in
 	return encoder.Encode(result)
 }
 
-func readFixtureFile(path string) ([]byte, string, string, error) {
-	path = strings.TrimSpace(path)
-	if path == "" {
+func readFixtureFile(path, inputRoot, messageType string) ([]byte, string, string, error) {
+	path, inputRoot = strings.TrimSpace(path), strings.TrimSpace(inputRoot)
+	if path == "" || inputRoot == "" {
 		return nil, "", "", errors.New("--file is required for media messages")
 	}
-	info, err := os.Stat(path)
-	if err != nil || info.IsDir() || info.Size() <= 0 || info.Size() > 20<<20 {
+	rootPath, err := filepath.EvalSymlinks(inputRoot)
+	if err != nil {
+		return nil, "", "", errors.New("fixture input root is unavailable")
+	}
+	rootPath, err = filepath.Abs(rootPath)
+	if err != nil {
+		return nil, "", "", errors.New("fixture input root is unavailable")
+	}
+	resolvedPath, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return nil, "", "", errors.New("fixture file is unavailable")
+	}
+	resolvedPath, err = filepath.Abs(resolvedPath)
+	if err != nil {
+		return nil, "", "", errors.New("fixture file is unavailable")
+	}
+	relative, err := filepath.Rel(rootPath, resolvedPath)
+	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) || filepath.IsAbs(relative) {
+		return nil, "", "", errors.New("fixture file must stay inside the read-only input directory")
+	}
+	info, err := os.Stat(resolvedPath)
+	if err != nil || !info.Mode().IsRegular() || info.Size() <= 0 || info.Size() > 20<<20 {
 		return nil, "", "", errors.New("fixture file must be a non-empty regular file no larger than 20 MiB")
 	}
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(resolvedPath)
 	if err != nil {
 		return nil, "", "", errors.New("read fixture file failed")
 	}
-	return data, http.DetectContentType(data), filepath.Base(path), nil
+	mimeType := strings.ToLower(strings.TrimSpace(strings.Split(http.DetectContentType(data), ";")[0]))
+	if !fixtureMIMEAllowed(messageType, mimeType) {
+		return nil, "", "", errors.New("fixture file type does not match the requested message type")
+	}
+	return data, mimeType, filepath.Base(resolvedPath), nil
+}
+
+func validateSendArguments(messageType, text, path string) error {
+	messageType, text, path = strings.ToLower(strings.TrimSpace(messageType)), strings.TrimSpace(text), strings.TrimSpace(path)
+	switch messageType {
+	case "text":
+		if text == "" || path != "" {
+			return errors.New("text messages require --text and must not include --file")
+		}
+	case "image", "voice", "video", "file":
+		if text != "" || path == "" {
+			return errors.New("media messages require --file and must not include --text")
+		}
+	default:
+		return errors.New("--type must be text, image, voice, video or file")
+	}
+	return nil
+}
+
+func fixtureMIMEAllowed(messageType, mimeType string) bool {
+	switch messageType {
+	case "image":
+		return strings.HasPrefix(mimeType, "image/")
+	case "voice":
+		return strings.HasPrefix(mimeType, "audio/") || mimeType == "application/ogg"
+	case "video":
+		return strings.HasPrefix(mimeType, "video/")
+	case "file":
+		return mimeType != "" && mimeType != "application/x-dosexec"
+	default:
+		return false
+	}
 }
 
 func requireSimulationEnabled(enabled bool) error {

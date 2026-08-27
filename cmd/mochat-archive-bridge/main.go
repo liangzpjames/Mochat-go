@@ -19,6 +19,7 @@ type commandConfig struct {
 	address            string
 	bridgeBearer       string
 	fixtureEnabled     bool
+	sdkEnabled         bool
 	fixtureAdminBearer string
 	fixtureStatePath   string
 }
@@ -35,6 +36,7 @@ func loadConfig(getenv func(string) string) (commandConfig, error) {
 		address:            strings.TrimSpace(getenv("MOCHAT_ARCHIVE_BRIDGE_ADDR")),
 		bridgeBearer:       strings.TrimSpace(getenv("MOCHAT_ARCHIVE_BRIDGE_BEARER")),
 		fixtureEnabled:     strings.EqualFold(strings.TrimSpace(getenv("MOCHAT_ARCHIVE_FIXTURE_ENABLED")), "true"),
+		sdkEnabled:         strings.EqualFold(strings.TrimSpace(getenv("MOCHAT_ARCHIVE_SDK_ENABLED")), "true"),
 		fixtureAdminBearer: strings.TrimSpace(getenv("MOCHAT_ARCHIVE_FIXTURE_ADMIN_BEARER")),
 		fixtureStatePath:   strings.TrimSpace(getenv("MOCHAT_ARCHIVE_FIXTURE_STATE_PATH")),
 	}
@@ -43,6 +45,9 @@ func loadConfig(getenv func(string) string) (commandConfig, error) {
 	}
 	if len(config.bridgeBearer) < 40 {
 		return commandConfig{}, errors.New("MOCHAT_ARCHIVE_BRIDGE_BEARER must contain at least 40 characters")
+	}
+	if config.fixtureEnabled && config.sdkEnabled {
+		return commandConfig{}, errors.New("fixture and production SDK modes are mutually exclusive")
 	}
 	if config.fixtureEnabled {
 		if len(config.fixtureAdminBearer) < 40 || config.fixtureAdminBearer == config.bridgeBearer {
@@ -86,7 +91,7 @@ func run(getenv func(string) string) error {
 		_ = server.Shutdown(shutdownCtx)
 		close(shutdownDone)
 	}()
-	log.Printf("archive bridge listening on %s; local fixtures enabled=%t", config.address, config.fixtureEnabled)
+	log.Printf("archive bridge listening on %s; local fixtures enabled=%t; production SDK enabled=%t", config.address, config.fixtureEnabled, config.sdkEnabled)
 	err = server.ListenAndServe()
 	if err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err

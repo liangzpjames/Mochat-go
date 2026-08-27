@@ -13,8 +13,8 @@ import (
 )
 
 func TestSaaSAdminSystemHealthMigrationExpectationMatchesRelease(t *testing.T) {
-	if SaaSAdminExpectedMigrationVersion != "0169_archive_component_locator" || SaaSAdminExpectedMigrationCount != 169 {
-		t.Fatalf("SaaS admin migration baseline = %q/%d, want 0169_archive_component_locator/169", SaaSAdminExpectedMigrationVersion, SaaSAdminExpectedMigrationCount)
+	if SaaSAdminExpectedMigrationVersion != "0171_archive_fixture_dataset_ledger" || SaaSAdminExpectedMigrationCount != 171 {
+		t.Fatalf("SaaS admin migration baseline = %q/%d, want 0171_archive_fixture_dataset_ledger/171", SaaSAdminExpectedMigrationVersion, SaaSAdminExpectedMigrationCount)
 	}
 	migrations := migration.DefaultMigrations(filepath.Join("..", ".."))
 	if len(migrations) != SaaSAdminExpectedMigrationCount {

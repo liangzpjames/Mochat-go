@@ -360,6 +360,7 @@ type Server struct {
 	workMessageExportDownload                       http.Handler
 	archiveMediaContent                             http.Handler
 	archiveComponent                                http.Handler
+	weComSuiteCallback                              http.Handler
 	riskBehaviorRules                               http.Handler
 	riskBehaviorRecords                             http.Handler
 	riskBehaviorRuleCreate                          http.Handler
@@ -2715,6 +2716,9 @@ func WithArchiveMediaContentHandler(handler http.Handler) Option {
 func WithArchiveComponentHandler(handler http.Handler) Option {
 	return func(server *Server) { server.archiveComponent = handler }
 }
+func WithWeComSuiteCallbackHandler(handler http.Handler) Option {
+	return func(server *Server) { server.weComSuiteCallback = handler }
+}
 func WithRiskBehaviorRulesHandler(handler http.Handler) Option {
 	return func(server *Server) { server.riskBehaviorRules = handler }
 }
@@ -4528,6 +4532,14 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if isRetiredDashboardEndpoint(r.URL.Path) {
+		http.NotFound(w, r)
+		return
+	}
+	if strings.HasPrefix(r.URL.Path, "/wecom/suite/callback") {
+		if r.URL.Path == "/wecom/suite/callback" && (r.Method == http.MethodGet || r.Method == http.MethodPost) && s.weComSuiteCallback != nil {
+			s.weComSuiteCallback.ServeHTTP(w, r)
+			return
+		}
 		http.NotFound(w, r)
 		return
 	}

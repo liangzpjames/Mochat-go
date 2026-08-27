@@ -12,7 +12,7 @@ import (
 func TestDurableBridgeRunnerUsesAuthoritativeCursorAndStableIdempotency(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"errcode":0,"messages":[{"seq":42,"msgid":"durable-42","action":"send","from":"employee","tolist":["contact"],"msgtype":"text","text":{"content":"durable"}}]}`))
+		_, _ = w.Write([]byte(`{"errcode":0,"messages":[{"source_mode":"self_built","seq":42,"msgid":"durable-42","action":"send","from":"employee","tolist":["contact"],"msgtype":"text","text":{"content":"durable"}}]}`))
 	}))
 	defer server.Close()
 	client, err := NewBridgeArchiveClient(server.URL, "MOCHAT-LOCAL-ACCEPTANCE-BEARER-0123456789", server.Client())
@@ -62,7 +62,7 @@ func TestDurableBridgeRunnerEnqueuesManualRunWithoutCallingBridge(t *testing.T) 
 func TestDurableBridgeRunnerProcessesPendingManualRunBeforePolling(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"errcode":0,"messages":[{"seq":42,"msgid":"manual-42","action":"send","from":"employee","tolist":["contact"],"msgtype":"text","text":{"content":"manual"}}]}`))
+		_, _ = w.Write([]byte(`{"errcode":0,"messages":[{"source_mode":"self_built","seq":42,"msgid":"manual-42","action":"send","from":"employee","tolist":["contact"],"msgtype":"text","text":{"content":"manual"}}]}`))
 	}))
 	defer server.Close()
 	client, err := NewBridgeArchiveClient(server.URL, "MOCHAT-LOCAL-ACCEPTANCE-BEARER-0123456789", server.Client())

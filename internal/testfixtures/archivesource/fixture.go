@@ -87,19 +87,24 @@ func (f *ArchiveFixture) MessageCount() int {
 }
 
 func NewArchiveFixture() (*ArchiveFixture, error) {
-	return newArchiveFixture(DatasetMarker)
+	return newArchiveFixture(DatasetMarker, DatasetMarker+"-CORP")
 }
 
 func NewArchiveFixtureForDataset(marker string) (*ArchiveFixture, error) {
-	marker = strings.TrimSpace(marker)
-	if !validSimulationMarker(marker) {
-		return nil, errors.New("local archive fixture dataset marker is invalid")
-	}
-	return newArchiveFixture(marker)
+	return NewArchiveFixtureForBinding(marker, strings.TrimSpace(marker)+"-CORP")
 }
 
-func newArchiveFixture(marker string) (*ArchiveFixture, error) {
-	finance, err := archivefixture.NewFinanceCipher(marker + "-CORP")
+func NewArchiveFixtureForBinding(marker, wxCorpID string) (*ArchiveFixture, error) {
+	marker = strings.TrimSpace(marker)
+	wxCorpID = strings.TrimSpace(wxCorpID)
+	if !validSimulationMarker(marker) || wxCorpID == "" {
+		return nil, errors.New("local archive fixture dataset marker is invalid")
+	}
+	return newArchiveFixture(marker, wxCorpID)
+}
+
+func newArchiveFixture(marker, wxCorpID string) (*ArchiveFixture, error) {
+	finance, err := archivefixture.NewFinanceCipher(wxCorpID)
 	if err != nil {
 		return nil, err
 	}

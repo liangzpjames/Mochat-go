@@ -45,6 +45,7 @@ import (
 	"jiyi/mochat-go/internal/wechatopencredentials"
 	"jiyi/mochat-go/internal/wecomcapability"
 	"jiyi/mochat-go/internal/wecomcredentials"
+	"jiyi/mochat-go/internal/wecomsuitecallback"
 )
 
 type companyProfileWeComVerifier struct {
@@ -164,6 +165,21 @@ func main() {
 			WithAIProviderCredentialCipher(aiProviderCredentialManager).
 			WithAIProviderOutboundGuard(outboundhttp.MustDefaultGuard())
 		return mysqlStore
+	}
+	if cfg.EnableWeComSuiteCallback {
+		exchanger, exchangeErr := wecomsuitecallback.NewBridgeAuthorizationExchanger(cfg.WorkMessageArchiveBridgeBaseURL, cfg.WorkMessageArchiveBridgeToken, nil)
+		if exchangeErr != nil {
+			log.Fatalf("build WeCom suite authorization exchanger: %v", exchangeErr)
+		}
+		callbackHandler, callbackErr := wecomsuitecallback.NewHandler(wecomsuitecallback.Config{
+			SuiteID: cfg.WeComSuiteID, SuiteSecret: cfg.WeComSuiteSecret,
+			CallbackToken: cfg.WeComSuiteCallbackToken, EncodingAESKey: cfg.WeComSuiteEncodingAESKey,
+		}, getMySQLStore(), exchanger)
+		if callbackErr != nil {
+			log.Fatalf("build WeCom suite callback handler: %v", callbackErr)
+		}
+		options = append(options, compatserver.WithWeComSuiteCallbackHandler(callbackHandler))
+		log.Printf("go WeCom suite callback enabled: POST /wecom/suite/callback")
 	}
 
 	var redisStore *store.RedisStore

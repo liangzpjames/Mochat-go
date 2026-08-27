@@ -3,6 +3,7 @@ param(
     [switch]$ResetData,
     [switch]$DryRun,
     [switch]$SkipHttpCheck,
+    [switch]$EnableArchiveFixture,
     [string]$ProjectName = 'mochat-go-desktop',
     [ValidateRange(1, 65535)][int]$DashboardPort = 18080,
     [ValidateRange(1, 65535)][int]$SidebarPort = 18081,
@@ -93,6 +94,9 @@ function Initialize-LocalIdentityRealmSecrets {
         }
         if ([string]::IsNullOrWhiteSpace($env:MOCHAT_SAAS_ADMIN_JWT_SECRET)) { $env:MOCHAT_SAAS_ADMIN_JWT_SECRET = 'dry-run-saas-jwt-secret' }
         if ([string]::IsNullOrWhiteSpace($env:MOCHAT_DASHBOARD_JWT_SECRET)) { $env:MOCHAT_DASHBOARD_JWT_SECRET = 'dry-run-dashboard-jwt-secret' }
+        if ([string]::IsNullOrWhiteSpace($env:MOCHAT_GO_WECOM_CREDENTIAL_ENCRYPTION_KEY)) { $env:MOCHAT_GO_WECOM_CREDENTIAL_ENCRYPTION_KEY = 'dry-run-wecom-key' }
+        if ([string]::IsNullOrWhiteSpace($env:MOCHAT_ARCHIVE_BRIDGE_BEARER)) { $env:MOCHAT_ARCHIVE_BRIDGE_BEARER = 'dry-run-archive-bridge-bearer' }
+        if ([string]::IsNullOrWhiteSpace($env:MOCHAT_ARCHIVE_FIXTURE_ADMIN_BEARER)) { $env:MOCHAT_ARCHIVE_FIXTURE_ADMIN_BEARER = 'dry-run-archive-fixture-admin-bearer' }
     } else {
         if ([string]::IsNullOrWhiteSpace($env:MOCHAT_SAAS_ADMIN_MFA_ENCRYPTION_KEY_FILE) -or -not (Test-Path -LiteralPath $env:MOCHAT_SAAS_ADMIN_MFA_ENCRYPTION_KEY_FILE -PathType Leaf)) {
             $env:MOCHAT_SAAS_ADMIN_MFA_ENCRYPTION_KEY_FILE = Get-OrCreateSecretFile -Directory $secretRoot -Name 'saas-admin-mfa.key'
@@ -108,12 +112,35 @@ function Initialize-LocalIdentityRealmSecrets {
             $jwtPath = Get-OrCreateSecretFile -Directory $secretRoot -Name 'dashboard-jwt.key'
             $env:MOCHAT_DASHBOARD_JWT_SECRET = (Get-Content -LiteralPath $jwtPath -Raw).Trim()
         }
+        if ([string]::IsNullOrWhiteSpace($env:MOCHAT_GO_WECOM_CREDENTIAL_ENCRYPTION_KEY)) {
+            $keyPath = Get-OrCreateSecretFile -Directory $secretRoot -Name 'wecom-credentials.key'
+            $env:MOCHAT_GO_WECOM_CREDENTIAL_ENCRYPTION_KEY = (Get-Content -LiteralPath $keyPath -Raw).Trim()
+        }
+        if ([string]::IsNullOrWhiteSpace($env:MOCHAT_ARCHIVE_BRIDGE_BEARER)) {
+            $keyPath = Get-OrCreateSecretFile -Directory $secretRoot -Name 'archive-bridge-bearer.key'
+            $env:MOCHAT_ARCHIVE_BRIDGE_BEARER = (Get-Content -LiteralPath $keyPath -Raw).Trim()
+        }
+        if ([string]::IsNullOrWhiteSpace($env:MOCHAT_ARCHIVE_FIXTURE_ADMIN_BEARER)) {
+            $keyPath = Get-OrCreateSecretFile -Directory $secretRoot -Name 'archive-fixture-admin-bearer.key'
+            $env:MOCHAT_ARCHIVE_FIXTURE_ADMIN_BEARER = (Get-Content -LiteralPath $keyPath -Raw).Trim()
+        }
     }
     if ($env:MOCHAT_SAAS_ADMIN_JWT_SECRET -eq $env:MOCHAT_DASHBOARD_JWT_SECRET) {
         throw 'SaaS 与 Dashboard 必须使用不同的 JWT 密钥'
     }
     if ([string]::IsNullOrWhiteSpace($env:MOCHAT_SAAS_ADMIN_MFA_ENCRYPTION_KEY_ID)) { $env:MOCHAT_SAAS_ADMIN_MFA_ENCRYPTION_KEY_ID = 'local-saas-mfa-primary' }
     if ([string]::IsNullOrWhiteSpace($env:MOCHAT_DASHBOARD_MFA_ENCRYPTION_KEY_ID)) { $env:MOCHAT_DASHBOARD_MFA_ENCRYPTION_KEY_ID = 'local-dashboard-mfa-primary' }
+    $env:MOCHAT_GO_ENABLE_DURABLE_WORK_MESSAGE_ARCHIVE = '1'
+    $env:MOCHAT_ARCHIVE_FIXTURE_ENABLED = if ($EnableArchiveFixture) { 'true' } else { 'false' }
+    if ($EnableArchiveFixture) {
+        $env:MOCHAT_GO_ENABLE_WECOM_SUITE_CALLBACK = 'true'
+        $env:MOCHAT_GO_WECOM_SUITE_ID = 'ww-local-fixture-suite'
+        $env:MOCHAT_GO_WECOM_SUITE_SECRET = 'local-fixture-suite-secret'
+        $env:MOCHAT_GO_WECOM_SUITE_CALLBACK_TOKEN = 'local-fixture-callback-token'
+        $env:MOCHAT_GO_WECOM_SUITE_ENCODING_AES_KEY = 'abcdefghijklmnopqrstuvwxyz0123456789ABCDEFG'
+    } elseif ([string]::IsNullOrWhiteSpace($env:MOCHAT_GO_ENABLE_WECOM_SUITE_CALLBACK)) {
+        $env:MOCHAT_GO_ENABLE_WECOM_SUITE_CALLBACK = 'false'
+    }
 }
 
 function Format-Command {
@@ -369,6 +396,7 @@ if ([string]::IsNullOrWhiteSpace($env:MOCHAT_SIMPLE_JWT_SECRET)) {
 
 try {
     Write-Host "MoChat Go Docker Desktop 快速部署" -ForegroundColor Cyan
+    Write-Host ("本地会话模拟器：" + $(if ($EnableArchiveFixture) { '已启用' } else { '未启用' }))
     Write-Host "Compose 项目：$ProjectName"
     Write-Host "基础设施端口：MySQL：$MySQLPort；Redis：$RedisPort"
 

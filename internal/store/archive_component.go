@@ -100,6 +100,7 @@ func (s *MySQLStore) ArchiveComponentByID(ctx context.Context, filter dashboard.
 		args = append(args, scope.ConversationType)
 		args = append(args, intsToAny(scope.AllowedEmployeeIDs)...)
 	}
+	where = append(where, "("+strings.Join(scopeWhere, " OR ")+")")
 	var item dashboard.ArchiveComponentObject
 	var ciphertext, keyID string
 	var publicKeyVersion uint32

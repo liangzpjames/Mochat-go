@@ -18,6 +18,20 @@ const testBridgeBearer = "local-bridge-bearer-012345678901234567890123456789"
 
 type fakeFinanceDriver struct{}
 
+type fakeMediaErrorDriver struct {
+	fakeFinanceDriver
+	code string
+}
+
+type fakeMediaCodedError string
+
+func (e fakeMediaCodedError) Error() string          { return "fixture media failure" }
+func (e fakeMediaCodedError) MediaErrorCode() string { return string(e) }
+
+func (d fakeMediaErrorDriver) FetchMediaWithTimeout(context.Context, string, string, int) (wecomarchivedemo.MediaChunk, error) {
+	return wecomarchivedemo.MediaChunk{}, fakeMediaCodedError(d.code)
+}
+
 func (fakeFinanceDriver) FetchPage(context.Context, uint64, uint32) (wecomarchivedemo.ArchivePage, error) {
 	return wecomarchivedemo.ArchivePage{Messages: []json.RawMessage{json.RawMessage(`{"seq":1,"msgid":"finance-1","msgtype":"text","from":"a","tolist":["b"],"text":{"content":"hello"}}`)}}, nil
 }
@@ -85,6 +99,21 @@ func TestHandlerServesFinanceMessagesAndMedia(t *testing.T) {
 	}
 }
 
+func TestHandlerPreservesSanitizedTerminalMediaErrorCode(t *testing.T) {
+	store := NewStore()
+	binding := Binding{TenantID: 11, CorpID: 27, WXCorpID: "ww-self", IntegrationMode: ModeSelfBuilt}
+	if err := store.RegisterFinance(binding, fakeMediaErrorDriver{code: "MEDIA_MISSING"}); err != nil {
+		t.Fatal(err)
+	}
+	handler, _ := NewHandler(Config{BearerToken: testBridgeBearer}, store)
+	response := postBridge(t, handler, "/v1/archive/media/chunks", map[string]any{
+		"tenant_id": 11, "corp_id": 27, "wx_corpid": "ww-self", "integration_mode": ModeSelfBuilt, "sdkFileId": "missing-media", "timeoutSeconds": 5,
+	})
+	if response.Code != http.StatusNotFound || !strings.Contains(response.Body.String(), `"errcode":"ARCHIVE_MEDIA_MISSING"`) {
+		t.Fatalf("terminal media response=%d %s", response.Code, response.Body.String())
+	}
+}
+
 func TestHandlerServesDelegatedMetadataAndComponentWithoutPlaintextLeak(t *testing.T) {
 	provider, err := archivefixture.NewDataZoneProvider("ww-delegated")
 	if err != nil {
@@ -124,14 +153,43 @@ func TestHandlerServesDelegatedMetadataAndComponentWithoutPlaintextLeak(t *testi
 	}
 }
 
+func TestFixtureSendAcceptsMediaPayloadLargerThanGenericRequestLimit(t *testing.T) {
+	store := NewStore()
+	manager, err := NewFixtureManager(t.TempDir()+"/state.json", store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const adminBearer = "local-fixture-admin-012345678901234567890123456789"
+	handler, err := NewHandler(Config{BearerToken: testBridgeBearer, FixtureEnabled: true, FixtureAdminToken: adminBearer, FixtureManager: manager}, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding := Binding{TenantID: 11, CorpID: 27, WXCorpID: "ww-self", IntegrationMode: ModeSelfBuilt}
+	seed := postBridgeWithBearer(t, handler, "/v1/fixture/seed", adminBearer, map[string]any{"binding": binding, "dataset": "MOCHAT-LOCAL-SIM-large"})
+	if seed.Code != http.StatusOK {
+		t.Fatalf("seed=%d %s", seed.Code, seed.Body.String())
+	}
+	response := postBridgeWithBearer(t, handler, "/v1/fixture/send", adminBearer, map[string]any{
+		"binding": binding, "dataset": "MOCHAT-LOCAL-SIM-large", "type": "image",
+		"dataBase64": base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{0x31}, 96<<10)), "fileName": "large.png", "mimeType": "image/png",
+	})
+	if response.Code != http.StatusOK {
+		t.Fatalf("send=%d %s", response.Code, response.Body.String())
+	}
+}
+
 func postBridge(t *testing.T, handler http.Handler, path string, body any) *httptest.ResponseRecorder {
+	return postBridgeWithBearer(t, handler, path, testBridgeBearer, body)
+}
+
+func postBridgeWithBearer(t *testing.T, handler http.Handler, path, bearer string, body any) *httptest.ResponseRecorder {
 	t.Helper()
 	raw, err := json.Marshal(body)
 	if err != nil {
 		t.Fatal(err)
 	}
 	request := httptest.NewRequest(http.MethodPost, path, bytes.NewReader(raw))
-	request.Header.Set("Authorization", "Bearer "+testBridgeBearer)
+	request.Header.Set("Authorization", "Bearer "+bearer)
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
 	return response

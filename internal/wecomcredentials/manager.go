@@ -196,6 +196,30 @@ func (m *Manager) DecryptAuthorization(tenantID int, integrationID, keyID, ciphe
 	return credential, nil
 }
 
+func (m *Manager) EncryptSuiteTicket(suiteID, ticket string) (ciphertext, keyID string, err error) {
+	ticket = strings.TrimSpace(ticket)
+	if strings.TrimSpace(suiteID) == "" || ticket == "" {
+		return "", "", errors.New("WeCom suite ticket is invalid")
+	}
+	return m.encrypt("suite_ticket", 0, strings.TrimSpace(suiteID), struct {
+		Ticket string `json:"ticket"`
+	}{Ticket: ticket})
+}
+
+func (m *Manager) DecryptSuiteTicket(suiteID, keyID, ciphertext string) (string, error) {
+	var value struct {
+		Ticket string `json:"ticket"`
+	}
+	if err := m.decrypt("suite_ticket", 0, strings.TrimSpace(suiteID), keyID, ciphertext, &value); err != nil {
+		return "", err
+	}
+	value.Ticket = strings.TrimSpace(value.Ticket)
+	if value.Ticket == "" {
+		return "", errors.New("WeCom suite ticket is missing")
+	}
+	return value.Ticket, nil
+}
+
 func (m *Manager) EncryptArchiveMedia(tenantID int, mediaObjectID string, value ArchiveMediaCredential) (ciphertext, keyID string, err error) {
 	value.SDKFileID = strings.TrimSpace(value.SDKFileID)
 	if value.SDKFileID == "" {

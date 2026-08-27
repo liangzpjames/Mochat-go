@@ -10,9 +10,13 @@ import (
 	"strings"
 
 	"jiyi/mochat-go/internal/archivefixture"
+	"jiyi/mochat-go/internal/wecomarchivedemo"
 )
 
-const maxRequestBody = 64 << 10
+const (
+	maxRequestBody        = 64 << 10
+	maxFixtureRequestBody = 28 << 20
+)
 
 type Config struct {
 	BearerToken       string
@@ -46,12 +50,32 @@ func NewHandler(config Config, store *Store) (http.Handler, error) {
 		mux.HandleFunc("POST /v1/fixture/send", handler.fixtureSend)
 		mux.HandleFunc("POST /v1/fixture/status", handler.fixtureStatus)
 		mux.HandleFunc("POST /v1/fixture/cleanup", handler.fixtureCleanup)
+		mux.HandleFunc("POST /v1/suite/authorization/exchange", handler.suiteAuthorizationExchange)
 	}
 	// Keep the established app contract during the migration window. These
 	// aliases still require the explicit integration_mode field.
 	mux.HandleFunc("POST /work-message/archive/messages", handler.messages)
 	mux.HandleFunc("POST /work-message/archive/media", handler.media)
 	return handler.requireBearer(mux), nil
+}
+
+func (h *Handler) suiteAuthorizationExchange(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		SuiteID     string `json:"suiteId"`
+		SuiteSecret string `json:"suiteSecret"`
+		SuiteTicket string `json:"suiteTicket"`
+		AuthCode    string `json:"authCode"`
+	}
+	if decodeStrict(w, r, &input) != nil {
+		writeBridgeError(w, http.StatusBadRequest, "FIXTURE_SUITE_AUTH_FAILED")
+		return
+	}
+	authorization, err := h.config.FixtureManager.ExchangeAuthorization(input.SuiteID, input.SuiteSecret, input.SuiteTicket, input.AuthCode)
+	if err != nil {
+		writeBridgeError(w, http.StatusBadGateway, "FIXTURE_SUITE_AUTH_FAILED")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"tenantId": authorization.TenantID, "corpId": authorization.CorpID, "permanentCode": authorization.PermanentCode})
 }
 
 type fixtureSeedRequest struct {
@@ -83,7 +107,7 @@ func (h *Handler) fixtureSend(w http.ResponseWriter, r *http.Request) {
 		FileName   string  `json:"fileName,omitempty"`
 		MIMEType   string  `json:"mimeType,omitempty"`
 	}
-	if decodeStrict(w, r, &input) != nil {
+	if decodeStrictLimit(w, r, &input, maxFixtureRequestBody) != nil {
 		writeBridgeError(w, http.StatusBadRequest, "FIXTURE_REQUEST_INVALID")
 		return
 	}
@@ -96,12 +120,20 @@ func (h *Handler) fixtureSend(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) fixtureStatus(w http.ResponseWriter, r *http.Request) {
-	var input struct{}
+	var input struct {
+		Binding Binding `json:"binding"`
+		Dataset string  `json:"dataset"`
+	}
 	if decodeStrict(w, r, &input) != nil {
 		writeBridgeError(w, http.StatusBadRequest, "FIXTURE_REQUEST_INVALID")
 		return
 	}
-	writeJSON(w, http.StatusOK, h.config.FixtureManager.Status())
+	status, err := h.config.FixtureManager.StatusFor(input.Binding, input.Dataset)
+	if err != nil {
+		writeBridgeError(w, http.StatusBadRequest, ErrorCode(err))
+		return
+	}
+	writeJSON(w, http.StatusOK, status)
 }
 
 func (h *Handler) fixtureCleanup(w http.ResponseWriter, r *http.Request) {
@@ -221,10 +253,26 @@ func (h *Handler) media(w http.ResponseWriter, r *http.Request) {
 	}
 	chunk, err := driver.Finance.FetchMediaWithTimeout(r.Context(), input.SDKFileID, input.IndexBuf, input.TimeoutSeconds)
 	if err != nil {
-		writeBridgeError(w, http.StatusBadGateway, "ARCHIVE_MEDIA_UPSTREAM_FAILED")
+		code, status := sanitizedBridgeMediaError(err)
+		writeBridgeError(w, status, code)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"errcode": 0, "dataBase64": base64.StdEncoding.EncodeToString(chunk.Data), "nextIndexBuf": chunk.NextIndexBuf, "finished": chunk.Finished})
+}
+
+func sanitizedBridgeMediaError(err error) (string, int) {
+	var coded wecomarchivedemo.MediaErrorCoder
+	if errors.As(err, &coded) {
+		switch strings.TrimSpace(coded.MediaErrorCode()) {
+		case "MEDIA_MISSING", "ARCHIVE_MEDIA_MISSING":
+			return "ARCHIVE_MEDIA_MISSING", http.StatusNotFound
+		case "MEDIA_CORRUPT", "ARCHIVE_MEDIA_CORRUPT":
+			return "ARCHIVE_MEDIA_CORRUPT", http.StatusUnprocessableEntity
+		case "MEDIA_SDK_ERROR", "ARCHIVE_MEDIA_SDK_ERROR":
+			return "ARCHIVE_MEDIA_SDK_ERROR", http.StatusBadGateway
+		}
+	}
+	return "ARCHIVE_MEDIA_UPSTREAM_FAILED", http.StatusBadGateway
 }
 
 type componentRequest struct {
@@ -283,7 +331,11 @@ func (h *Handler) requireBearer(next http.Handler) http.Handler {
 }
 
 func decodeStrict(w http.ResponseWriter, r *http.Request, output any) error {
-	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxRequestBody))
+	return decodeStrictLimit(w, r, output, maxRequestBody)
+}
+
+func decodeStrictLimit(w http.ResponseWriter, r *http.Request, output any, limit int64) error {
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, limit))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(output); err != nil {
 		return err

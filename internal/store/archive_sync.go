@@ -705,9 +705,31 @@ func archiveSourceStatusFromRun(sourceKind, runStatus, errorCode string, lastSyn
 		LastSuccessAt: nullableArchiveTime(lastSuccess), LastFailureAt: nullableArchiveTime(lastFailure),
 	}
 	if source == providers.SourceExternal {
-		status.Code = "archive.getchatdata_unimplemented"
-		status.Reason = "real getchatdata source is not implemented"
-		status.Action = "connect and verify the real archive source"
+		switch strings.ToLower(strings.TrimSpace(runStatus)) {
+		case string(archiveprovider.SyncStatusSucceeded):
+			status.State = providers.StateReady
+			status.Code = "archive.bridge_ready"
+			status.Reason = "archive bridge synchronization succeeded"
+			status.Action = "continue scheduled or manual synchronization"
+		case string(archiveprovider.SyncStatusQueued):
+			status.Code = "archive.bridge_pending"
+			status.Reason = "archive bridge synchronization is queued"
+			status.Action = "wait for synchronization to start"
+		case string(archiveprovider.SyncStatusRunning):
+			status.Code = "archive.bridge_syncing"
+			status.Reason = "archive bridge synchronization is running"
+			status.Action = "wait for synchronization to finish"
+		case string(archiveprovider.SyncStatusFailed):
+			status.State = providers.StateUnavailable
+			status.Code = "archive.bridge_failed"
+			status.Reason = "archive bridge synchronization failed"
+			status.Action = "check the enterprise binding and retry"
+			status.LastErrorCode = stableArchiveErrorCode(errorCode)
+		default:
+			status.Code = "archive.bridge_pending"
+			status.Reason = "archive bridge synchronization has not completed"
+			status.Action = "start a manual synchronization"
+		}
 	} else {
 		switch strings.ToLower(strings.TrimSpace(runStatus)) {
 		case string(archiveprovider.SyncStatusSucceeded):

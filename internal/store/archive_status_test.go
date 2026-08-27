@@ -34,10 +34,21 @@ func TestArchiveSourceStatusKeepsSimulationLifecycleTruthful(t *testing.T) {
 	}
 }
 
-func TestArchiveSourceStatusNeverPromotesExternalRunToReady(t *testing.T) {
-	status := archiveSourceStatusFromRun("external", "succeeded", "", sql.NullTime{}, sql.NullTime{}, sql.NullTime{})
-	if status.Source != providers.SourceExternal || status.State == providers.StateReady || status.Code != "archive.getchatdata_unimplemented" {
-		t.Fatalf("status=%#v", status)
+func TestArchiveSourceStatusReflectsExternalBridgeLifecycle(t *testing.T) {
+	for _, test := range []struct {
+		run   string
+		state providers.State
+		code  string
+	}{
+		{run: "succeeded", state: providers.StateReady, code: "archive.bridge_ready"},
+		{run: "queued", state: providers.StateLimited, code: "archive.bridge_pending"},
+		{run: "running", state: providers.StateLimited, code: "archive.bridge_syncing"},
+		{run: "failed", state: providers.StateUnavailable, code: "archive.bridge_failed"},
+	} {
+		status := archiveSourceStatusFromRun("external", test.run, "archive.upstream_failed", sql.NullTime{}, sql.NullTime{}, sql.NullTime{})
+		if status.Source != providers.SourceExternal || status.State != test.state || status.Code != test.code || status.Reason == "" || status.Action == "" {
+			t.Fatalf("run=%s status=%#v", test.run, status)
+		}
 	}
 }
 

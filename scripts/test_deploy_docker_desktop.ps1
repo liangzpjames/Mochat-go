@@ -2,6 +2,7 @@
 
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
 $deployScript = Join-Path $PSScriptRoot 'deploy_docker_desktop.ps1'
+$simulatorScript = Join-Path $PSScriptRoot 'run_archive_simulator.ps1'
 $dockerIgnore = Join-Path $repositoryRoot '.dockerignore'
 
 if (-not (Test-Path -LiteralPath $deployScript)) {
@@ -9,6 +10,9 @@ if (-not (Test-Path -LiteralPath $deployScript)) {
 }
 if (-not (Test-Path -LiteralPath $dockerIgnore)) {
     throw "Docker 忽略文件不存在：$dockerIgnore"
+}
+if (-not (Test-Path -LiteralPath $simulatorScript)) {
+    throw "模拟器安全入口不存在：$simulatorScript"
 }
 
 function Invoke-DeploymentPreview {
@@ -48,6 +52,10 @@ function Assert-Matches {
 
 $defaultOutput = Invoke-DeploymentPreview
 $resetOutput = Invoke-DeploymentPreview -ResetData
+$fixtureOutput = & powershell -NoProfile -ExecutionPolicy Bypass -File $deployScript -DryRun -SkipHttpCheck -EnableArchiveFixture 2>&1 | Out-String
+if ($LASTEXITCODE -ne 0) {
+    throw "模拟器部署预览失败：`n$fixtureOutput"
+}
 $portOutput = & powershell -NoProfile -ExecutionPolicy Bypass -File $deployScript `
     -DryRun `
     -SkipHttpCheck `
@@ -58,15 +66,17 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 Assert-Matches $defaultOutput '--project-name mochat-go-desktop' '默认项目名不固定'
+Assert-Matches $fixtureOutput '本地会话模拟器：已启用' '模拟器部署开关未生效'
 Assert-Matches $defaultOutput 'down --remove-orphans' '默认部署未替换旧项目'
 Assert-Matches $defaultOutput 'up -d --build --force-recreate --remove-orphans' '缺少强制重建参数'
 Assert-Matches $defaultOutput '仅在迁移账本不存在时执行 baseline' '未声明安全的条件基线策略'
 Assert-Matches $defaultOutput 'exec -T app mochat-migrate -action up -project-root /app' '未执行数据库迁移'
 $deploySource = Get-Content -LiteralPath $deployScript -Raw
+$simulatorSource = Get-Content -LiteralPath $simulatorScript -Raw
 $dockerIgnoreSource = Get-Content -LiteralPath $dockerIgnore -Raw
-Assert-Matches $dockerIgnoreSource '(?m)^\.worktrees/$' 'Docker 构建上下文仍包含多 GB 工作树'
-Assert-Matches $dockerIgnoreSource '(?m)^\.tmp\*/$' 'Docker 构建上下文仍包含临时 Go 缓存'
-Assert-Matches $dockerIgnoreSource '(?m)^web/saas-admin/$' 'Docker 构建上下文仍包含旧的未跟踪 SaaS 构建目录'
+Assert-Matches $dockerIgnoreSource '(?m)^\.worktrees/\r?$' 'Docker 构建上下文仍包含多 GB 工作树'
+Assert-Matches $dockerIgnoreSource '(?m)^\.tmp\*/\r?$' 'Docker 构建上下文仍包含临时 Go 缓存'
+Assert-Matches $dockerIgnoreSource '(?m)^web/saas-admin/\r?$' 'Docker 构建上下文仍包含旧的未跟踪 SaaS 构建目录'
 Assert-Matches $deploySource 'baseline-compose-init' 'fresh schema 未使用 0104 init 边界恢复后再执行增量迁移'
 Assert-Matches $deploySource 'baseline requires complete 0129 schema' '未声明 baseline 的 0129 schema 兼容性边界'
 Assert-Matches $deploySource 'IF\(COUNT\(\*\) > 0, 1, 0\)' '空迁移账本未回到专用 compose-init baseline'
@@ -76,6 +86,10 @@ Assert-Matches $deploySource '12,64' '容器 ID 未执行 12-64 位长度校验'
 Assert-Matches $deploySource '2> \$stderrPath' 'Docker Capture 未分离 stderr'
 Assert-Matches $deploySource '\.env\.local' '部署入口未加载本地持久环境配置'
 Assert-Matches $deploySource 'RandomNumberGenerator' '部署入口未生成持久的本地身份密钥'
+Assert-Matches $simulatorSource 'archive-bridge-bearer\.key' '模拟器入口未复用本地 bridge 密钥文件'
+Assert-Matches $simulatorSource 'archive-fixture-admin-bearer\.key' '模拟器入口未复用本地管理密钥文件'
+Assert-Matches $simulatorSource "'archive-tools'" '模拟器入口未使用隔离的工具 profile'
+Assert-Matches $simulatorSource 'ValueFromRemainingArguments' '模拟器入口不能安全透传子命令参数'
 Assert-Matches $defaultOutput 'SaaS 身份登录：http://127\.0\.0\.1:18080/saas/login' '未检查 SaaS 身份登录入口'
 if ($deploySource -match 'mochat-bootstrap|AdminPassword|AdminPhone') {
     throw '生产部署入口仍包含旧 bootstrap 命令行密码或旧管理员参数'

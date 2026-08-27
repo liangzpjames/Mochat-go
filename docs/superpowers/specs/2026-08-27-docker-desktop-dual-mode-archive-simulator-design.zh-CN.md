@@ -2,7 +2,7 @@
 
 日期：2026-08-27
 
-状态：待用户审阅
+状态：已确认并实施
 
 适用范围：本地开发环境 `mochat-go-desktop`、会话存档 bridge、归档 durable worker、Dashboard 回读和模拟数据清理
 

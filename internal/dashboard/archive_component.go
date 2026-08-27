@@ -48,11 +48,12 @@ type ArchiveComponentBridge interface {
 }
 
 type archiveComponentSession struct {
-	UserID    int
-	TenantID  int
-	CorpID    int
-	ExpiresAt time.Time
-	Object    ArchiveComponentObject
+	UserID      int
+	TenantID    int
+	CorpID      int
+	AuthVersion uint64
+	ExpiresAt   time.Time
+	Object      ArchiveComponentObject
 }
 
 type ArchiveComponentHandler struct {
@@ -120,9 +121,10 @@ func (handler *ArchiveComponentHandler) createSession(w http.ResponseWriter, req
 	}
 	handler.mu.Lock()
 	now := handler.currentTimeLocked()
-	handler.sessions[token] = archiveComponentSession{UserID: principal.UserID, TenantID: principal.TenantID, CorpID: principal.CorpID, ExpiresAt: now.Add(60 * time.Second), Object: object}
+	handler.deleteExpiredSessionsLocked(now)
+	handler.sessions[token] = archiveComponentSession{UserID: principal.UserID, TenantID: principal.TenantID, CorpID: principal.CorpID, AuthVersion: principal.AuthVersion, ExpiresAt: now.Add(60 * time.Second), Object: object}
 	handler.mu.Unlock()
-	writeArchiveComponentJSON(w, http.StatusOK, map[string]string{"sessionUrl": "/dashboard/archive/components/session/" + token})
+	writeArchiveComponentJSON(w, http.StatusOK, map[string]any{"sessionUrl": "/dashboard/archive/components/session/" + token, "expiresIn": 60})
 }
 
 func (handler *ArchiveComponentHandler) serveSession(w http.ResponseWriter, request *http.Request) {
@@ -140,7 +142,7 @@ func (handler *ArchiveComponentHandler) serveSession(w http.ResponseWriter, requ
 		delete(handler.sessions, token)
 		found = false
 	}
-	if found && (session.UserID != principal.UserID || session.TenantID != principal.TenantID || session.CorpID != principal.CorpID) {
+	if found && (session.UserID != principal.UserID || session.TenantID != principal.TenantID || session.CorpID != principal.CorpID || session.AuthVersion != principal.AuthVersion) {
 		handler.mu.Unlock()
 		http.NotFound(w, request)
 		return
@@ -163,6 +165,14 @@ func (handler *ArchiveComponentHandler) serveSession(w http.ResponseWriter, requ
 	w.Header().Set("Content-Length", formatPositiveLength(len(content.Body)))
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(content.Body)
+}
+
+func (handler *ArchiveComponentHandler) deleteExpiredSessionsLocked(now time.Time) {
+	for token, session := range handler.sessions {
+		if !now.Before(session.ExpiresAt) {
+			delete(handler.sessions, token)
+		}
+	}
 }
 
 func (handler *ArchiveComponentHandler) currentTimeLocked() time.Time {

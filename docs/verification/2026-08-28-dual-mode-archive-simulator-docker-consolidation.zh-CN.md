@@ -15,26 +15,30 @@
 - `seed` 会在正式数据库事务中创建数据集专属本地员工/客户，并激活 `local_contract` integration。自建模式拒绝生产形态 CorpID；第三方模式要求 SaaS 已有 Provider App ID 与加密授权凭据。
 - Compose 默认关闭旧 archive cron、启用 durable archive worker，避免双管线竞争；媒体批次遇到缺失或损坏对象后继续处理同批其他对象，并只返回脱敏汇总错误。
 - 修复客户会话无关系记录时后端返回非法 `none` 的问题，统一为前端合同支持的 `unknown`，避免 Dashboard 会话页整体加载失败。
+- 完成正式第三方 suite 回调入口：GET URL 校验、POST 指令接收、签名与 AES-CBC 解密、`suite_ticket`/授权换码状态账本、TTL 与 nonce 重放保护；回调诊断和业务消费状态分离，重复通知保持幂等。
+- 企微凭据采用密文存储、只写/轮换和失败关闭。历史加密键已退役时，唯一企业资料与回调配置的只读页面安全降级为“待重新配置”，不会泄露旧值，也不会阻塞用户修复；任何写入、轮换和 Provider 运行仍拒绝使用无法解密的凭据。
+- 缺失与损坏媒体被 bridge 保留为脱敏终态错误，主应用不再把有业务含义的 `404` 误判为旧接口并回退；终态任务不会无限重试。
 
 ## 2. 真实本地验收证据
 
 | 验收项 | 结果 | 证据 |
 |---|---|---|
-| 自建模式拉取 | PASS | 初次正式 durable run：cursor=10、fetched=10、processed=10 |
+| 自建模式拉取 | PASS | 正式 durable run（id=252）：cursor=10、fetched=10、processed=10、failed=0 |
 | 第三方模式拉取 | PASS | 初次正式 durable run：cursor=5、fetched=5、processed=5；5 个加密展示组件定位器 |
 | 主动追加与重放 | PASS | 两种模式均通过 simulator `send` 追加文本；再次 `seed` 不重复升级 integration 或写审计 |
-| 自建媒体 | PASS | 7 个媒体任务最终为 5 ready、1 failed（缺失）、1 corrupt；图片、音频、视频、PDF 均走鉴权读取 |
+| 自建媒体 | PASS | 7 个媒体任务最终为 5 ready、1 missing、1 corrupt；图片、音频、视频、PDF 均走分片下载、摘要校验与鉴权读取 |
 | 失败不推进 | PASS | bridge 重启竞争产生的失败 run 保持 cursor=0；随后成功 run 分别推进到 10/5 |
 | 重启恢复 | PASS | app 与 bridge 重启后，上游状态、cursor、消息、媒体文件及展示组件均恢复；空轮询不重复插入消息 |
-| 精确清理 | PASS | 自建删除 11 消息、7 媒体、5 文件、2 参与者和 18 runs；第三方删除 6 消息、6 组件、2 参与者和 18 runs |
+| 精确清理 | PASS | 最新自建数据集清理删除 10 消息、7 媒体、5 文件、2 参与者和 105 runs；重新 seed 后通过正式 worker 恢复基线 |
 | 清理后重建 | PASS | 两个数据集重新 seed，重启 worker 后恢复 10/5 条基线消息与全部媒体状态 |
 | 日志脱敏 | PASS | 日志只记录加密配置状态、任务名和固定错误码；未输出 Secret、永久授权码、locator、Bearer 或数据库口令 |
-| Docker 存储清理 | PASS | 删除临时验收项目和 21 个非 desktop 卷；镜像 38→4、卷 30→4、构建缓存 115.4GB→0B；只保留 4 个健康 desktop 容器 |
+| Docker 存储清理 | PASS | 删除临时验收项目和 21 个非 desktop 卷；最终保留 5 个运行/模拟器必需镜像、4 个 desktop 卷、构建缓存 0B；只运行 4 个健康 desktop 容器 |
 
 ## 3. 浏览器点击验收
 
 - Dashboard 数据概览与客户会话使用正式登录会话访问，无批量“加载失败”。客户会话实际选择本地验收客户后展示 10 条消息：文本、图片、音频、视频、文件、链接、位置、missing、corrupt 和未知类型。
-- 图片使用登录鉴权 Blob；音频/视频进入浏览器媒体元素；文件提供鉴权下载；missing 显示“媒体读取失败，请稍后重试”，corrupt 显示“媒体已损坏”，未知类型显示普通用户可理解的“不支持预览”。刷新和容器重启后状态恢复。
+- 图片使用登录鉴权 Blob；音频/视频进入浏览器媒体元素；文件提供鉴权下载；missing 显示“媒体已缺失”，corrupt 显示“媒体已损坏”，未知类型显示普通用户可理解的“不支持预览”。刷新和容器重启后状态恢复。
+- 唯一企业资料、企微回调配置和 Provider 运行状态均实际打开验证；历史凭据无法解密时页面仍可读取并显示业务化“未配置”状态，不出现全页加载失败或技术化错误。
 - 文件录音页真实打开并展示查询、重置、刷新、分页和播放控件，页面未出现 `Provider` 技术术语；390×844 视口下页面内容与操作仍可访问。
 - SaaS 租户详情实际点击自建/第三方租户：开户模式不可切换；自建应用只提示去 Dashboard 唯一企业资料维护，不在 SaaS 展示 Secret 配置；第三方只显示 Provider App ID 与凭据类型，永久授权码输入为空且不回显；能力默认全开，超级管理员治理下拉与操作项可用。
 - 新租户 pending 激活状态、重发入口和“系统不会自动发送”的安全提示可见；valid/expired/activated/revoked/invalid 状态由前端与后端自动化合同覆盖。
@@ -54,10 +58,10 @@
 | Dashboard all-pages evidence contract | PASS |
 | WeCom archive / SaaS activation contract | PASS |
 | standalone Compose URL / durable 单管线合同 | PASS |
-| 0138、0166–0169 迁移与 archive store 合同 | PASS，使用本地 MariaDB 10.6 临时 schema |
+| 0138、0166–0171 迁移与 archive store / suite callback / fixture ledger 合同 | PASS，使用本地 MariaDB 10.6 隔离 schema |
 | `git diff --check` | PASS |
 
-额外执行仓库全部 MariaDB 集成测试时，既有 0130 受控身份迁移因没有专用 validated staging batch、既有 MFA 集成夹具返回 401，以及部分旧 provider/customer 测试夹具缺少当前表列而失败。它们不属于本专项变更，也不影响上述专项迁移合同；本报告不把这次扩展运行记为 PASS。
+额外执行全新 MariaDB 初始化合同：基础迁移成功执行至 0129，随后在 0130 按设计安全停止，因为全新环境没有受控身份迁移所需的 bootstrap/provision/preflight 输入。该结果证明安全停止边界，不记录为“全量新库迁移 PASS”，也不冒充缺失前置数据已完成。
 
 ## 5. 本地访问与操作
 
@@ -70,7 +74,7 @@
 
 bridge 不提供宿主机 URL；健康检查只在 Compose 网络内执行。当前应用内浏览器已保留 Dashboard 与 SaaS 登录会话，密码、JWT 和加密键不写入报告。
 
-发送模拟消息与精确清理命令见《企微会话存档双模式本地模拟器操作指南》。保留数据卷为 `mochat-go-desktop_app-storage`、`mochat-go-desktop_audit-anchor-storage`、`mochat-go-desktop_mysql-data`、`mochat-go-desktop_redis-data`。
+发送模拟消息与精确清理命令见《企微会话存档双模式本地模拟器操作指南》；统一使用 `scripts/run_archive_simulator.ps1`，由脚本从仓库外受保护目录读取密钥，不需要把凭据复制到终端。保留数据卷为 `mochat-go-desktop_app-storage`、`mochat-go-desktop_audit-anchor-storage`、`mochat-go-desktop_mysql-data`、`mochat-go-desktop_redis-data`。
 
 ## 6. 回滚、清理与外部边界
 
