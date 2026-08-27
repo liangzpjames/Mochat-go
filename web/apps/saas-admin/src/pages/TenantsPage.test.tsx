@@ -50,7 +50,7 @@ const mocks = vi.hoisted(() => {
 
 vi.mock('@/lib/api', () => mocks)
 
-import TenantsPage, { tenantAIProviderState } from './TenantsPage'
+import TenantsPage, { tenantAIProviderState, weComIntegrationLoadErrorMessage } from './TenantsPage'
 import type { AccessProfile, ApprovalPoliciesData } from '@/lib/types'
 
 ;(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -648,6 +648,12 @@ describe('SaaS 客户租户治理页面', () => {
     expect(tenantAIProviderState(true, { ...base, credentialProtection: 'unavailable' }, now).label).toBe('凭证不可用')
   })
 
+  it('未绑定企业时给出可执行的企微对接阻塞原因，不暴露 TARGET_NOT_FOUND', () => {
+    const message = weComIntegrationLoadErrorMessage(new mocks.ApiError('request failed', 404, 'TARGET_NOT_FOUND'), '无法加载企微对接配置')
+    expect(message).toContain('先完成企业绑定')
+    expect(message).not.toContain('TARGET_NOT_FOUND')
+  })
+
   it('只有 integrations.read 才读取配置，只有 integrations.manage 才显示编辑入口', async () => {
     act(() => root.unmount())
     client.clear()
@@ -655,6 +661,7 @@ describe('SaaS 客户租户治理页面', () => {
     const readOnlyProfile = { ...profile, permissions: ['platform.tenants.manage', 'platform.integrations.read'] }
     mocks.hasPermission.mockImplementation((permissions: string[], permission: string) => permissions.includes(permission))
     act(() => root.render(<QueryClientProvider client={client}><TenantsPage profile={readOnlyProfile} approvalMode={approvalMode} navigate={() => undefined} /></QueryClientProvider>))
+    await settle()
     await settle()
     clickButton('详情')
     await settle()
@@ -701,5 +708,6 @@ function deferred<T>() {
     resolve = promiseResolve
     reject = promiseReject
   })
+
   return { promise, resolve, reject }
 }

@@ -275,6 +275,13 @@ function errorMessage(error: unknown, fallback: string) {
   return error instanceof Error ? error.message : fallback
 }
 
+export function weComIntegrationLoadErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof ApiError && error.machineCode === 'TARGET_NOT_FOUND') {
+    return '尚未绑定可用企业；请先完成企业绑定，再配置企微对接模式。'
+  }
+  return errorMessage(error, fallback)
+}
+
 function aiProviderErrorMessage(error: unknown) {
   return errorMessage(error, 'AI 模型配置保存失败，API Key 已从页面清除')
 }
@@ -908,7 +915,7 @@ export default function TenantsPage({ profile, approvalMode, activationMutationO
               {canManageAIProvider && <Button type="button" variant="secondary" onClick={openWeComEditor} disabled={weComIntegrationQuery.isLoading}>编辑候选</Button>}
             </div>
             {weComIntegrationQuery.isLoading && <LoadingState label="正在加载企微对接配置" />}
-            {weComIntegrationQuery.isError && <ErrorState message={errorMessage(weComIntegrationQuery.error, '无法加载企微对接配置')} onRetry={() => weComIntegrationQuery.refetch()} />}
+            {weComIntegrationQuery.isError && <ErrorState message={weComIntegrationLoadErrorMessage(weComIntegrationQuery.error, '无法加载企微对接配置')} onRetry={() => weComIntegrationQuery.refetch()} />}
             {weComIntegrationQuery.data && <>
               <div className="grid gap-3 lg:grid-cols-2">
                 <WeComIntegrationSummary label="当前" record={weComIntegrationQuery.data.current} />
@@ -925,7 +932,7 @@ export default function TenantsPage({ profile, approvalMode, activationMutationO
             <div className="space-y-2" aria-label="企微集成审计时间线">
               <strong className="text-sm text-zinc-800">审计时间线</strong>
               {weComAuditQuery.isLoading && <LoadingState label="正在加载企微审计" />}
-              {weComAuditQuery.isError && <ErrorState message={errorMessage(weComAuditQuery.error, '无法加载企微审计')} onRetry={() => weComAuditQuery.refetch()} />}
+              {weComAuditQuery.isError && <ErrorState message={weComIntegrationLoadErrorMessage(weComAuditQuery.error, '无法加载企微审计')} onRetry={() => weComAuditQuery.refetch()} />}
               {weComAuditQuery.data && (weComAuditQuery.data.length === 0 ? <p className="text-xs text-zinc-500">暂无企微集成变更审计。</p> : <ol className="space-y-2">{weComAuditQuery.data.map((audit) => <li key={audit.id} className="rounded-md border border-violet-100 bg-white px-3 py-2 text-xs"><div className="flex flex-wrap justify-between gap-2"><strong className="break-all text-zinc-800">{audit.action}</strong><time className="text-zinc-500">{formatDate(audit.createdAt)}</time></div><p className="mt-1 break-all text-zinc-500">目标 {audit.targetId || '-'} · 操作人 {audit.actorUserId}</p></li>)}</ol>) }
             </div>
           </section>}
