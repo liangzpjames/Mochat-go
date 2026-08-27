@@ -9,6 +9,7 @@ import type { ReportResult } from './report-types';
 import { paginationOf } from './report-types';
 import { Phase35PageShell } from './components/phase35-page-shell';
 import { Phase35DataState } from './components/data-state';
+import { BusinessDataNotice } from './components/business-data-notice';
 
 export function CustomerReportPage({ api }: { api: Phase35Api }) {
   const filters = useReportFilters();
@@ -72,11 +73,7 @@ export function CustomerReportPage({ api }: { api: Phase35Api }) {
               <div><dt>当前页明细</dt><dd>同一筛选条件下返回的客户明细条数，随分页变化。</dd></div>
               <div><dt>负责人覆盖</dt><dd>明细中最近分配记录存在负责人的客户（联系人）占比；未分配客户不计入。</dd></div>
             </dl>
-            {limitations.length > 0 && (
-              <ul className="phase35-limits">
-                {limitations.map((item) => <li key={item.provider}>{item.message}</li>)}
-              </ul>
-            )}
+            <BusinessDataNotice visible={limitations.length > 0} />
           </section>
         </div>
 
@@ -90,7 +87,7 @@ export function CustomerReportPage({ api }: { api: Phase35Api }) {
             error={query.isError}
             empty={empty}
             emptyContent={(
-              <section aria-label="客户分析数据说明">
+              <section aria-label="客户分析数据说明" className="phase35-empty-state">
                 <h2>当前范围还没有客户数据</h2>
                 <p>本页统计真实 SCRM 联系人及负责人分配记录。可先创建联系人，或扩大日期范围后重新查询。</p>
                 <a href="/customer/order">前往订单页快速创建联系人</a>

@@ -43,7 +43,7 @@ export function FriendsPage({ api }: { api: Phase35Api }) {
         <section className="phase35-card">
           <header className="phase35-card-header"><div><h2>好友列表</h2><p>企业微信联系人及其负责人、标签</p></div><span className="phase35-chip">共 {total} 条</span></header>
           <div className="phase35-table-card">
-            <Phase35DataState loading={list.isLoading} error={list.isError} empty={!list.isLoading && !rows.length} emptyContent={<section aria-label="好友数据接入说明"><h2>还没有可展示的企业微信好友</h2><p>好友数据来自企业微信通讯录同步。请先完成企业微信接入和联系人同步，再查看负责人、标签与来源。</p><a href="/customer/contact">查看客户联系人</a></section>} onRetry={() => void list.refetch()}>
+            <Phase35DataState loading={list.isLoading} error={list.isError} empty={!list.isLoading && !rows.length} emptyContent={<section aria-label="好友数据接入说明" className="phase35-empty-state"><h2>还没有可展示的企业微信好友</h2><p>完成企业微信联系人同步后，这里会展示好友的负责人、标签与来源。</p><a href="/customer/contact">查看客户联系人</a></section>} onRetry={() => void list.refetch()}>
               <table><thead><tr><th>好友</th><th>备注</th><th>负责人</th><th>标签</th><th>来源</th><th>更新时间</th><th>操作</th></tr></thead>
               <tbody>{rows.map((row) => (
                 <tr key={text(row.id ?? row.contactId ?? 0)}>

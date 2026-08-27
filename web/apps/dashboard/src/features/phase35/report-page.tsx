@@ -7,6 +7,7 @@ import { formatMetric } from './presentation/formatters';
 import { Phase35PageShell } from './components/phase35-page-shell';
 import { Phase35DataState } from './components/data-state';
 import { Phase35KpiLegend } from './components/phase35-kpi-legend';
+import { BusinessDataNotice } from './components/business-data-notice';
 
 const sections = [
   {
@@ -86,7 +87,7 @@ export function ReportPage({ api }: { api: Phase35Api }) {
         </section>
 
         <Phase35DataState loading={query.isLoading} error={query.isError} onRetry={() => void query.refetch()}>
-          {result?.limitations?.map((item) => <p role="status" key={item.provider}>{item.message}</p>)}
+          <BusinessDataNotice visible={Boolean(result?.limitations?.length)} />
         </Phase35DataState>
       </div>
     </Phase35PageShell>

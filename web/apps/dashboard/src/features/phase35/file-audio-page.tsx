@@ -107,7 +107,7 @@ export function FileAudioPage({ api }: { api: FileAudioApi }) {
           loading={list.isLoading}
           error={list.isError}
           empty={!list.isLoading && !items.length}
-          emptyContent={<section aria-label="音频数据说明"><h2>暂无同步录音</h2><p>企业微信同步后，录音会自动出现在这里。</p></section>}
+          emptyContent={<section aria-label="音频数据说明" className="phase35-empty-state"><h2>暂无同步录音</h2><p>企业微信同步后，录音会自动出现在这里。</p></section>}
           onRetry={() => void list.refetch()}
         >
           <div className="conversation-operations-table-wrap">

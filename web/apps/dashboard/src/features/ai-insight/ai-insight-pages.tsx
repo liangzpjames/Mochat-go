@@ -6,7 +6,7 @@ import type { AiInsightApi } from './ai-insight-api';
 
 const aiRestrictedCopy = {
   status: 'AI 能力未接入',
-  detail: '当前未接入可用的 AI 分析 Provider，暂无分析结果。',
+  detail: '当前尚未配置可用的 AI 分析服务，暂无分析结果。',
 };
 
 export const aiInsightPageConfigs = {
@@ -37,7 +37,6 @@ export function AiInsightPage({ api, page }: { api: AiInsightApi; page: keyof ty
     enabled: Boolean(corpId),
   });
   const result = query.data;
-  const limitations = result?.limitations ?? [];
   const limited = result?.capability !== 'ready';
   const generatedAt = result?.generatedAt ?? '';
   const count = result?.data.length ?? 0;
@@ -50,7 +49,7 @@ export function AiInsightPage({ api, page }: { api: AiInsightApi; page: keyof ty
             <span>分析结果</span><strong>{limited ? aiRestrictedCopy.status : count}</strong><small>{limited ? aiRestrictedCopy.detail : '当前返回的分析结果条数'}</small>
           </article>
           <article className="phase35-kpi phase35-kpi-green">
-            <span>能力状态</span><strong>{limited ? aiRestrictedCopy.status : '已就绪'}</strong><small>AI Provider 当前状态</small>
+            <span>能力状态</span><strong>{limited ? aiRestrictedCopy.status : '已就绪'}</strong><small>AI 服务当前状态</small>
           </article>
           <article className="phase35-kpi phase35-kpi-violet">
             <span>生成时间</span><strong>{friendlyTime(generatedAt)}</strong><small>{generatedAt ? '最近一次分析生成时间' : '尚未生成（AI 能力未接入）'}</small>
@@ -62,9 +61,7 @@ export function AiInsightPage({ api, page }: { api: AiInsightApi; page: keyof ty
           <Phase35DataState loading={query.isLoading} error={query.isError} onRetry={() => void query.refetch()}>
             {limited ? (
               <>
-                <ul className="phase35-limits" role="status">
-                  {limitations.map((item) => <li key={item}>{item}</li>)}
-                </ul>
+                <p role="status">完成 AI 服务配置后，这里会展示分析结果。</p>
                 <p><a href="/ai-setting/agent">前往接入 AI 能力</a></p>
               </>
             ) : (

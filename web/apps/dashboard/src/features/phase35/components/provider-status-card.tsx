@@ -1,1 +1,9 @@
-export function ProviderStatusCard({ available, provider, limitations }: { available: boolean; provider: string; limitations?: { message: string }[] }) { return <section aria-label="Provider 状态" className="dashboard-card"><h2>{provider}</h2><strong>{available ? '可用指标' : '受限指标'}</strong>{!available && <><p>原因：{limitations?.[0]?.message ?? 'Provider 不可用'}</p><p>恢复条件：接入可审计会话归档并完成字段校验。</p></>}</section>; }
+export function ProviderStatusCard({ available }: { available: boolean }) {
+  return (
+    <section aria-label="会话数据状态" className="dashboard-card">
+      <h2>会话归档数据</h2>
+      <strong>{available ? '已同步' : '待同步'}</strong>
+      {!available && <p>完成会话存档配置并同步数据后，这里会展示员工、消息与响应指标。</p>}
+    </section>
+  );
+}

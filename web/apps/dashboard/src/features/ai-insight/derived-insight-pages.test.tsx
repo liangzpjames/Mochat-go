@@ -275,7 +275,7 @@ describe('三个 AI 洞察专用投影页面', () => {
     });
     render(<EmotionInsightPage api={emptyApi as unknown as AiInsightWorkspaceApi} />);
     expect(await screen.findByText('当前目录实体没有符合时间窗的已持久化分析结果')).toBeTruthy();
-    expect(screen.getByText('AI 服务不可用：尚未配置')).toBeTruthy();
+    expect(screen.getByText('AI 服务暂不可用，请检查 AI 设置。')).toBeTruthy();
     cleanup();
 
     const failedBase = { ...row };

@@ -231,12 +231,12 @@ function LiveCodeCreateDialog({
       <div className="phase34-detail-backdrop" aria-hidden="true" onClick={onCancel} />
       <div className="phase34-detail-panel" role="dialog" aria-modal="true">
         <header className="phase34-live-code-drawer-header">
-          <div className="phase34-live-code-drawer-title"><span className="phase34-live-code-drawer-icon" aria-hidden="true">+</span><div><p className="phase34-eyebrow">营销工具 · 新建配置</p><h2>新建{kind === 'channel' ? '渠道活码' : '群活码'}</h2><p>填写必要信息后提交到当前企业微信 Provider。</p></div></div>
+          <div className="phase34-live-code-drawer-title"><span className="phase34-live-code-drawer-icon" aria-hidden="true">+</span><div><p className="phase34-eyebrow">营销工具 · 新建配置</p><h2>新建{kind === 'channel' ? '渠道活码' : '群活码'}</h2><p>填写必要信息后提交到当前企业微信服务。</p></div></div>
           <button type="button" className="phase34-live-code-close" aria-label={`关闭新建${kind === 'channel' ? '渠道活码' : '群活码'}`} title="关闭" onClick={onCancel}>×</button>
         </header>
         <div className="phase34-live-code-drawer-body">
           <form className="phase34-detail-form" onSubmit={(event) => { event.preventDefault(); submit(); }}>
-            <div className="phase34-live-code-form-intro"><strong>先完成基础配置</strong><span>保存后会调用企业微信 Provider，未配置企业授信时不会生成虚假二维码。</span></div>
+            <div className="phase34-live-code-form-intro"><strong>先完成基础配置</strong><span>保存后会调用企业微信服务，未完成企业授权时不会生成无效二维码。</span></div>
             <label>{kind === 'channel' ? '渠道活码' : '群活码'}名称 <b>*</b><input aria-label={`${kind === 'channel' ? '渠道活码' : '群活码'}名称`} value={name} maxLength={30} onChange={(event) => setName(event.target.value)} placeholder={`例如：${kind === 'channel' ? '官网咨询' : '售后服务群'}`} /></label>
             {kind === 'channel' && <div className="phase34-live-code-member-field">
               <label htmlFor="live-code-employee-search">使用成员 <b>*</b></label>

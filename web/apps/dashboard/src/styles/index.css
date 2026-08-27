@@ -3330,6 +3330,54 @@ body {
 }
 .phase35-table-card button:hover { border-color: #bcc9f7; background: #f5f8ff; }
 
+.phase35-empty-state {
+  align-content: center;
+  box-sizing: border-box;
+  display: grid;
+  gap: 10px;
+  justify-items: center;
+  min-height: 168px;
+  padding: 36px clamp(20px, 6vw, 72px);
+  text-align: center;
+  width: 100%;
+}
+
+.phase35-empty-state h2 {
+  color: #293042;
+  font-size: 1.05rem;
+  margin: 0;
+}
+
+.phase35-empty-state p,
+.phase35-table-card .phase35-empty-state p {
+  color: #5f687a;
+  line-height: 1.7;
+  margin: 0;
+  max-width: 620px;
+  padding: 0;
+}
+
+.phase35-empty-state a {
+  border-radius: 7px;
+  color: #526be8;
+  font-size: .86rem;
+  font-weight: 650;
+  padding: 5px 8px;
+  text-decoration: none;
+}
+
+.phase35-empty-state a:hover { background: #f0f3ff; }
+.phase35-empty-state a:focus-visible { outline: 2px solid #536bf4; outline-offset: 2px; }
+
+.phase35-business-notice {
+  background: #f7f9ff;
+  border-radius: 8px;
+  color: #64708a;
+  line-height: 1.6;
+  margin: 14px 22px 20px;
+  padding: 10px 12px;
+}
+
 @media (max-width: 1080px) {
   .phase35-section-grid { grid-template-columns: 1fr; }
   .phase35-funnel-card .dashboard-funnel { grid-template-columns: repeat(2, minmax(0, 1fr)); }

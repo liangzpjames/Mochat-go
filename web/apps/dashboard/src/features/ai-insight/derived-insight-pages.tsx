@@ -42,7 +42,7 @@ function employeeQa(row: SessionInsightRow): Record<string, unknown> { return as
 function ViewStatus({ status }: { status?: InsightRunStatus | undefined }) {
   if (!status) return null;
   const messages: string[] = [];
-  if (status.provider.state !== 'ready') messages.push(`AI 服务不可用${status.provider.message ? `：${status.provider.message}` : '，已保留历史结果'}`);
+  if (status.provider.state !== 'ready') messages.push('AI 服务暂不可用，请检查 AI 设置。');
   if (status.run?.status === 'failed') messages.push(`最近一次分析失败${status.run.errorSummary ? `：${status.run.errorSummary}` : ''}`);
   if (status.run && status.run.backlogCount > 0) messages.push(`还有 ${status.run.backlogCount} 个会话等待分析`);
   return messages.length ? <div className="ai-insight-status" role="status">{messages.join('；')}</div> : null;

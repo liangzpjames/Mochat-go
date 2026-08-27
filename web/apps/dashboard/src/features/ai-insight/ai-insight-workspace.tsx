@@ -190,7 +190,7 @@ export function AiInsightStatusStrip({ status }: { status?: InsightRunStatus | u
   const messages: string[] = [];
   if (run?.status === 'failed') messages.push(`最近一次分析失败${run.errorSummary ? `：${run.errorSummary}` : ''}`);
   if (run && run.backlogCount > 0) messages.push(`还有 ${run.backlogCount} 个会话等待分析`);
-  if (providerUnavailable) messages.push(`AI 服务暂不可用${status.provider.message ? `：${status.provider.message}` : '，已保留历史结果'}`);
+  if (providerUnavailable) messages.push('AI 服务暂不可用，请检查 AI 设置。');
   return <div className="ai-insight-status" role="status">{messages.join('；')}</div>;
 }
 
@@ -664,7 +664,7 @@ export function InsightDrawer<T extends SessionInsightRow>({ detail, onClose, on
             <div className="ai-insight-detail-grid">
               <DetailField label="来源窗口" value={`${formatTime(detail.sourceWindow.startedAt)} — ${formatTime(detail.sourceWindow.endedAt)}`} />
               <DetailField label="消息数量" value={`${detail.sourceWindow.messageCount} 条`} />
-              <DetailField label="Provider / Model" value={`${detail.provider || '未记录'} / ${detail.model || '未记录'}`} />
+              <DetailField label="分析服务 / 模型" value={`${detail.provider || '未记录'} / ${detail.model || '未记录'}`} />
               <DetailField label="Prompt 版本" value={detail.promptVersion || '未记录'} />
             </div>
           </section>

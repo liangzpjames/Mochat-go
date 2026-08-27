@@ -68,7 +68,7 @@ describe('Phase 3.4 content-reach pages', () => {
     await waitFor(() => expect(read).toHaveBeenLastCalledWith('/roomMessageBatchSend/index', expect.objectContaining({ page: 1, perPage: 20 })));
   });
 
-  it('requires member IDs for customer sends and keeps external provider status explicit', async () => {
+  it('requires member IDs for customer sends and keeps external service status explicit', async () => {
     const read = vi.fn().mockImplementation((path: string) => Promise.resolve(path === '/workEmployee/index'
       ? { list: [{ id: 999999, name: '测试员工', departmentName: '销售部' }] }
       : path === '/workContact/index' ? { list: [{ id: 501, contactId: 501, employeeId: 999999, name: '测试客户', employeeName: '测试员工' }] } : { list: [] }));
@@ -76,7 +76,7 @@ describe('Phase 3.4 content-reach pages', () => {
     view(<PreciseGroupSendPage api={{ read, write }} />);
 
     await screen.findByRole('heading', { name: '暂无群发任务' });
-    expect(screen.getByText('本地任务 Provider 已连接 · 外部发送待配置')).toBeTruthy();
+    expect(screen.getByText('任务功能已就绪 · 外部发送待配置')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: '新建群发' }));
     fireEvent.change(screen.getAllByLabelText('任务名称')[1]!, { target: { value: '客户空成员校验' } });
     fireEvent.change(screen.getByLabelText('群发内容'), { target: { value: '客户触达内容' } });
@@ -96,10 +96,11 @@ describe('Phase 3.4 content-reach pages', () => {
     fireEvent.click(submit);
     expect(write).not.toHaveBeenCalled();
     fireEvent.click(await screen.findByRole('button', { name: '确认' }));
-    expect((await screen.findByRole('alert')).textContent).toContain('客户群发 Provider 返回 422');
+    expect((await screen.findByRole('alert')).textContent).toContain('群发任务创建失败，请检查企业微信配置和发送范围。');
+    expect(screen.queryByText(/Provider/i)).toBeNull();
   });
 
-  it('requires a real group owner ID for room sends and renders the room provider error in the drawer', async () => {
+  it('requires a real group owner ID for room sends and renders a safe service error in the drawer', async () => {
     const read = vi.fn().mockImplementation((path: string) => Promise.resolve(path === '/workEmployee/index'
       ? { list: [{ id: 999999, name: '测试群主', departmentName: '销售部' }] }
       : path === '/workRoom/index' ? { list: [{ id: 601, roomId: 601, ownerId: 999999, name: '测试群' }] } : { list: [] }));
@@ -124,7 +125,8 @@ describe('Phase 3.4 content-reach pages', () => {
     await waitFor(() => expect(submit).toHaveProperty('disabled', false));
     fireEvent.click(submit);
     fireEvent.click(await screen.findByRole('button', { name: '确认' }));
-    expect((await screen.findByRole('alert')).textContent).toContain('群聊群发 Provider 返回 422');
+    expect((await screen.findByRole('alert')).textContent).toContain('群发任务创建失败，请检查企业微信配置和发送范围。');
+    expect(screen.queryByText(/Provider/i)).toBeNull();
     const roomCreatePayload: Record<string, unknown> = {
       batchTitle: '群聊空群主校验', employeeIds: [999999],
       roomTargets: [{ ownerEmployeeId: 999999, roomId: 601 }],
@@ -311,7 +313,7 @@ describe('Phase 3.4 content-reach pages', () => {
     fireEvent.click(screen.getByRole('button', { name: '保存草稿' }));
     await waitFor(() => expect(write).toHaveBeenCalledWith('/friendsCircle/taskStore', expect.objectContaining({ taskName: '秋日活动', content: '欢迎参与', sendWay: 'manual' })));
     expect(screen.getByRole('button', { name: '导出' })).toHaveProperty('disabled', true);
-    expect(screen.getByText('发布 Provider 未配置')).toBeTruthy();
+    expect(screen.getByText('发布功能未配置')).toBeTruthy();
   });
 
   it('reuses a real material provider in the friends-circle composer', async () => {
@@ -359,7 +361,8 @@ describe('Phase 3.4 content-reach pages', () => {
 
     expect(await screen.findByText('夏日朋友圈')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: '发起发布' }));
-    expect((await screen.findByRole('alert')).textContent).toContain('朋友圈发布 Provider 未配置');
+    expect((await screen.findByRole('alert')).textContent).toContain('朋友圈发布失败，任务状态已保留。');
+    expect(screen.queryByText(/Provider/i)).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: '查看进度' }));
     expect(await screen.findByLabelText('朋友圈任务进度')).toBeTruthy();
     expect(await screen.findByText('E_TIMEOUT')).toBeTruthy();

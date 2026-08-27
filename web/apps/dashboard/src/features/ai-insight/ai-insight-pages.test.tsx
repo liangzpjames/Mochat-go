@@ -10,7 +10,7 @@ afterEach(cleanup);
 
 const limitedResult = {
   page: 'emotion', title: '情绪识别', capability: 'limited', provider: 'none',
-  limitations: ['未接入情绪识别模型服务'], data: [],
+  limitations: ['情绪 Provider 未提供'], data: [],
 };
 
 function renderPage(api: AiInsightApi) {
@@ -26,12 +26,12 @@ function renderPage(api: AiInsightApi) {
 }
 
 describe('AI 洞察页面（受限态）', () => {
-  it('展示结构化 limitations，不伪造数据', async () => {
+  it('展示业务化限制说明，不伪造数据或暴露技术术语', async () => {
     const api = { read: vi.fn().mockResolvedValue(limitedResult) };
     renderPage(api);
-    expect(await screen.findByText('未接入情绪识别模型服务')).toBeTruthy();
-    expect((await screen.findAllByText(/当前未接入可用的 AI 分析 Provider，暂无分析结果/)).length).toBeGreaterThan(0);
-    expect(screen.getByRole('link', { name: '前往接入 AI 能力' })).toBeTruthy();
+    expect((await screen.findAllByText(/当前尚未配置可用的 AI 分析服务，暂无分析结果/)).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/Provider/i)).toBeNull();
+    expect(await screen.findByRole('link', { name: '前往接入 AI 能力' })).toBeTruthy();
   });
 
   it('能力未接入时展示受限状态徽标', async () => {

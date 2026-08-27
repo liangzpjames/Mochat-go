@@ -46,6 +46,16 @@ const sample = {
 };
 
 describe('FileAudioPage', () => {
+  it('centers the empty state with plain-language guidance', async () => {
+    const api: FileAudioApi = { list: vi.fn().mockResolvedValue({ list: [], total: 0, page: 1, perPage: 20 }) };
+    renderPage(api);
+
+    const emptyState = await screen.findByRole('region', { name: '音频数据说明' });
+    expect(emptyState.classList.contains('phase35-empty-state')).toBe(true);
+    expect(screen.getByText('企业微信同步后，录音会自动出现在这里。')).not.toBeNull();
+    expect(screen.queryByText(/Provider/i)).toBeNull();
+  });
+
   it('renders synchronized recordings as a read-only table without upload or delete controls', async () => {
     const list = vi.fn().mockResolvedValue(sample);
     const api: FileAudioApi = { list };

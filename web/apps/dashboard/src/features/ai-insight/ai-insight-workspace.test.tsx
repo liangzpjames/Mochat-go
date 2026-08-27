@@ -420,9 +420,10 @@ describe('AI 洞察工作台渲染', () => {
     }
   });
 
-  it('失败状态和 Provider 不可用状态保持明确', () => {
+  it('失败状态和 AI 服务不可用状态保持明确且不透传技术细节', () => {
     render(<AiInsightStatusStrip status={{ provider: { state: 'unavailable', message: '未配置模型凭证' } }} />);
     expect(screen.getByRole('status').textContent).toContain('AI 服务暂不可用');
-    expect(screen.getByRole('status').textContent).toContain('未配置模型凭证');
+    expect(screen.getByRole('status').textContent).toContain('请检查 AI 设置');
+    expect(screen.getByRole('status').textContent).not.toContain('未配置模型凭证');
   });
 });

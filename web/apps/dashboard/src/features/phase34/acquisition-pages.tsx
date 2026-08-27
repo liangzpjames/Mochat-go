@@ -195,7 +195,7 @@ function AcquisitionCreateDrawer({
       <div className="phase34-detail-backdrop" aria-hidden="true" onClick={onCancel} />
       <div className="phase34-detail-panel" role="dialog" aria-modal="true">
         <header className="phase34-live-code-drawer-header">
-          <div className="phase34-live-code-drawer-title"><span className="phase34-live-code-drawer-icon" aria-hidden="true">+</span><div><p className="phase34-eyebrow">营销工具 · 新建配置</p><h2>新建{label}</h2><p>填写必要信息后提交到当前企业微信 Provider。</p></div></div>
+          <div className="phase34-live-code-drawer-title"><span className="phase34-live-code-drawer-icon" aria-hidden="true">+</span><div><p className="phase34-eyebrow">营销工具 · 新建配置</p><h2>新建{label}</h2><p>填写必要信息后提交到当前企业微信服务。</p></div></div>
           <button type="button" className="phase34-live-code-close" aria-label={`关闭新建${label}`} title="关闭" onClick={onCancel}>×</button>
         </header>
         <div className="phase34-live-code-drawer-body">
@@ -472,7 +472,7 @@ export function LiveCodeShortChainPage({ api }: { api: BusinessWorkbenchApi }) {
         </div>
       </div>
       <div className="dashboard-data-card phase34-results-card">
-        <div className="dashboard-card-heading"><div><h2>短链列表</h2><p>当前企业：{access.corp.name}，短链访问与停用状态均来自持久化 Provider。</p></div><span>{rows.length} 条</span></div>
+        <div className="dashboard-card-heading"><div><h2>短链列表</h2><p>当前企业：{access.corp.name}，这里展示已保存的短链访问与停用状态。</p></div><span>{rows.length} 条</span></div>
         {writeError && !createOpen && <p role="alert" className="phase34-inline-error">{writeError}</p>}
         {query.isPending ? <PageState state="loading" /> : query.isError ? <PageState state={pageStateForError(query.error)} {...(can('refresh') ? { onRetry: refresh } : {})} /> : rows.length === 0 ? <PageState state="empty" title="暂无短链" description="创建一个站内短链后，这里会显示访问与停用状态。" /> : (
           <div className="dashboard-table-scroll phase34-table-scroll">

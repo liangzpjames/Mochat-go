@@ -11,6 +11,7 @@ import { Phase35DetailDrawer } from './components/detail-drawer';
 import { ConversionFunnel, conversionStageLabel } from './components/conversion-funnel';
 import { ReportDetailTable, type DetailColumn } from './components/report-detail-table';
 import { Phase35KpiLegend } from './components/phase35-kpi-legend';
+import { BusinessDataNotice } from './components/business-data-notice';
 
 const stageColumns: Record<string, DetailColumn[]> = {
   lead: [
@@ -106,7 +107,7 @@ export function ConversionReportPage({ api }: { api: Phase35Api }) {
             </header>
             <Phase35DataState loading={query.isLoading} error={query.isError} onRetry={() => void query.refetch()}>
               <ConversionFunnel summary={summary} onStageClick={(nextStage) => { setStage(nextStage); setPage(1); }} />
-              {result?.limitations?.map((item) => <p role="status" key={item.provider}>{item.message}</p>)}
+              <BusinessDataNotice visible={Boolean(result?.limitations?.length)} />
             </Phase35DataState>
           </section>
 

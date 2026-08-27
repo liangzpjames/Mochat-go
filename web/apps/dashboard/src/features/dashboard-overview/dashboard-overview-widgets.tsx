@@ -52,7 +52,7 @@ export function OverviewDataNotice({ kind, title, description, limitations = [] 
 }) {
   return <div aria-label={title} className={`overview-data-notice overview-data-notice-${kind}`} role="status">
     <span aria-hidden="true" className="overview-data-notice-icon">{kind === 'empty' ? '○' : '!'}</span>
-    <div><strong>{title}</strong><p>{description}</p>{limitations.map((item) => <small key={`${item.provider}-${item.code}`}>{item.provider}：{item.message}</small>)}</div>
+    <div><strong>{title}</strong><p>{description}</p>{limitations.length > 0 && <small>部分数据暂未同步完整，请稍后重试。</small>}</div>
   </div>;
 }
 
@@ -86,7 +86,7 @@ export function OverviewEmptyState({ title, description, action }: { title: stri
 
 export function OverviewAISummary({ insight }: { insight?: DashboardOverviewAIInsight | undefined }) {
   if (insight?.capability !== 'ready' || insight.summary === '') {
-    return <OverviewEmptyState action={<Link className="overview-link-button" to="/ai-setting/ai-knowledge-base">前往 AI 设置</Link>} description="配置 AI Provider 和知识库后，这里会展示基于真实会话生成的经营建议。" title="AI 能力尚未接入" />;
+    return <OverviewEmptyState action={<Link className="overview-link-button" to="/ai-setting/ai-knowledge-base">前往 AI 设置</Link>} description="配置 AI 服务和知识库后，这里会展示基于真实会话生成的经营建议。" title="AI 能力尚未接入" />;
   }
   return <div className="overview-ai-summary-legacy"><div>{parseAISummary(insight.summary).map((line, index) => {
     if (line.kind === 'divider') return <hr key={index} />;
@@ -173,7 +173,7 @@ export function OverviewConversationWorkspace({ conversation, unavailable, limit
       <div aria-label="会话类型" className="overview-conversation-toggle" role="group">{(['customer', 'room'] as const).map((candidate) => <button aria-pressed={kind === candidate} className={kind === candidate ? 'is-active' : ''} key={candidate} onClick={() => setKind(candidate)} type="button">{conversationKindLabel(candidate)}</button>)}</div>
       <ConversationMetricGroup href="/chat/v2-customer" label="客户会话" stats={conversation.customer} />
       <ConversationMetricGroup href="/chat/v2-group" label="客户群" stats={conversation.room} />
-      {summaryMissing && <OverviewDataNotice description="接口未返回全部会话汇总字段，缺失字段保持为 —。" kind="limited" title="会话汇总数据暂缺" />}
+      {summaryMissing && <OverviewDataNotice description="部分会话汇总数据暂未同步完整，缺失内容显示为 —。" kind="limited" title="会话汇总数据暂缺" />}
     </div>
     <div className="overview-conversation-chart"><div className="overview-conversation-chart-title"><h3>{conversationKindLabel(kind)}趋势</h3><span>近七日 · 会话数</span></div>{conversation.trend.length === 0 ? <OverviewDataNotice description="当前周期内没有可展示的会话记录。" kind="empty" title="暂无会话趋势" /> : selectedStats.sessions === null ? <OverviewDataNotice description="当前会话类型的汇总字段缺失，暂不绘制趋势。" kind="limited" title="会话数据暂缺" /> : <ConversationChart kind={kind} points={conversation.trend} />}</div>
   </div>;
@@ -228,7 +228,7 @@ export function OverviewQualityPanel({ quality, limitations = [] }: { quality?: 
   const missing = items.some((item) => qualityValue(quality?.[item.key]) === null);
   const trendAvailable = quality !== undefined && quality.trend.length > 0
     && quality.trend.some((point) => qualityTrendSeries.some((series) => point[series.key] !== null));
-  return <section aria-label="质检数据" className="overview-module overview-quality-panel dashboard-data-card"><OverviewModuleHeader description="风险、敏感词、超时和客户流失" extra={<span className="overview-scope-chip">当前区间</span>} headingId="overview-quality-title" title="质检数据" /><div className="overview-quality-workspace"><div className="overview-quality-controls"><div className="overview-quality-controls-title"><h3>风险监控</h3><Link aria-label="查看风险监控详情" className="overview-inline-link" to="/ai-insight/v2/risk">详情 ↗</Link></div><div className="overview-quality-grid">{items.map((item) => <OverviewMetricCard href={item.href} key={item.key} label={item.label} note={qualityValue(quality?.[item.key]) === null ? '等待真实数据' : '系统真实数据'} tone="blue" value={qualityValue(quality?.[item.key])} />)}</div>{missing && <OverviewDataNotice description="概览已接入可用数据；仍为 — 的项目表示对应表、权限或 Provider 尚未返回。" kind="limited" limitations={limitations.filter((item) => ['risk_behavior', 'sensitive_word_monitor', 'timeout_warning', 'customer_lifecycle'].includes(item.provider))} title="部分质检数据暂缺" />}</div><div className="overview-quality-visual"><div className="overview-quality-visual-title"><h3>风险监控趋势</h3><span>近七日 · 条</span></div>{trendAvailable ? <QualityTrendChart points={quality.trend} /> : <OverviewDataNotice description="概览接口未返回可用的逐日质检统计，不能以区间合计数伪造趋势。" kind="limited" title="质检趋势数据暂缺" />}</div></div></section>;
+  return <section aria-label="质检数据" className="overview-module overview-quality-panel dashboard-data-card"><OverviewModuleHeader description="风险、敏感词、超时和客户流失" extra={<span className="overview-scope-chip">当前区间</span>} headingId="overview-quality-title" title="质检数据" /><div className="overview-quality-workspace"><div className="overview-quality-controls"><div className="overview-quality-controls-title"><h3>风险监控</h3><Link aria-label="查看风险监控详情" className="overview-inline-link" to="/ai-insight/v2/risk">详情 ↗</Link></div><div className="overview-quality-grid">{items.map((item) => <OverviewMetricCard href={item.href} key={item.key} label={item.label} note={qualityValue(quality?.[item.key]) === null ? '等待真实数据' : '系统真实数据'} tone="blue" value={qualityValue(quality?.[item.key])} />)}</div>{missing && <OverviewDataNotice description="当前部分质检数据尚未同步完整。" kind="limited" limitations={limitations.filter((item) => ['risk_behavior', 'sensitive_word_monitor', 'timeout_warning', 'customer_lifecycle'].includes(item.provider))} title="部分质检数据暂缺" />}</div><div className="overview-quality-visual"><div className="overview-quality-visual-title"><h3>风险监控趋势</h3><span>近七日 · 条</span></div>{trendAvailable ? <QualityTrendChart points={quality.trend} /> : <OverviewDataNotice description="当前暂无可展示的逐日质检趋势。" kind="limited" title="质检趋势数据暂缺" />}</div></div></section>;
 }
 
 export function OverviewEmployeeRanking({ items }: { items: readonly DashboardOverviewEmployeeRankingItem[] }) {
@@ -240,5 +240,5 @@ export function OverviewTrajectory({ items, onRefresh, refreshing = false }: { i
 }
 
 export function OverviewCapabilityPanel({ title, description, source, items }: { title: string; description: string; source: string; items: readonly { label: string; note?: string }[] }) {
-  return <section aria-label={title} className="overview-module overview-capability-panel dashboard-data-card"><OverviewModuleHeader description={description} headingId={`overview-capability-${title}`} title={title} /><div className="overview-capability-grid">{items.map((item) => <article aria-label={item.label} className="overview-capability-item" key={item.label}><span>{item.label}</span><strong>--</strong><small>{item.note ?? '等待真实数据'}</small></article>)}</div><OverviewDataNotice description={`当前概览接口没有返回该模块字段。数据来源：${source}。`} kind="unavailable" title="能力未接入" /></section>;
+  return <section aria-label={title} className="overview-module overview-capability-panel dashboard-data-card"><OverviewModuleHeader description={description} headingId={`overview-capability-${title}`} title={title} /><div className="overview-capability-grid">{items.map((item) => <article aria-label={item.label} className="overview-capability-item" key={item.label}><span>{item.label}</span><strong>--</strong><small>{item.note ?? '等待真实数据'}</small></article>)}</div><OverviewDataNotice description={`当前暂无该模块可展示的数据。数据来源：${source}。`} kind="unavailable" title="能力未接入" /></section>;
 }

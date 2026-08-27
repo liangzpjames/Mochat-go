@@ -62,3 +62,17 @@ test('stage detail keeps pagination after drill-down', async () => {
     expect(pageTwo.length).toBeGreaterThan(0);
   });
 });
+
+test('uses a business notice instead of raw limitation details', async () => {
+  const api = {
+    read: vi.fn().mockResolvedValue({
+      summary,
+      limitations: [{ provider: 'conversion', message: '转化 Provider 已提供部分数据' }],
+    }),
+    write: vi.fn(),
+  };
+  render(<QueryClientProvider client={new QueryClient()}><ConversionReportPage api={api} /></QueryClientProvider>);
+
+  expect(await screen.findByText('部分数据暂未同步完整，当前仅展示已获取的数据。')).not.toBeNull();
+  expect(screen.queryByText(/Provider/i)).toBeNull();
+});

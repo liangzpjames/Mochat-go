@@ -151,7 +151,7 @@ describe('Phase 3.4 conversion pages', () => {
 
     await screen.findByRole('heading', { name: '暂无模板' });
     fireEvent.click(screen.getByRole('button', { name: '新建加群模板' }));
-    expect(screen.getByText(/当前企业员工 Provider/)).toBeTruthy();
+    expect(screen.getByText(/当前企业已同步员工/)).toBeTruthy();
     fireEvent.change(screen.getAllByLabelText('模板名称')[1]!, { target: { value: '空员工校验' } });
     fireEvent.change(screen.getByLabelText('入群引导语'), { target: { value: '欢迎加入' } });
     fireEvent.change(screen.getByLabelText('标签ID'), { target: { value: '900001' } });

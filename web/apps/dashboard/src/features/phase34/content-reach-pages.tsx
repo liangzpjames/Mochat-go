@@ -23,6 +23,11 @@ function rowsFrom(payload: unknown): ReachRecord[] {
   return Array.isArray(candidate) ? candidate.filter(isRecord) : [];
 }
 
+function businessErrorMessage(error: unknown, fallback: string): string {
+  const message = error instanceof Error ? error.message.trim() : '';
+  return message !== '' && !/provider/i.test(message) ? message : fallback;
+}
+
 function selectorTotalPages(payload: unknown): number | null {
   if (!isRecord(payload)) return null;
   const data = isRecord(payload.data) ? payload.data : payload;
@@ -178,7 +183,7 @@ function SendDetail({ api, mode, row, onClose, onChanged }: { api: BusinessWorkb
       await detailQuery.refetch();
       onChanged();
     } catch (error) {
-      setActionError(error instanceof Error ? error.message : '操作失败，请重试');
+      setActionError(businessErrorMessage(error, '操作失败，请重试。'));
     } finally {
       setActionBusy(false);
     }
@@ -366,7 +371,7 @@ function SendCreateDrawer({
     <aside className="phase34-detail" aria-label="新建群发任务">
       <div className="phase34-detail-backdrop" aria-hidden="true" onClick={onClose} />
       <div className="phase34-detail-panel">
-        <div className="dashboard-card-heading"><div><p className="phase34-eyebrow">营销工具 · 内容触达</p><h2>新建群发任务</h2><p>{mode === 'contact' ? '客户群发' : '群聊群发'}会走对应的真实 Provider。</p></div><button type="button" aria-label="关闭新建群发" onClick={onClose}>关闭</button></div>
+        <div className="dashboard-card-heading"><div><p className="phase34-eyebrow">营销工具 · 内容触达</p><h2>新建群发任务</h2><p>{mode === 'contact' ? '客户群发' : '群聊群发'}会按所选范围创建真实任务。</p></div><button type="button" aria-label="关闭新建群发" onClick={onClose}>关闭</button></div>
         <form className="phase34-detail-form" onSubmit={(event) => { event.preventDefault(); }}>
           <label><span>任务名称 <b aria-hidden="true">*</b></span><input aria-label="任务名称" required value={title} onChange={(event) => onTitleChange(event.target.value)} placeholder="请输入任务名称" /></label>
           <label><span>{mode === 'contact' ? '发送成员' : '群主'} <b aria-hidden="true">*</b></span><input aria-label={mode === 'contact' ? '搜索发送成员' : '搜索群主'} value={employeeSearch} onChange={(event) => setEmployeeSearch(event.target.value)} placeholder="搜索姓名或部门" /></label>
@@ -392,13 +397,13 @@ function SendCreateDrawer({
           {mode === 'room' && roomsQuery.isPending && <p role="status" className="phase34-field-hint">正在加载所选群主名下群聊…</p>}
           {mode === 'room' && roomsQuery.isError && <p role="alert" className="phase34-inline-error">群聊列表加载失败，请重试后再提交。</p>}
           {mode === 'room' && roomsQuery.isSuccess && roomOptions.length === 0 && <p role="status" className="phase34-field-hint">所选群主名下暂无客户群。</p>}
-          <p id="precise-send-target-hint" className="phase34-field-hint">来源：当前企业的{mode === 'contact' ? '员工 Provider 返回的企业微信成员 ID' : '群聊 Provider 返回的真实群主与群聊 ID'}；未接入真实数据时不要填写虚构 ID。</p>
+          <p id="precise-send-target-hint" className="phase34-field-hint">来源：当前企业已同步的{mode === 'contact' ? '员工及其企业微信成员 ID' : '群主与群聊 ID'}；暂无可选数据时请先完成同步。</p>
           <MaterialSelector api={api} scene="group_send" value={materialID || null} disabled={saving} onChange={(item) => { onMaterialChange(item?.id ?? 0); if (item) onContentChange(item.preview); }} />
           <label><span>群发内容 <b aria-hidden="true">*</b></span><textarea aria-label="群发内容" required value={content} onChange={(event) => onContentChange(event.target.value)} placeholder="请输入文本内容" rows={6} /></label>
           <label>发送方式<select aria-label="发送方式" value={sendWay} onChange={(event) => onSendWayChange(event.target.value)}><option value="1">立即发送</option><option value="2">定时发送</option></select></label>
           {sendWay === '2' && <label>定时发送时间<input aria-label="定时发送时间" type="datetime-local" required value={definiteTime} onChange={(event) => onDefiniteTimeChange(event.target.value)} /></label>}
           {error && <p role="alert" className="phase34-inline-error">{error}</p>}
-          <p className="phase34-field-hint">发送前会由 Go Provider 校验成员、群主、内容和企业微信凭据；失败会保留在任务状态中。</p>
+          <p className="phase34-field-hint">发送前系统会校验成员、群主、内容和企业微信配置；失败原因会保留在任务状态中。</p>
           <div className="dashboard-table-actions"><button type="button" className="phase34-secondary-button" onClick={onClose}>取消</button><ConfirmAction title="确认创建精准群发任务？" description={confirmationSummary} onConfirm={onSubmit}><button type="button" disabled={saving || !canSubmit || !selectorsReady}>{saving ? '提交中…' : '保存并发送'}</button></ConfirmAction></div>
         </form>
       </div>
@@ -472,7 +477,7 @@ export function PreciseGroupSendPage({ api }: { api: BusinessWorkbenchApi }) {
       setCreateIdempotencyKey('');
       await query.refetch();
     } catch (error) {
-      setWriteError(error instanceof Error ? error.message : '群发任务创建失败。');
+      setWriteError(businessErrorMessage(error, '群发任务创建失败，请检查企业微信配置和发送范围。'));
     } finally {
       setSaving(false);
     }
@@ -482,7 +487,7 @@ export function PreciseGroupSendPage({ api }: { api: BusinessWorkbenchApi }) {
     <section className="phase34-page">
       <header className="phase34-page-header">
         <div><p className="phase34-eyebrow">营销工具 · 内容触达</p><h1>精准群发</h1><p>分别查看客户群发与群聊群发任务，追踪内容、执行结果和触达数据。</p></div>
-        <div className="phase34-header-actions"><span className="phase34-provider-badge phase34-provider-badge-warning">本地任务 Provider 已连接 · 外部发送待配置</span><button type="button" onClick={() => { setWriteError(''); setCreateIdempotencyKey(mode === 'contact' ? newContactBatchIdempotencyKey() : ''); setCreateOpen(true); }}>新建群发</button><button type="button" disabled={query.isFetching} onClick={refresh}>刷新</button></div>
+        <div className="phase34-header-actions"><span className="phase34-provider-badge phase34-provider-badge-warning">任务功能已就绪 · 外部发送待配置</span><button type="button" onClick={() => { setWriteError(''); setCreateIdempotencyKey(mode === 'contact' ? newContactBatchIdempotencyKey() : ''); setCreateOpen(true); }}>新建群发</button><button type="button" disabled={query.isFetching} onClick={refresh}>刷新</button></div>
       </header>
       <ReachTabs active={mode} onChange={(nextMode) => { setMode(nextMode); setDraftTitle(''); setTitle(''); setSelected(null); }} />
       <div id="precise-send-panel" role="tabpanel">
@@ -493,7 +498,7 @@ export function PreciseGroupSendPage({ api }: { api: BusinessWorkbenchApi }) {
         <div className="dashboard-table-actions"><button type="button" onClick={() => { setTitle(draftTitle.trim()); setSelected(null); }}>查询</button><button type="button" className="phase34-secondary-button" onClick={() => { setDraftTitle(''); setTitle(''); setSelected(null); }}>重置</button></div>
       </div>
       <div className="dashboard-data-card phase34-results-card">
-        <div className="dashboard-card-heading"><div><h2>{mode === 'contact' ? '客户群发' : '群聊群发'}任务</h2><p>当前企业：{access.corp.name}，列表仅展示 Provider 返回的真实任务。</p></div><span>{rows.length} 条</span></div>
+        <div className="dashboard-card-heading"><div><h2>{mode === 'contact' ? '客户群发' : '群聊群发'}任务</h2><p>当前企业：{access.corp.name}，列表展示系统中已创建的真实任务。</p></div><span>{rows.length} 条</span></div>
         {writeError && !createOpen && <p role="alert" className="phase34-inline-error">{writeError}</p>}
         {query.isPending ? <PageState state="loading" /> : query.isError ? <PageState state={pageStateForError(query.error)} onRetry={refresh} /> : rows.length === 0 ? <PageState state="empty" title="暂无群发任务" description="当前筛选条件下没有可展示的任务。" /> : (
           <div className="dashboard-table-scroll"><table className="phase34-table phase34-reach-table"><thead><tr><th>创建时间</th><th>执行时间</th><th>发送内容</th><th>执行结果</th><th>执行数据</th><th>操作</th></tr></thead><tbody>{rows.map((row, index) => <tr key={recordKey(row, index)}><td>{primitive(row.createdAt)}</td><td>{primitive(row.sendTime ?? row.definiteTime)}</td><td>{contentText(row.content)}</td><td>{statusText(operationStatus(row))}</td><td>{executionData(row)}</td><td><button type="button" className="phase34-link-button" onClick={() => setSelected(row)}>详情</button></td></tr>)}</tbody></table></div>
@@ -549,7 +554,7 @@ function FriendsCircleTaskProgress({ task, rows, loading, error, exporting, expo
       <div className="phase34-detail-panel">
         <div className="dashboard-card-heading"><div><p className="phase34-eyebrow">营销工具 · 朋友圈</p><h2>朋友圈任务进度</h2><p>{primitive(task.taskName)} · {primitive(task.status)} · {primitive(task.completedTotal)} / {primitive(task.targetTotal)}</p></div><button type="button" aria-label="关闭朋友圈任务进度" onClick={onClose}>关闭</button></div>
         <dl><div><dt>外部任务 ID</dt><dd>{primitive(task.externalTaskId)}</dd></div><div><dt>最近回调</dt><dd>{primitive(task.lastCallbackAt)}</dd></div><div><dt>失败原因</dt><dd>{primitive(task.failureReason)}</dd></div></dl>
-        <div className="dashboard-card-heading"><div><h3>目标失败明细</h3><p>仅展示当前企业且与任务关联的 Provider 回调结果。</p></div><button type="button" disabled={exporting || loading || rows.length === 0} onClick={onExport}>{exporting ? '导出中…' : '导出失败明细'}</button></div>
+        <div className="dashboard-card-heading"><div><h3>目标失败明细</h3><p>仅展示当前企业且与任务关联的任务回执结果。</p></div><button type="button" disabled={exporting || loading || rows.length === 0} onClick={onExport}>{exporting ? '导出中…' : '导出失败明细'}</button></div>
         {exportError && <p role="alert" className="phase34-inline-error">{exportError}</p>}
         {loading ? <PageState state="loading" /> : error ? <PageState state={pageStateForError(error)} /> : rows.length === 0 ? <PageState state="empty" title="暂无失败明细" description="当前任务还没有可导出的失败目标。" /> : <div className="dashboard-table-scroll"><table className="phase34-table"><thead><tr><th>目标员工</th><th>状态</th><th>失败码</th><th>失败原因</th><th>发生时间</th></tr></thead><tbody>{rows.map((row, index) => <tr key={recordKey(row, index)}><td>{primitive(row.targetEmployeeId)}</td><td>{primitive(row.status)}</td><td>{primitive(row.failureCode)}</td><td>{primitive(row.failureReason)}</td><td>{primitive(row.occurredAt)}</td></tr>)}</tbody></table></div>}
       </div>
@@ -657,7 +662,7 @@ export function FriendsCirclePage({ api }: { api: BusinessWorkbenchApi }) {
     try {
       await api.write('/friendsCircle/publish', { taskId: taskID }, 'POST');
     } catch (error) {
-      setPublishError(error instanceof Error ? error.message : '朋友圈发布失败，任务状态已保留。');
+      setPublishError(businessErrorMessage(error, '朋友圈发布失败，任务状态已保留。'));
     } finally {
       await query.refetch();
     }
@@ -671,7 +676,7 @@ export function FriendsCirclePage({ api }: { api: BusinessWorkbenchApi }) {
       const payload = await api.read('/friendsCircle/exportData', { taskId: taskID, status: 'failed' });
       downloadFriendsCircleResults(taskID, rowsFrom(payload));
     } catch (error) {
-      setExportError(error instanceof Error ? error.message : '失败明细导出失败。');
+      setExportError(businessErrorMessage(error, '失败明细导出失败。'));
     } finally {
       setExporting(false);
     }
@@ -735,7 +740,7 @@ export function FriendsCirclePage({ api }: { api: BusinessWorkbenchApi }) {
     <section className="phase34-page phase34-friends-page">
       {publishError && <p role="alert" className="phase34-inline-error">{publishError}</p>}
       <header className="phase34-page-header phase34-friends-header"><div><p className="phase34-eyebrow">营销工具 · 内容触达</p><h1>朋友圈</h1><p>统一管理朋友圈任务与内容素材，先沉淀草稿，再安全接入发布流程。</p></div><div className="phase34-header-actions"><span className="phase34-provider-badge"><i />草稿服务正常</span><button type="button" aria-label="添加朋友圈" onClick={openComposer}>＋ 添加朋友圈</button><button type="button" disabled>导出</button><button type="button" className="phase34-secondary-button" disabled={query.isFetching} onClick={refresh}>{query.isFetching ? '刷新中…' : '刷新'}</button></div></header>
-      <div className="phase34-friends-provider-notice"><span aria-hidden="true">!</span><div><strong>发布 Provider 未配置</strong><p>当前支持任务与素材草稿管理，不会向企业微信实际发布。</p></div></div>
+      <div className="phase34-friends-provider-notice"><span aria-hidden="true">!</span><div><strong>发布功能未配置</strong><p>当前支持任务与素材草稿管理，不会向企业微信实际发布。</p></div></div>
       <div className="phase34-tabs" role="tablist" aria-label="朋友圈内容类型"><button type="button" role="tab" aria-controls="friends-circle-panel" aria-selected={tab === 'task'} className={tab === 'task' ? 'phase34-tab-active' : ''} onClick={() => changeTab('task')}>朋友圈</button><button type="button" role="tab" aria-controls="friends-circle-panel" aria-selected={tab === 'material'} className={tab === 'material' ? 'phase34-tab-active' : ''} onClick={() => changeTab('material')}>朋友圈素材</button></div>
       <div id="friends-circle-panel" role="tabpanel">
       <div className="dashboard-filter-bar phase34-filter-bar phase34-friends-filter">

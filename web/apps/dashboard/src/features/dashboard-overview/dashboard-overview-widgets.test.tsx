@@ -11,6 +11,7 @@ import {
   OverviewQualityPanel,
   OverviewTrajectory,
   OverviewMetricCard,
+  OverviewDataNotice,
   OverviewTrendChart,
   parseAISummary,
 } from './dashboard-overview-widgets';
@@ -32,6 +33,12 @@ const conversation = {
 function CurrentPath() {
   return <output aria-label="当前测试路径">{useLocation().pathname}</output>;
 }
+
+it('does not expose raw limitation details in overview notices', () => {
+  render(<OverviewDataNotice kind="limited" title="部分数据暂缺" description="当前仅展示已获取的数据。" limitations={[{ provider: 'risk_provider', code: 'provider_unavailable', message: 'Provider 未提供' }]} />);
+  expect(screen.getByText('部分数据暂未同步完整，请稍后重试。')).toBeTruthy();
+  expect(screen.queryByText(/risk_provider|Provider/i)).toBeNull();
+});
 
 afterEach(cleanup);
 
