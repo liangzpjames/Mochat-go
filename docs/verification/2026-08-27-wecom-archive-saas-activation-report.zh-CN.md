@@ -32,12 +32,13 @@
 | `cleanup -DryRun` | PASS | 只报告本数据集计数，不写数据 |
 | `cleanup` / 重复 cleanup | PASS | 首次删除精确业务行和 5 个对象文件；重复执行为全 0 且成功 |
 | app + bridge + worker restart 后 verify | PASS | fresh acceptance image 后 worker recovered 事实及 cursor、消息、媒体、对象文件、Dashboard HTTP 均通过 |
-| 应用内浏览器点击 | 待主任务验收 | 本任务按分工不执行浏览器；不得将自动化结果写成浏览器 PASS |
+| 应用内浏览器点击 | PASS | Dashboard 正式登录、10 条消息与媒体回读；SaaS 模式切换/回滚、失败关闭、激活全状态与重发安全提示均真实点击通过 |
+| Chromium 响应式 | PASS | Dashboard 29 个页面与员工 Sidebar 360×800、390×844、430×932 等 74 个用例全部通过，无页面级横向溢出或不安全失败 |
 
 ## 3. 本地访问
 
 - Dashboard：`http://127.0.0.1:19080/`
-- SaaS 管理端：`http://127.0.0.1:19080/saas/`
+- SaaS 管理端：`http://127.0.0.1:19080/saas-admin/`
 - Sidebar：`http://127.0.0.1:19081/`
 - Operation：`http://127.0.0.1:19082/`
 - fixture bridge health：`http://127.0.0.1:19091/healthz`
@@ -46,14 +47,12 @@
 
 非敏感登录提示：Dashboard 账号为 `19008208270`；SaaS 账号为 `mochat-local-acceptance-admin`。两者随机密码分别只保存在 ignored 文件 `.tmp-wecom-acceptance-runtime/dashboard-acceptance-password` 与 `.tmp-wecom-acceptance-runtime/saas-admin-password`，报告与命令输出不记录密码。
 
-## 4. 浏览器待验收清单
+## 4. 浏览器验收结果
 
-主任务需在应用内浏览器补齐并如实记录：
-
-1. SaaS 的自建应用、第三方代开发应用 candidate/verify/switch/rollback、切换冲突和审计回读。
-2. 激活 valid、expired、activated、revoked、invalid，重发的一次性入口、安全复制和刷新恢复；确认界面不暗示不存在的发送能力。
-3. Dashboard 文本、图片、语音、视频、文件、mixed、unknown 回读；图片查看、音频/视频播放、文件下载、missing/corrupt 失败态和未授权读取。
-4. 控制台与网络错误、刷新恢复、空态/失败态、桌面响应式，以及员工端 390×844。
+1. Dashboard：正式登录后会话列表显示 1 个会话、10 条消息；逐项回读文本、图片、语音、视频、文件、链接、位置、mixed 与 unknown。图片的鉴权 Blob 实际解码为 2×2，音频和视频进入可播放就绪态，文件下载按钮可用；missing 独立显示“媒体已缺失”，mixed 同时显示可用图片和“媒体已损坏”。刷新后状态恢复，未发现控制台错误。
+2. SaaS 对接模式：租户详情只显示凭据提示而不回显敏感值；真实点击 `自建应用 → 第三方代开发应用` 时确认框列出绑定、能力、凭据、媒体租约和 generation 前置检查，确认后切换成功；再真实点击回滚后恢复自建应用，审计时间线同步更新。未绑定企业的租户以中文业务阻塞原因失败关闭，不显示 `TARGET_NOT_FOUND` 等技术错误。
+3. 新租户激活：valid 显示安全激活表单；expired、activated、revoked、invalid 分别显示准确终态；读取 token 后地址栏立即清理为 `/activate`。在 revoked 租户真实点击重发，确认框显示租户、账号和绑定版本；结果明确说明系统不会自动发送邮件、短信或企微消息，关闭一次性入口弹窗后 DOM 中不再保留激活码。
+4. 响应式与稳定性：应用内浏览器完成桌面点击、刷新、空态和失败态；另以真实 Chromium 固定视口执行 Dashboard 与员工 Sidebar 响应式回归，含 390×844，74/74 PASS。SaaS 和 Dashboard 关键操作期间未发现控制台错误。
 
 ## 5. 回滚与清理
 
@@ -69,5 +68,5 @@ cleanup 使用固定 tenant/corp/user/integration ID、固定数据集消息前�
 - 真实企业微信 `GetChatData/DecryptData/GetMediaData`：SKIP（按本次范围不再调用真实企微）。
 - 真实企微 CorpID、会话存档 Secret、RSA、可信 IP、线上授权企业与永久授权码：SKIP / 外部条件。
 - 本地 MariaDB：PASS，使用独立 Docker MariaDB 10.6；这不能替代目标生产数据库版本与生产数据升级演练。
-- 应用内浏览器：待主任务验收；自动化、数据库计数与截图均不能替代真实点击。
+- 应用内浏览器：PASS；结论来自实际点击、刷新、媒体解码/就绪态和失败态检查，不以数据库计数或截图替代。
 - 当前 Compose 保持运行，未执行 `down -v`，便于继续浏览器验收。
