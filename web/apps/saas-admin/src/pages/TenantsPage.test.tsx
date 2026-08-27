@@ -543,6 +543,78 @@ describe('SaaS 客户租户治理页面', () => {
     expect(document.body.textContent).not.toContain('切换为候选')
   })
 
+  it('首次配置默认开启全部公开能力，并以两个能力 code 保存', async () => {
+    integrationView = { ...integrationView, current: { ...delegatedCandidate, id: 'delegated-current', slot: 'current', status: 'unconfigured', scope: [], version: 9 }, candidate: null }
+    await settle()
+    clickButton('详情')
+    await settle()
+    await settle()
+    clickButton('配置第三方应用')
+
+    expect(scopeCheckbox('会话内容与媒体归档').checked).toBe(true)
+    expect(scopeCheckbox('通讯录与客户资料').checked).toBe(true)
+    setCheckbox('通讯录与客户资料', false)
+    expect(scopeCheckbox('通讯录与客户资料').checked).toBe(false)
+    clickButton('全部开启')
+    expect(scopeCheckbox('通讯录与客户资料').checked).toBe(true)
+    expect(document.querySelector('[aria-label="第三方应用配置表单"] textarea')).toBeNull()
+    expect(document.body.textContent).not.toContain('archive.read')
+    setValue('永久授权码', 'first-configuration-secret')
+    clickButton('安全保存')
+    await settle()
+
+    const save = latestWeComSave()
+    expect(JSON.parse(String(save?.[1]?.body)).scope).toEqual(['archive.read', 'contacts.read'])
+  })
+
+  it('已有 archive.read 只勾选归档能力，并在摘要中显示中文已启用数量', async () => {
+    integrationView = { ...integrationView, current: { ...delegatedCandidate, id: 'delegated-current', slot: 'current', scope: ['archive.read'], version: 9 }, candidate: null }
+    await settle()
+    clickButton('详情')
+    await settle()
+    await settle()
+
+    expect(document.body.textContent).toContain('已开启 1 项')
+    expect(document.body.textContent).toContain('会话内容与媒体归档')
+    expect(document.body.textContent).not.toContain('archive.read')
+    clickButton('配置第三方应用')
+    expect(scopeCheckbox('会话内容与媒体归档').checked).toBe(true)
+    expect(scopeCheckbox('通讯录与客户资料').checked).toBe(false)
+  })
+
+  it('取消全部能力后阻止保存并显示中文错误', async () => {
+    integrationView = { ...integrationView, current: { ...delegatedCandidate, id: 'delegated-current', slot: 'current', scope: ['archive.read'], version: 9 }, candidate: null }
+    await settle()
+    clickButton('详情')
+    await settle()
+    await settle()
+    clickButton('配置第三方应用')
+    setCheckbox('会话内容与媒体归档', false)
+    clickButton('安全保存')
+    await settle()
+
+    expect(document.body.textContent).toContain('请至少选择一项能力')
+    expect(latestWeComSave()).toBeUndefined()
+  })
+
+  it('保存时保留未知历史能力，且摘要不将其显示为公开能力', async () => {
+    integrationView = { ...integrationView, current: { ...delegatedCandidate, id: 'delegated-current', slot: 'current', scope: ['archive.read', 'future.scope'], version: 9 }, candidate: null }
+    await settle()
+    clickButton('详情')
+    await settle()
+    await settle()
+
+    expect(document.body.textContent).toContain('已开启 1 项')
+    expect(document.body.textContent).toContain('会话内容与媒体归档')
+    expect(document.body.textContent).not.toContain('future.scope')
+    clickButton('配置第三方应用')
+    setValue('永久授权码', 'keep-unknown-secret')
+    clickButton('安全保存')
+    await settle()
+
+    expect(JSON.parse(String(latestWeComSave()?.[1]?.body)).scope).toEqual(['archive.read', 'future.scope'])
+  })
+
   it('第三方配置版本冲突刷新当前版本、清空授权码并允许重试', async () => {
     integrationView = { ...integrationView, current: { ...delegatedCandidate, id: 'delegated-current', slot: 'current', version: 9 }, candidate: null }
     await settle()
@@ -631,6 +703,22 @@ function setValue(labelOrPlaceholder: string, value: string) {
     field.dispatchEvent(new Event('input', { bubbles: true }))
     field.dispatchEvent(new Event('change', { bubbles: true }))
   })
+}
+
+function scopeCheckbox(label: string) {
+  const input = [...document.querySelectorAll('input[type="checkbox"]')].find((item) => item.closest('label')?.textContent?.includes(label)) as HTMLInputElement | undefined
+  if (!input) throw new Error(`scope checkbox ${label} not found`)
+  return input
+}
+
+function setCheckbox(label: string, checked: boolean) {
+  const input = scopeCheckbox(label)
+  if (input.checked === checked) return
+  act(() => input.dispatchEvent(new MouseEvent('click', { bubbles: true })))
+}
+
+function latestWeComSave() {
+  return mocks.apiRequest.mock.calls.filter(([path, init]) => path === '/dashboard/saasAdmin/tenants/41/wecom-integration' && init?.method === 'PUT').at(-1)
 }
 
 async function settle() {

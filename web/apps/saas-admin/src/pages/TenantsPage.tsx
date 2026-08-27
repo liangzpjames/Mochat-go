@@ -82,7 +82,7 @@ interface WeComIntegrationForm {
   agentSecret: string
   chatSecret: string
   permanentCode: string
-  scope: string
+  scope: string[]
   version: number
 }
 
@@ -186,6 +186,24 @@ function providerFormFromData(provider: TenantAIProvider): TenantAIProviderForm 
   }
 }
 
+const delegatedCapabilityCatalog = [
+  { code: 'archive.read', name: '会话内容与媒体归档', description: '支持归档消息、图片、录音和文件' },
+  { code: 'contacts.read', name: '通讯录与客户资料', description: '支持读取员工、客户和群聊资料' },
+] as const
+
+const delegatedCapabilityCodes = new Set<string>(delegatedCapabilityCatalog.map((capability) => capability.code))
+
+function selectedDelegatedCapabilities(scope: string[]) {
+  return delegatedCapabilityCatalog.filter((capability) => scope.includes(capability.code))
+}
+
+function mergeDelegatedScope(selectedCodes: string[], currentScope: string[]) {
+  const selected = new Set(selectedCodes)
+  const known = delegatedCapabilityCatalog.filter((capability) => selected.has(capability.code)).map((capability) => capability.code)
+  const unknown = currentScope.filter((code) => !delegatedCapabilityCodes.has(code))
+  return [...new Set([...known, ...unknown])]
+}
+
 function emptyWeComIntegrationForm(candidate?: WeComIntegrationRecord | null): WeComIntegrationForm {
   return {
     mode: candidate?.mode || 'self_built',
@@ -196,7 +214,7 @@ function emptyWeComIntegrationForm(candidate?: WeComIntegrationRecord | null): W
     agentSecret: '',
     chatSecret: '',
     permanentCode: '',
-    scope: (candidate?.scope || []).join('\n'),
+    scope: candidate?.scope?.length ? [...new Set(candidate.scope)] : delegatedCapabilityCatalog.map((capability) => capability.code),
     version: candidate?.version || 0,
   }
 }
@@ -237,6 +255,12 @@ function WeComIntegrationSummary({ label, record }: { label: '当前' | '候选'
   if (!record) {
     return <div className="rounded-md border border-dashed border-zinc-300 bg-white p-3"><strong className="text-sm">{label}：未配置</strong><p className="mt-1 text-xs text-zinc-500">服务端没有返回该槽位配置。</p></div>
   }
+  const selectedCapabilities = selectedDelegatedCapabilities(record.scope)
+  const scopeLabel = selectedCapabilities.length === delegatedCapabilityCatalog.length
+    ? '全部能力已开启'
+    : selectedCapabilities.length > 0
+      ? `已开启 ${selectedCapabilities.length} 项`
+      : '未开启公开能力'
   return <div className="rounded-md border border-violet-100 bg-white p-3" aria-label={`${label}企微集成`}>
     <div className="flex flex-wrap items-center justify-between gap-2"><strong className="text-sm">{label}：{weComModeLabel(record.mode)}</strong><Badge tone={weComStatusTone(record.status)}>{weComStatusLabel(record.status)}</Badge></div>
     <dl className="mt-3 grid gap-2 text-xs text-zinc-600 sm:grid-cols-2">
@@ -244,7 +268,7 @@ function WeComIntegrationSummary({ label, record }: { label: '当前' | '候选'
       <div><dt className="text-zinc-400">应用标识</dt><dd className="break-all">{record.mode === 'self_built' ? record.agentId || '未配置 AgentID' : record.providerAppId || '未配置 Provider App ID'}</dd></div>
       <div><dt className="text-zinc-400">凭据</dt><dd>{record.credentialConfigured ? record.credentialHint || '已安全配置' : '未配置'}</dd></div>
       <div><dt className="text-zinc-400">代次 / 版本</dt><dd>g{record.generation} / v{record.version}</dd></div>
-      <div className="sm:col-span-2"><dt className="text-zinc-400">能力范围</dt><dd className="break-words">{record.scope.length > 0 ? record.scope.join('、') : '未声明能力范围'}</dd></div>
+      <div className="sm:col-span-2"><dt className="text-zinc-400">能力范围</dt><dd className="break-words"><span>{scopeLabel}</span>{selectedCapabilities.length > 0 && <span>：{selectedCapabilities.map((capability) => capability.name).join('、')}</span>}</dd></div>
     </dl>
     {record.verificationLevel === 'local_contract' && <p className="mt-3 text-xs font-medium text-violet-700">本地合同验证（不代表真实企微线上可用）</p>}
     {record.missingCapabilities.length > 0 && <p role="alert" className="mt-2 text-xs text-red-700">缺失能力：{record.missingCapabilities.join('、')}</p>}
@@ -506,11 +530,11 @@ export default function TenantsPage({ profile, approvalMode, activationMutationO
     try {
       const tenantId = selectedTenantIDRef.current
       if (!tenantId) throw new Error('租户详情已经关闭，请重新打开后保存')
-      const scope = weComForm.scope.split(/[\n,，]/).map((item) => item.trim()).filter(Boolean)
-      if (scope.length === 0) throw new Error('请至少填写一项能力范围')
+      const selectedScope = selectedDelegatedCapabilities(weComForm.scope)
+      if (selectedScope.length === 0) throw new Error('请至少选择一项能力')
       if (weComForm.mode !== 'third_party_delegated') throw new Error('自建应用配置只能在 Dashboard 唯一企业资料中维护')
       if (!weComForm.providerAppId.trim()) throw new Error('第三方代开发应用必须填写 Provider App ID')
-      const payload = { mode: weComForm.mode, scope, version: weComForm.version, providerAppId: weComForm.providerAppId.trim(), permanentCode: weComForm.permanentCode.trim() }
+      const payload = { mode: weComForm.mode, scope: mergeDelegatedScope(selectedScope.map((capability) => capability.code), weComForm.scope), version: weComForm.version, providerAppId: weComForm.providerAppId.trim(), permanentCode: weComForm.permanentCode.trim() }
       saveWeComMutation.mutate({ tenantId, payload, operationEpoch: ++weComOperationEpochRef.current })
     } catch (error) {
       setWeComForm((form) => ({ ...form, employeeSecret: '', contactSecret: '', agentSecret: '', chatSecret: '', permanentCode: '' }))
@@ -921,7 +945,7 @@ export default function TenantsPage({ profile, approvalMode, activationMutationO
           <Field label="配置版本"><div className="flex h-9 items-center rounded-md border border-zinc-200 bg-zinc-50 px-3 text-sm text-zinc-700">v{weComForm.version}</div></Field>
           <Field label="Provider App ID"><Input value={weComForm.providerAppId} onChange={(event) => setWeComForm((form) => ({ ...form, providerAppId: event.target.value }))} placeholder="Provider App ID" /></Field>
           <Field label="永久授权码" hint="仅安全写入或轮换，保存后立即从页面清除且不会回显。"><Input type="password" autoComplete="new-password" value={weComForm.permanentCode} onChange={(event) => setWeComForm((form) => ({ ...form, permanentCode: event.target.value }))} placeholder="永久授权码" /></Field>
-          <Field label="能力范围" hint="每行或逗号分隔；保存后按租户隔离。" className="sm:col-span-2"><textarea className="min-h-24 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-100" value={weComForm.scope} onChange={(event) => setWeComForm((form) => ({ ...form, scope: event.target.value }))} placeholder="archive.read&#10;contacts.read" /></Field>
+          <Field label="授权能力" hint="请选择当前应用需要的数据范围。" className="sm:col-span-2"><div className="space-y-3 rounded-md border border-zinc-200 bg-white p-3"><div className="flex items-center justify-between gap-3"><p className="text-sm text-zinc-700">可授权能力</p><Button type="button" variant="secondary" onClick={() => setWeComForm((form) => ({ ...form, scope: mergeDelegatedScope(delegatedCapabilityCatalog.map((capability) => capability.code), form.scope) }))}>全部开启</Button></div><div className="grid gap-2" role="group" aria-label="可授权能力">{delegatedCapabilityCatalog.map((capability) => <label key={capability.code} className="flex cursor-pointer items-start gap-3 rounded-md border border-zinc-200 p-3 text-sm text-zinc-700"><input type="checkbox" className="mt-0.5 h-4 w-4" checked={weComForm.scope.includes(capability.code)} onChange={(event) => setWeComForm((form) => ({ ...form, scope: mergeDelegatedScope(event.target.checked ? [...selectedDelegatedCapabilities(form.scope).map((item) => item.code), capability.code] : selectedDelegatedCapabilities(form.scope).map((item) => item.code).filter((code) => code !== capability.code), form.scope) }))} /><span><strong className="block font-medium text-zinc-900">{capability.name}</strong><span className="mt-1 block text-xs text-zinc-500">{capability.description}</span></span></label>)}</div></div></Field>
           {weComError && <p role="alert" className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 sm:col-span-2">{weComError}</p>}
           <p className="text-xs leading-5 text-zinc-500 sm:col-span-2">未填写第三方配置也不影响 Dashboard 浏览；保存只更新当前模式的加密授权，不会调用真实企微。</p>
         </div>
