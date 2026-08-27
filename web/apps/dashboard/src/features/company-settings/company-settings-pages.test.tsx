@@ -342,8 +342,11 @@ describe('企业设置页面', () => {
       </DashboardAccessProvider>,
     );
 
-    expect(await screen.findByText('Provider 运行状态')).toBeTruthy();
-    expect(screen.getByText('下一步：请联系管理员配置 Provider')).toBeTruthy();
+    expect(await screen.findByText('服务运行状态')).toBeTruthy();
+    expect(screen.getByRole('article', { name: '会话存档 需要完善' })).toBeTruthy();
+    expect(screen.getByText('需要完善')).toBeTruthy();
+    expect(screen.getByText('部分功能尚未配置完成')).toBeTruthy();
+    expect(screen.queryByText('下一步：请联系管理员配置 Provider')).toBeNull();
     expect(screen.queryByText('sensitive diagnostic reason')).toBeNull();
     expect(screen.queryByText('MOCHAT_ARCHIVE_SECRET')).toBeNull();
   });
@@ -377,7 +380,8 @@ describe('企业设置页面', () => {
       </DashboardAccessProvider>,
     );
 
-    expect(await screen.findByText('Provider 运行状态')).toBeTruthy();
+    expect(await screen.findByText('服务运行状态')).toBeTruthy();
+    expect(screen.getByText('部分功能尚未配置完成')).toBeTruthy();
     expect(screen.queryByText('legacy fixture secret reason')).toBeNull();
     expect(screen.queryByText('MOCHAT_ARCHIVE_SECRET')).toBeNull();
   });

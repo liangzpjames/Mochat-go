@@ -47,7 +47,10 @@ function providerStatusErrorMessage(error: unknown): string {
   if (error instanceof ApiError && (error.status === 403 || error.machineCode === 'DASHBOARD_PERMISSION_DENIED')) {
     return '当前账号无权查看服务运行状态。';
   }
-  return '服务状态暂时无法获取，请稍后重试。';
+  if (error instanceof ApiError && (error.status === 503 || error.machineCode === 'PROVIDER_STATUS_SOURCE_UNAVAILABLE')) {
+    return '服务状态暂时中断，请稍后重试。';
+  }
+  return '服务状态读取失败，请稍后重试。';
 }
 
 function serviceLabel(kind: string): string {

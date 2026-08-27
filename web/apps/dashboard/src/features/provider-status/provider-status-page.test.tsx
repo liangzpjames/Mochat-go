@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { ApiError } from '@mochat/api-client';
@@ -61,7 +61,7 @@ describe('provider status page', () => {
     return expect(screen.findByText('暂无服务状态信息。')).resolves.toBeTruthy();
   });
 
-  it('uses business language and retains retry for authorization and unavailable errors', async () => {
+  it('uses business language for authorization and service interruptions', async () => {
     const forbiddenApi: ProviderStatusApi = {
       getStatus: vi.fn().mockRejectedValue(new ApiError('forbidden', 'denied', { status: 403, machineCode: 'DASHBOARD_PERMISSION_DENIED' })),
     };
@@ -74,15 +74,24 @@ describe('provider status page', () => {
       getStatus: vi.fn().mockRejectedValue(new ApiError('server', 'source unavailable', { status: 503, machineCode: 'PROVIDER_STATUS_SOURCE_UNAVAILABLE' })),
     };
     renderPage(unavailableApi, true);
-    expect(await screen.findByText('服务状态暂时无法获取，请稍后重试。')).toBeTruthy();
+    expect(await screen.findByText('服务状态暂时中断，请稍后重试。')).toBeTruthy();
     expect(screen.getByRole('button', { name: '重试' })).toBeTruthy();
   });
 
-  it('uses business language and retains retry for ordinary errors', async () => {
-    const api: ProviderStatusApi = { getStatus: vi.fn().mockRejectedValue(new Error('unexpected')) };
+  it('retries an ordinary error and recovers to a service summary', async () => {
+    const api: ProviderStatusApi = {
+      getStatus: vi.fn()
+        .mockRejectedValueOnce(new Error('unexpected'))
+        .mockResolvedValueOnce({
+          providers: [{ kind: 'wecom_standard', state: 'ready', code: 'wecom.runtime_verified', source: 'external', capabilities: [], capabilityStatuses: [] }],
+          freshAt: '2026-08-14T08:00:00Z',
+        }),
+    };
     renderPage(api, true);
 
-    expect(await screen.findByText('服务状态暂时无法获取，请稍后重试。')).toBeTruthy();
-    expect(screen.getByRole('button', { name: '重试' })).toBeTruthy();
+    expect(await screen.findByText('服务状态读取失败，请稍后重试。')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '重试' }));
+    await waitFor(() => expect(api.getStatus).toHaveBeenCalledTimes(2));
+    expect(await screen.findByText('服务运行正常')).toBeTruthy();
   });
 });
