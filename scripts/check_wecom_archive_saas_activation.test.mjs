@@ -22,6 +22,22 @@ test('acceptance migrations install the archive simulation registry before durab
   assert.ok(simulation < durable, '0133 must run before 0138');
 });
 
+test('acceptance seed exercises durable replay, formal integration transitions and activation services', async () => {
+  const source = await readFile('cmd/mochat-archive-acceptance/main.go', 'utf8');
+  assert.doesNotMatch(source, /if\s+!found\s*\{[\s\S]*?NewSyncService/, 'seed must not bypass Sync for an existing succeeded run');
+  for (const contract of [
+    'SaveCandidate',
+    'VerifyCandidate',
+    'Switch(ctx',
+    'Rollback(ctx',
+    'ProvisionDashboardTenant',
+    'DashboardActivationStatus',
+    'syncIdempotent',
+  ]) {
+    assert.ok(source.includes(contract), `acceptance CLI missing ${contract}`);
+  }
+});
+
 test('acceptance runtime secures Windows secrets, rebuilds the CLI and runs a durable worker', async () => {
   const script = await readFile('scripts/run_wecom_archive_saas_activation_acceptance.ps1', 'utf8');
   for (const contract of ['/inheritance:r', '*S-1-5-11', '*S-1-5-32-545', "@('build', 'acceptance')", "'worker'"]) {

@@ -21,6 +21,7 @@ import (
 	"syscall"
 	"time"
 
+	"jiyi/mochat-go/internal/dashboardadmin"
 	"jiyi/mochat-go/internal/dashboardauth"
 	archiveprovider "jiyi/mochat-go/internal/modules/providers/archive"
 	"jiyi/mochat-go/internal/mysqlconn"
@@ -42,6 +43,8 @@ const (
 	acceptanceRunKey        = "archive:MOCHAT-LOCAL-ACCEPTANCE-20260827:cursor:0"
 	acceptanceWorkerRunLike = "archive:820827:820827:wecom:ww-MOCHAT-LOCAL-ACCEPTANCE-20260827:%"
 	acceptanceIntegrationID = "a2080827-0000-4000-8000-000000000001"
+	acceptancePackageID     = 820827
+	acceptancePackageCode   = datasetID + "-ACTIVATION"
 	acceptanceLimitsJSON    = `{"maxCorps":1,"maxUsers":10,"maxContacts":100,"maxRooms":10,"maxAgents":10,"channelCodes":10,"shopCodes":10,"radars":10,"lotteries":10,"roomInfinitePulls":10,"roomFissions":10,"roomClockIns":10,"roomQualities":10,"roomCalendars":10,"roomReminds":10,"contactSops":10,"roomSops":10,"sensitiveWords":10,"storageMb":100,"contactMessageBatches":10,"roomMessageBatches":10,"roomTagPulls":10,"workRoomAutoPulls":10,"workFissions":10,"officialAccounts":10,"asyncExecutions":10}`
 )
 
@@ -56,6 +59,7 @@ type options struct {
 	Addr                  string
 	APIBaseURL            string
 	DashboardPasswordFile string
+	ActivationFixtureDir  string
 	DryRun                bool
 	Timeout               time.Duration
 }
@@ -121,6 +125,7 @@ func parseOptions(args []string, getenv func(string) string) (options, error) {
 	flags.StringVar(&values.Addr, "addr", envOr(getenv, "MOCHAT_ACCEPTANCE_BRIDGE_ADDR", "127.0.0.1:19091"), "bridge listen address")
 	flags.StringVar(&values.APIBaseURL, "api-base-url", envOr(getenv, "MOCHAT_ACCEPTANCE_API_BASE_URL", "http://127.0.0.1:19080"), "application base URL")
 	flags.StringVar(&values.DashboardPasswordFile, "dashboard-password-file", getenv("MOCHAT_ACCEPTANCE_DASHBOARD_PASSWORD_FILE"), "local Dashboard acceptance password file")
+	flags.StringVar(&values.ActivationFixtureDir, "activation-fixture-dir", envOr(getenv, "MOCHAT_ACCEPTANCE_ACTIVATION_FIXTURE_DIR", ".runtime/wecom-acceptance/activation"), "directory for local activation fixture tokens")
 	flags.BoolVar(&values.DryRun, "dry-run", false, "report cleanup counts without deleting")
 	flags.DurationVar(&values.Timeout, "timeout", 2*time.Minute, "command timeout")
 	if err := flags.Parse(args); err != nil {
@@ -218,14 +223,18 @@ func openAcceptanceStore(ctx context.Context, values options) (*sql.DB, *store.M
 		db.Close()
 		return nil, nil, err
 	}
-	manager, err := wecomcredentials.NewManager(wecomcredentials.Config{
-		EncryptionKey: values.EncryptionKey, EncryptionKeyID: "acceptance-v1", RequireEncryption: values.EncryptionKey != "", DedicatedConfigured: values.EncryptionKey != "",
-	})
+	manager, err := newAcceptanceCredentialManager(values)
 	if err != nil {
 		db.Close()
 		return nil, nil, err
 	}
 	return db, store.NewMySQLStore(db).WithWeComCredentialCipher(manager), nil
+}
+
+func newAcceptanceCredentialManager(values options) (*wecomcredentials.Manager, error) {
+	return wecomcredentials.NewManager(wecomcredentials.Config{
+		EncryptionKey: values.EncryptionKey, EncryptionKeyID: "acceptance-v1", RequireEncryption: values.EncryptionKey != "", DedicatedConfigured: values.EncryptionKey != "",
+	})
 }
 
 func seed(ctx context.Context, output io.Writer, values options) error {
@@ -243,6 +252,17 @@ func seed(ctx context.Context, output io.Writer, values options) error {
 		return errors.New("hash local Dashboard acceptance password")
 	}
 	if err := prepareInfrastructure(ctx, db, passwordHash); err != nil {
+		return err
+	}
+	credentialManager, err := newAcceptanceCredentialManager(values)
+	if err != nil {
+		return err
+	}
+	if err := prepareWeComIntegrationFixtures(ctx, db, archiveStore, credentialManager); err != nil {
+		return err
+	}
+	activationStates, err := prepareActivationFixtures(ctx, db, archiveStore, values.ActivationFixtureDir)
+	if err != nil {
 		return err
 	}
 	client, err := archiveprovider.NewBridgeArchiveClient(values.BridgeURL, values.BridgeToken, nil)
@@ -278,7 +298,7 @@ func seed(ctx context.Context, output io.Writer, values options) error {
 	}
 	return json.NewEncoder(output).Encode(map[string]any{
 		"dataset": datasetID, "action": "seed", "tenantId": acceptanceTenant, "corpId": acceptanceCorp,
-		"runId": run.ID, "cursor": run.Cursor.Sequence, "syncIdempotent": run.Idempotent, "mediaProcessed": processed, "counts": counts, "production": false,
+		"runId": run.ID, "cursor": run.Cursor.Sequence, "syncIdempotent": run.Idempotent, "mediaProcessed": processed, "counts": counts, "activationFixtures": activationStates, "production": false,
 	})
 }
 
@@ -319,6 +339,7 @@ func prepareInfrastructure(ctx context.Context, db *sql.DB, dashboardPasswordHas
 	}{
 		{`INSERT INTO mc_tenant (id,name,status,copyright) VALUES (?,?,1,?) ON DUPLICATE KEY UPDATE status=1,deleted_at=NULL`, []any{acceptanceTenant, datasetID + " 本地验收租户（非生产）", datasetID}},
 		{`INSERT INTO mochat_go_saas_tenant_packages (tenant_id,package_code,package_name,starts_at,expires_at,status,version,limits_json) VALUES (?,?,'本地验收套餐（非生产）',DATE_SUB(NOW(),INTERVAL 1 DAY),DATE_ADD(NOW(),INTERVAL 30 DAY),1,1,?) ON DUPLICATE KEY UPDATE package_code=VALUES(package_code),package_name=VALUES(package_name),starts_at=VALUES(starts_at),expires_at=VALUES(expires_at),status=1,limits_json=VALUES(limits_json),deleted_at=NULL`, []any{acceptanceTenant, datasetID, acceptanceLimitsJSON}},
+		{`INSERT INTO mochat_go_saas_packages (id,code,name,status,version,max_corps,max_users,max_contacts,max_rooms,max_agents,channel_codes,shop_codes,radars,lotteries,room_infinite_pulls,room_fissions,room_clock_ins,room_qualities,room_calendars,room_reminds,contact_sops,room_sops,sensitive_words,storage_mb,contact_message_batches,room_message_batches,room_tag_pulls,work_room_auto_pulls,work_fissions,official_accounts,async_executions) VALUES (?,?,?,1,1,10,10,100,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,100,10,10,10,10,10,10,10) ON DUPLICATE KEY UPDATE name=VALUES(name),status=1,version=1,deleted_at=NULL`, []any{acceptancePackageID, acceptancePackageCode, datasetID + " 激活验收套餐（非生产）"}},
 		{`INSERT INTO mochat_go_saas_subscriptions (tenant_id,package_code,package_name,status,billing_cycle,current_period_starts_at,current_period_ends_at,version,state_reason,metadata_json) VALUES (?,?,?,'active','custom',DATE_SUB(NOW(),INTERVAL 1 DAY),DATE_ADD(NOW(),INTERVAL 30 DAY),1,?,JSON_OBJECT('dataset',?)) ON DUPLICATE KEY UPDATE package_code=VALUES(package_code),package_name=VALUES(package_name),status='active',current_period_starts_at=VALUES(current_period_starts_at),current_period_ends_at=VALUES(current_period_ends_at),state_reason=VALUES(state_reason),metadata_json=VALUES(metadata_json),deleted_at=NULL`, []any{acceptanceTenant, datasetID, "本地验收订阅（非生产）", datasetID, datasetID}},
 		{`INSERT INTO mc_corp (id,name,wx_corpid,tenant_id,chat_status,created_at) VALUES (?,?,?,?,1,NOW()) ON DUPLICATE KEY UPDATE chat_status=1,deleted_at=NULL`, []any{acceptanceCorp, datasetID + " 本地验收企业（非生产）", acceptanceWXCorp, acceptanceTenant}},
 		{`INSERT INTO mc_user (id,phone,name,status,tenant_id,isSuperAdmin) VALUES (?,?,?,1,?,1) ON DUPLICATE KEY UPDATE deleted_at=NULL,status=1`, []any{acceptanceUser, "19008208270", datasetID + " 本地验收管理员", acceptanceTenant}},
@@ -326,7 +347,6 @@ func prepareInfrastructure(ctx context.Context, db *sql.DB, dashboardPasswordHas
 		{`INSERT INTO mc_work_employee (id,wx_user_id,corp_id,name,status,audit_status,created_at) VALUES (?,?,?,?,1,1,NOW()) ON DUPLICATE KEY UPDATE deleted_at=NULL,status=1,audit_status=1`, []any{acceptanceStaff, datasetID + "-STAFF-01", acceptanceCorp, datasetID + " 本地验收员工"}},
 		{`INSERT INTO mc_work_contact (id,corp_id,wx_external_userid,name,created_at) VALUES (?,?,?,?,NOW()) ON DUPLICATE KEY UPDATE deleted_at=NULL`, []any{acceptanceContact, acceptanceCorp, datasetID + "-EXTERNAL-01", datasetID + " 本地验收客户"}},
 		{`INSERT INTO mochat_go_tenant_corp_bindings (tenant_id,corp_id,status,version,verified_wx_corpid,verified_corp_name,verified_at) VALUES (?,?,2,1,?,?,NOW()) ON DUPLICATE KEY UPDATE status=2,verified_wx_corpid=VALUES(verified_wx_corpid),verified_corp_name=VALUES(verified_corp_name),verified_at=COALESCE(verified_at,NOW())`, []any{acceptanceTenant, acceptanceCorp, acceptanceWXCorp, datasetID + " 本地验收企业（非生产）"}},
-		{`INSERT INTO mochat_go_wecom_integrations (id,tenant_id,corp_id,mode,slot,status,verified_wx_corpid,scope_json,scope_digest,missing_capabilities_json,generation,version,verification_level,verified_at,activated_at,last_audit_at) VALUES (?,?,?,?,?,'active',?,JSON_ARRAY('archive.read'),SHA2('archive.read',256),JSON_ARRAY(),1,1,'contract_verified',NOW(),NOW(),NOW()) ON DUPLICATE KEY UPDATE status='active',verified_wx_corpid=VALUES(verified_wx_corpid),scope_json=VALUES(scope_json),missing_capabilities_json=JSON_ARRAY(),verified_at=COALESCE(verified_at,NOW())`, []any{acceptanceIntegrationID, acceptanceTenant, acceptanceCorp, "self_built", "current", acceptanceWXCorp}},
 	}
 	for _, statement := range statements {
 		if _, err := tx.ExecContext(ctx, statement.query, statement.args...); err != nil {
@@ -334,6 +354,229 @@ func prepareInfrastructure(ctx context.Context, db *sql.DB, dashboardPasswordHas
 		}
 	}
 	return tx.Commit()
+}
+
+func prepareWeComIntegrationFixtures(ctx context.Context, db *sql.DB, archiveStore *store.MySQLStore, credentialManager *wecomcredentials.Manager) error {
+	var actorID int
+	if err := db.QueryRowContext(ctx, `SELECT id FROM mochat_go_saas_admin_users WHERE login_name=? AND bootstrap_request_key=? AND status=1 LIMIT 1`, "mochat-local-acceptance-admin", datasetID+"-SAAS-ADMIN").Scan(&actorID); err != nil {
+		return fmt.Errorf("resolve acceptance SaaS actor: %w", err)
+	}
+	actor := dashboardadmin.Actor{UserID: actorID, Active: true, Permissions: []string{"*"}}
+	if err := bootstrapEncryptedCurrentIntegration(ctx, db, credentialManager, actorID); err != nil {
+		return err
+	}
+	verifier := dashboardadmin.WeComIntegrationVerifierFunc(func(_ context.Context, request dashboardadmin.WeComVerificationRequest) (dashboardadmin.WeComVerificationResult, error) {
+		if request.TenantID != acceptanceTenant || request.CorpID != acceptanceCorp || request.AuthoritativeWXCorpID != acceptanceWXCorp || request.Mode != "third_party_delegated" || request.ProviderAppID != datasetID+"-PROVIDER-APP" || request.Credentials.PermanentCode == "" || request.Credentials.EmployeeSecret != "" || request.Credentials.ChatSecret != "" {
+			return dashboardadmin.WeComVerificationResult{}, errors.New("acceptance delegated integration verification contract mismatch")
+		}
+		return dashboardadmin.WeComVerificationResult{VerifiedWXCorpID: acceptanceWXCorp, Scope: []string{"archive.read"}, VerificationLevel: dashboardadmin.WeComVerificationLocalContract}, nil
+	})
+	service := dashboardadmin.NewWeComIntegrationService(archiveStore, verifier)
+	view, err := service.Get(ctx, actor, acceptanceTenant)
+	if err != nil {
+		return err
+	}
+	if view.Current == nil || !view.Current.CredentialConfigured {
+		return errors.New("acceptance current WeCom integration credential is not configured")
+	}
+	if view.Candidate == nil {
+		candidate, err := service.SaveCandidate(ctx, actor, acceptanceTenant, dashboardadmin.WeComIntegrationCandidateInput{
+			Mode: "third_party_delegated", ProviderAppID: datasetID + "-PROVIDER-APP", PermanentCode: datasetID + "-PERMANENT-CODE-LOCAL-ONLY", Scope: []string{"archive.read"}, Version: view.Current.Version,
+		})
+		if err != nil {
+			return err
+		}
+		candidate, err = service.VerifyCandidate(ctx, actor, acceptanceTenant, candidate.Version)
+		if err != nil {
+			return err
+		}
+		switched, err := service.Switch(ctx, actor, acceptanceTenant, candidate.Version)
+		if err != nil {
+			return err
+		}
+		if switched.Candidate == nil {
+			return errors.New("acceptance integration switch did not preserve rollback candidate")
+		}
+		view, err = service.Rollback(ctx, actor, acceptanceTenant, switched.Candidate.Version)
+		if err != nil {
+			return err
+		}
+	}
+	if view.Current == nil || view.Candidate == nil || view.Current.Mode != "self_built" || view.Candidate.Mode != "third_party_delegated" || !view.Current.CredentialConfigured || !view.Candidate.CredentialConfigured {
+		return errors.New("acceptance integration current/candidate rollback contract failed")
+	}
+	if _, err := archiveStore.WeComIntegrationVerificationCandidate(ctx, actor, acceptanceTenant, view.Candidate.Version); err != nil {
+		return fmt.Errorf("decrypt acceptance candidate integration: %w", err)
+	}
+	return nil
+}
+
+func bootstrapEncryptedCurrentIntegration(ctx context.Context, db *sql.DB, manager *wecomcredentials.Manager, actorID int) error {
+	var integrationID, ciphertext, keyID string
+	currentExists := true
+	err := db.QueryRowContext(ctx, `SELECT id,COALESCE(credential_ciphertext,''),COALESCE(credential_key_id,'') FROM mochat_go_wecom_integrations WHERE tenant_id=? AND corp_id=? AND slot='current' LIMIT 1`, acceptanceTenant, acceptanceCorp).Scan(&integrationID, &ciphertext, &keyID)
+	if errors.Is(err, sql.ErrNoRows) {
+		currentExists = false
+		integrationID = acceptanceIntegrationID
+	} else if err != nil {
+		return err
+	}
+	if ciphertext != "" && keyID != "" {
+		if _, err := manager.DecryptAuthorization(acceptanceTenant, integrationID, keyID, ciphertext); err != nil {
+			return fmt.Errorf("decrypt acceptance current integration: %w", err)
+		}
+		return nil
+	}
+	credential := wecomcredentials.AuthorizationCredential{
+		Mode: "self_built", EmployeeSecret: datasetID + "-EMPLOYEE-SECRET", ContactSecret: datasetID + "-CONTACT-SECRET", AgentSecret: datasetID + "-AGENT-SECRET", ChatSecret: datasetID + "-CHAT-SECRET",
+	}
+	ciphertext, keyID, err = manager.EncryptAuthorization(acceptanceTenant, integrationID, credential)
+	if err != nil {
+		return err
+	}
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if !currentExists {
+		_, err = tx.ExecContext(ctx, `INSERT INTO mochat_go_wecom_integrations (id,tenant_id,corp_id,mode,slot,status,verified_wx_corpid,agent_id,credential_ciphertext,credential_key_id,credential_hint,scope_json,scope_digest,missing_capabilities_json,generation,version,verification_level,verified_at,activated_at,last_audit_at) VALUES (?,?,?,'self_built','current','active',?,1000002,?,?,?,JSON_ARRAY('archive.read'),?,JSON_ARRAY(),1,1,?,NOW(6),NOW(6),NOW(6))`, integrationID, acceptanceTenant, acceptanceCorp, acceptanceWXCorp, ciphertext, keyID, "agent,chat,contact,employee", dashboardadmin.WeComScopeDigest([]string{"archive.read"}), dashboardadmin.WeComVerificationLocalContract)
+	} else {
+		_, err = tx.ExecContext(ctx, `UPDATE mochat_go_wecom_integrations SET mode='self_built',status='active',verified_wx_corpid=?,agent_id=1000002,provider_app_id='',credential_ciphertext=?,credential_key_id=?,credential_hint=?,scope_json=JSON_ARRAY('archive.read'),scope_digest=?,missing_capabilities_json=JSON_ARRAY(),verification_level=?,verified_at=NOW(6),last_error_code='',last_error_at=NULL,updated_at=NOW(6) WHERE id=? AND tenant_id=? AND corp_id=? AND slot='current'`, acceptanceWXCorp, ciphertext, keyID, "agent,chat,contact,employee", dashboardadmin.WeComScopeDigest([]string{"archive.read"}), dashboardadmin.WeComVerificationLocalContract, integrationID, acceptanceTenant, acceptanceCorp)
+	}
+	if err != nil {
+		return err
+	}
+	afterJSON := fmt.Sprintf(`{"id":%q,"mode":"self_built","slot":"current","credentialConfigured":true}`, integrationID)
+	if _, err := tx.ExecContext(ctx, `INSERT INTO mochat_go_saas_admin_operation_logs (tenant_id,actor_user_id,actor_tenant_id,action,target_type,target_id,target_name,after_json,remark) VALUES (?,?,0,'wecom.integration.acceptance.bootstrap','wecom_integration',?,?,?,'local acceptance bootstrap; credential omitted')`, acceptanceTenant, actorID, integrationID, datasetID+" encrypted current", afterJSON); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func prepareActivationFixtures(ctx context.Context, db *sql.DB, archiveStore *store.MySQLStore, fixtureDir string) (map[string]string, error) {
+	var actorID int
+	if err := db.QueryRowContext(ctx, `SELECT id FROM mochat_go_saas_admin_users WHERE login_name=? AND bootstrap_request_key=? AND status=1 LIMIT 1`, "mochat-local-acceptance-admin", datasetID+"-SAAS-ADMIN").Scan(&actorID); err != nil {
+		return nil, fmt.Errorf("resolve activation fixture SaaS actor: %w", err)
+	}
+	actor := dashboardadmin.Actor{UserID: actorID, Active: true, Permissions: []string{"*"}}
+	provisioning := dashboardadmin.NewService(archiveStore)
+	identityStore := store.NewDashboardIdentityStore(db)
+	authService := dashboardauth.NewService(identityStore)
+	states := map[string]string{}
+	now := time.Now().UTC()
+	for index, state := range []string{"valid", "expired", "activated", "revoked"} {
+		key := datasetID + "-ACTIVATION-" + strings.ToUpper(state)
+		result, err := provisioning.ProvisionDashboardTenant(ctx, actor, dashboardadmin.ProvisionDashboardTenant{
+			TenantName: datasetID + " 激活状态 " + state + "（非生产）", PackageID: acceptancePackageID, Limits: acceptanceActivationLimits(),
+			Subscription:         dashboardadmin.SubscriptionInput{PackageCode: acceptancePackageCode, Status: "trialing", BillingCycle: "custom", StartsAt: now.Add(-time.Hour).Format(time.RFC3339), ExpiresAt: now.Add(30 * 24 * time.Hour).Format(time.RFC3339)},
+			AdminLoginIdentifier: fmt.Sprintf("1900820827%d", index+1), AdminName: datasetID + " 激活管理员 " + state,
+			IdempotencyKey: key, ExpectedVersion: 1, RequestID: key,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("provision %s activation fixture: %w", state, err)
+		}
+		tokenPath := filepath.Join(fixtureDir, state+".token")
+		token := result.ActivationToken
+		if token != "" {
+			if err := writeAcceptanceSecretFile(tokenPath, token); err != nil {
+				return nil, err
+			}
+		} else {
+			token, err = readAcceptanceSecretFile(tokenPath)
+			if err != nil {
+				return nil, fmt.Errorf("activation fixture %s was replayed but its local token file is unavailable; run cleanup before reseeding: %w", state, err)
+			}
+		}
+		digest := sha256.Sum256([]byte(token))
+		status, err := identityStore.DashboardActivationStatus(ctx, digest, now)
+		if err != nil {
+			return nil, err
+		}
+		switch state {
+		case "expired":
+			if status.Status == dashboardauth.ActivationStatusValid {
+				if _, err := db.ExecContext(ctx, `UPDATE mochat_go_dashboard_identity_activations SET expires_at=DATE_SUB(NOW(),INTERVAL 1 HOUR) WHERE user_id=? AND token_digest=? AND consumed_at IS NULL`, result.DashboardUserID, digest[:]); err != nil {
+					return nil, err
+				}
+			}
+		case "activated":
+			if status.Status == dashboardauth.ActivationStatusValid {
+				if err := authService.Activate(ctx, digest, datasetID+"-Activated-Password-Only-Local!42"); err != nil {
+					return nil, err
+				}
+			}
+		case "revoked":
+			if status.Status == dashboardauth.ActivationStatusValid {
+				var bindingVersion uint64
+				if err := db.QueryRowContext(ctx, `SELECT version FROM mochat_go_tenant_corp_bindings WHERE tenant_id=? AND corp_id=?`, result.TenantID, result.BindingCorpID).Scan(&bindingVersion); err != nil {
+					return nil, err
+				}
+				resent, err := provisioning.ResendActivation(ctx, actor, dashboardadmin.ResendActivationInput{TenantID: result.TenantID, TargetUserID: result.DashboardUserID, ExpectedVersion: bindingVersion, RequestID: key + "-RESEND"})
+				if err != nil {
+					return nil, err
+				}
+				if resent.ActivationToken != "" {
+					if err := writeAcceptanceSecretFile(filepath.Join(fixtureDir, "revoked-replacement.token"), resent.ActivationToken); err != nil {
+						return nil, err
+					}
+				}
+			}
+		}
+		status, err = identityStore.DashboardActivationStatus(ctx, digest, time.Now().UTC())
+		if err != nil {
+			return nil, err
+		}
+		if string(status.Status) != state {
+			return nil, fmt.Errorf("activation fixture %s has status %s", state, status.Status)
+		}
+		states[state] = string(status.Status)
+	}
+	invalidToken := datasetID + "-INVALID-ACTIVATION-TOKEN"
+	if err := writeAcceptanceSecretFile(filepath.Join(fixtureDir, "invalid.token"), invalidToken); err != nil {
+		return nil, err
+	}
+	invalidStatus, err := identityStore.DashboardActivationStatus(ctx, sha256.Sum256([]byte(invalidToken)), time.Now().UTC())
+	if err != nil {
+		return nil, err
+	}
+	if invalidStatus.Status != dashboardauth.ActivationStatusInvalid {
+		return nil, errors.New("invalid activation fixture unexpectedly resolved")
+	}
+	states["invalid"] = string(invalidStatus.Status)
+	return states, nil
+}
+
+func acceptanceActivationLimits() dashboardadmin.SaaSAdminPackageLimits {
+	return dashboardadmin.SaaSAdminPackageLimits{
+		MaxCorps: 10, MaxUsers: 10, MaxContacts: 100, MaxRooms: 10, MaxAgents: 10,
+		ChannelCodes: 10, ShopCodes: 10, Radars: 10, Lotteries: 10, RoomInfinitePulls: 10,
+		RoomFissions: 10, RoomClockIns: 10, RoomQualities: 10, RoomCalendars: 10, RoomReminds: 10,
+		ContactSOPs: 10, RoomSOPs: 10, SensitiveWords: 10, StorageMB: 100, ContactMessageBatches: 10,
+		RoomMessageBatches: 10, RoomTagPulls: 10, WorkRoomAutoPulls: 10, WorkFissions: 10, OfficialAccounts: 10, AsyncExecutions: 10,
+	}
+}
+
+func writeAcceptanceSecretFile(path, value string) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	if err := os.WriteFile(path, []byte(value), 0o600); err != nil {
+		return fmt.Errorf("write local acceptance secret file: %w", err)
+	}
+	return nil
+}
+
+func readAcceptanceSecretFile(path string) (string, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	value := strings.TrimSpace(string(raw))
+	if value == "" {
+		return "", errors.New("local acceptance secret file is empty")
+	}
+	return value, nil
 }
 
 type acceptanceCounts struct {
@@ -400,15 +643,22 @@ func verify(ctx context.Context, output io.Writer, values options) error {
 			return fmt.Errorf("archive message %d type=%d want=%d", seq, messageType, expectedType)
 		}
 	}
-	var syncAuditCount, integrationCount int
+	var syncAuditCount, integrationCount, integrationAuditCount int
 	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM mochat_go_archive_sync_audits WHERE tenant_id=? AND corp_id=? AND source_id=?`, acceptanceTenant, acceptanceCorp, acceptanceSource).Scan(&syncAuditCount); err != nil {
 		return err
 	}
-	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM mochat_go_wecom_integrations WHERE id=? AND tenant_id=? AND corp_id=? AND mode='self_built' AND slot='current' AND status='active' AND JSON_CONTAINS(scope_json, JSON_QUOTE('archive.read'))`, acceptanceIntegrationID, acceptanceTenant, acceptanceCorp).Scan(&integrationCount); err != nil {
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM mochat_go_wecom_integrations WHERE tenant_id=? AND corp_id=? AND status='active' AND credential_ciphertext<>'' AND credential_key_id='acceptance-v1' AND verification_level=? AND JSON_CONTAINS(scope_json, JSON_QUOTE('archive.read')) AND ((mode='self_built' AND slot='current') OR (mode='third_party_delegated' AND slot='candidate'))`, acceptanceTenant, acceptanceCorp, dashboardadmin.WeComVerificationLocalContract).Scan(&integrationCount); err != nil {
 		return err
 	}
-	if syncAuditCount == 0 || integrationCount != 1 {
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(DISTINCT action) FROM mochat_go_saas_admin_operation_logs WHERE tenant_id=? AND target_type='wecom_integration' AND action IN ('wecom.integration.acceptance.bootstrap','wecom.integration.candidate.save','wecom.integration.candidate.verify','wecom.integration.switch','wecom.integration.rollback')`, acceptanceTenant).Scan(&integrationAuditCount); err != nil {
+		return err
+	}
+	if syncAuditCount == 0 || integrationCount != 2 || integrationAuditCount != 5 {
 		return errors.New("archive audit or active integration contract failed")
+	}
+	activationStates, err := verifyActivationFixtures(ctx, db, values.ActivationFixtureDir)
+	if err != nil {
+		return err
 	}
 	password, err := readAcceptancePassword(values.DashboardPasswordFile)
 	if err != nil {
@@ -493,7 +743,27 @@ func verify(ctx context.Context, output io.Writer, values options) error {
 			return errors.New("SDK media locator leaked into message projection")
 		}
 	}
-	return json.NewEncoder(output).Encode(map[string]any{"dataset": datasetID, "action": "verify", "status": "PASS", "cursor": cursor, "counts": counts, "messageTypes": expectedTypes, "syncAudits": syncAuditCount, "authorizedMediaReads": 1, "terminalMediaReads": map[string]int{"missing": http.StatusNotFound, "corrupt": http.StatusNotFound}, "dashboardMessages": dashboardEvidence.MessageCount, "dashboardMediaTypes": dashboardEvidence.MediaTypes, "dashboardMessageTypes": dashboardEvidence.MessageTypes, "dashboardTerminalMediaStatuses": dashboardEvidence.TerminalMediaStatuses, "production": false})
+	return json.NewEncoder(output).Encode(map[string]any{"dataset": datasetID, "action": "verify", "status": "PASS", "cursor": cursor, "counts": counts, "messageTypes": expectedTypes, "syncAudits": syncAuditCount, "integrationAudits": integrationAuditCount, "activationFixtures": activationStates, "authorizedMediaReads": 1, "terminalMediaReads": map[string]int{"missing": http.StatusNotFound, "corrupt": http.StatusNotFound}, "dashboardMessages": dashboardEvidence.MessageCount, "dashboardMediaTypes": dashboardEvidence.MediaTypes, "dashboardMessageTypes": dashboardEvidence.MessageTypes, "dashboardTerminalMediaStatuses": dashboardEvidence.TerminalMediaStatuses, "production": false})
+}
+
+func verifyActivationFixtures(ctx context.Context, db *sql.DB, fixtureDir string) (map[string]string, error) {
+	identityStore := store.NewDashboardIdentityStore(db)
+	result := map[string]string{}
+	for _, expected := range []string{"valid", "expired", "activated", "revoked", "invalid"} {
+		token, err := readAcceptanceSecretFile(filepath.Join(fixtureDir, expected+".token"))
+		if err != nil {
+			return nil, err
+		}
+		status, err := identityStore.DashboardActivationStatus(ctx, sha256.Sum256([]byte(token)), time.Now().UTC())
+		if err != nil {
+			return nil, err
+		}
+		if string(status.Status) != expected {
+			return nil, fmt.Errorf("activation fixture %s has status %s", expected, status.Status)
+		}
+		result[expected] = string(status.Status)
+	}
+	return result, nil
 }
 
 type dashboardProjectionEvidence struct {

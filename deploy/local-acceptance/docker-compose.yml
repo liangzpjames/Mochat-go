@@ -156,11 +156,13 @@ services:
       MOCHAT_ACCEPTANCE_API_BASE_URL: http://app:8080
       MOCHAT_ACCEPTANCE_STATE_DIR: /acceptance/bridge
       MOCHAT_ACCEPTANCE_DASHBOARD_PASSWORD_FILE: /run/secrets/dashboard-acceptance-password
+      MOCHAT_ACCEPTANCE_ACTIVATION_FIXTURE_DIR: /acceptance/activation
     volumes:
       - app-storage:/app/storage
       - ${MOCHAT_ACCEPTANCE_RUNTIME_DIR:-./.runtime-placeholder}/saas-mfa.key:/run/secrets/saas-mfa.key:ro
       - ${MOCHAT_ACCEPTANCE_RUNTIME_DIR:-./.runtime-placeholder}/dashboard-mfa.key:/run/secrets/dashboard-mfa.key:ro
       - ${MOCHAT_ACCEPTANCE_RUNTIME_DIR:-./.runtime-placeholder}/dashboard-acceptance-password:/run/secrets/dashboard-acceptance-password:ro
+      - ${MOCHAT_ACCEPTANCE_RUNTIME_DIR:-./.runtime-placeholder}/activation:/acceptance/activation
     depends_on:
       mysql:
         condition: service_healthy

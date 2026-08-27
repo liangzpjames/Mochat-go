@@ -63,6 +63,7 @@ function Protect-RuntimePath([string]$Path) {
 
 function Initialize-RuntimeFiles {
     New-Item -ItemType Directory -Force -Path $RuntimeDirectory | Out-Null
+    New-Item -ItemType Directory -Force -Path (Join-Path $RuntimeDirectory 'activation') | Out-Null
     $saasMfaPath = Join-Path $RuntimeDirectory 'saas-mfa.key'
     $dashboardMfaPath = Join-Path $RuntimeDirectory 'dashboard-mfa.key'
     $dashboardPasswordPath = Join-Path $RuntimeDirectory 'dashboard-acceptance-password'
