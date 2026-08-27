@@ -184,7 +184,7 @@ describe('企业设置页面', () => {
     expect(screen.getByText('应用 Secret 已加密保存，出于安全原因不会回显。')).toBeTruthy();
   });
 
-  it('企业信息：第三方代开发模式只展示 SaaS 托管说明且不读取或修改企微凭据', async () => {
+  it('企业信息：第三方代开发模式仅保留身份事实和配置审计，不渲染企微配置卡', async () => {
     const getCallbackConfiguration = vi.fn();
     const getSyncStatus = vi.fn();
     const api = companyApi({
@@ -194,8 +194,19 @@ describe('企业设置页面', () => {
     });
     renderPage(<CompanyWebsitePage api={api} isSuperAdmin />);
 
-    expect(await screen.findByText('企微配置由 SaaS 平台维护')).toBeTruthy();
-    expect(screen.getAllByText('第三方代开发应用').length).toBeGreaterThanOrEqual(2);
+    expect(await screen.findByRole('heading', { name: '唯一企业绑定' })).toBeTruthy();
+    expect(screen.getByText('企微对接模式')).toBeTruthy();
+    expect(screen.getAllByText('第三方代开发应用')).toHaveLength(1);
+    expect(screen.getByRole('heading', { name: '企业配置审计' })).toBeTruthy();
+    expect(screen.queryByText('企微对接')).toBeNull();
+    expect(screen.queryByRole('heading', { name: '第三方代开发应用' })).toBeNull();
+    expect(screen.queryByText('企微配置由 SaaS 平台维护')).toBeNull();
+    expect(screen.queryByRole('heading', { name: '应用配置' })).toBeNull();
+    expect(screen.queryByRole('heading', { name: '回调配置' })).toBeNull();
+    expect(screen.queryByRole('heading', { name: '会话存档配置' })).toBeNull();
+    expect(screen.queryByRole('heading', { name: '验证企业微信' })).toBeNull();
+    expect(screen.queryByRole('heading', { name: '从企业微信同步员工' })).toBeNull();
+    expect(screen.queryByLabelText('应用 AgentID')).toBeNull();
     expect(screen.queryByLabelText('应用 Secret')).toBeNull();
     expect(screen.queryByRole('button', { name: '验证企业微信' })).toBeNull();
     expect(screen.queryByRole('button', { name: '开始员工同步' })).toBeNull();

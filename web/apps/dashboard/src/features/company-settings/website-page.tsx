@@ -441,18 +441,7 @@ export function CompanyWebsitePage({ api, isSuperAdmin, onTenantAccessDenied, on
           </div>
           <ScopedFeedback feedback={operationFeedback} scope="sync" />
         </section>
-        </> : (
-          <section className="phase35-card company-profile-card" aria-labelledby="company-delegated-heading">
-            <header className="company-profile-card-header">
-              <div>
-                <p className="company-profile-eyebrow">企微对接</p>
-                <h2 id="company-delegated-heading">第三方代开发应用</h2>
-                <p>当前租户的企微应用与授权凭据由 SaaS 平台安全维护。Dashboard 不展示、不复制、也不能修改这些敏感配置。</p>
-              </div>
-            </header>
-            <PageState state="empty" title="企微配置由 SaaS 平台维护" description="未完成配置时仍可继续使用 Dashboard，业务页面会正常展示空数据。" />
-          </section>
-        )}
+        </> : null}
 
         <section className="phase35-card company-profile-card" aria-labelledby="company-audit-heading">
           <header className="company-profile-card-header"><div><p className="company-profile-eyebrow">变更记录</p><h2 id="company-audit-heading">企业配置审计</h2><p>仅展示变更动作和版本事实，不包含 Secret、密文或凭据正文。</p></div></header>
