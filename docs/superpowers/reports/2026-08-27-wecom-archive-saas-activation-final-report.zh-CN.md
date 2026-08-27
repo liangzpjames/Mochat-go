@@ -161,7 +161,7 @@ Compose project：`mochat-wecom-acceptance-20260827`
 
 - `pnpm lint`：PASS，覆盖 12 个工作区项目及四前端。
 - `pnpm typecheck`：PASS。
-- `pnpm test`：PASS；Dashboard 143 文件 / 940 项，SaaS Admin 6 文件 / 49 项，Operation 5 文件 / 74 项，Sidebar 14 文件 / 153 项，共享包同时通过。
+- `pnpm test`：PASS；Dashboard 143 文件 / 940 项，SaaS Admin 6 文件 / 53 项，Operation 5 文件 / 74 项，Sidebar 14 文件 / 153 项，共享包同时通过。
 - `pnpm build`：PASS，Dashboard、SaaS Admin、Operation、Sidebar 均完成生产构建。
 - `go test ./... -count=1`：PASS。
 - `pnpm check:phase4-dashboard-page-rbac`：PASS，并包含 Provider completion。
@@ -173,8 +173,10 @@ Compose project：`mochat-wecom-acceptance-20260827`
 
 ### 9.3 Docker 与浏览器
 
-- 仅重新构建并重建了 `app`，镜像 `sha256:6fa61d19860f789f443742760c5c275b5efdcdd7d12ccf7215c90dbfa8d175bc`；bridge、MariaDB、Redis 和命名卷未重建。
+- 仅重新构建并重建了 `app`，最终镜像 `sha256:ead005a7c6eb597b9e3297f9921ee3a1dc7dbc742633ebf04955deeed274ca52`；bridge、MariaDB、Redis 和命名卷未重建。
 - app 重启后健康检查为 `healthy`；专项 `verify -NoBuild` 再次 PASS：cursor 10、消息 10、媒体 7（ready 5 / missing 1 / corrupt 1）、恢复对象 1、worker run 1。
 - 已登录第三方租户 `租户信息003` 的唯一企业资料实际刷新：服务摘要四项可见，Provider/raw code 均不存在；独立第三方企微配置卡及所有自建控件均不存在；企业模式事实和审计仍可见。
-- SaaS 实际打开租户详情和第三方配置弹窗：无 textarea 和 raw scope；两个中文能力首次均已勾选；取消一项后“全部开启”可恢复两项；取消弹窗不发送保存请求；刷新后两项仍按空配置默认全选。
+- SaaS 实际打开租户详情和第三方配置弹窗：无 textarea 和 raw scope；两个中文能力均已勾选且可按中文名称访问；取消一项后“全部开启”可恢复两项。
+- 使用明确标记为本地验收的 Provider App ID 和永久授权码实际执行“安全保存”：保存成功后弹窗关闭，详情显示 `g1 / v2`、全部能力已开启和轮换审计；刷新页面后配置及能力范围保持不变，永久授权码正文未出现在详情中，再次打开弹窗时授权码输入框为空。
+- 永久授权码还通过自动化测试验证不会进入 React Query 的 query/mutation cache；关闭、成功和失败路径都会清除内存中的一次性值。
 - Dashboard 与 SaaS 页面控制台 error 均为 0；重建后刷新未出现加载失败。
