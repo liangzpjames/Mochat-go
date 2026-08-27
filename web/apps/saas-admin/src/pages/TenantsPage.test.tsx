@@ -48,6 +48,7 @@ const mocks = vi.hoisted(() => {
 vi.mock('@/lib/api', () => mocks)
 
 import TenantsPage, { tenantAIProviderState } from './TenantsPage'
+import type { WeComIntegrationRecord } from '@/lib/api'
 import type { AccessProfile, ApprovalPoliciesData } from '@/lib/types'
 
 ;(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -91,7 +92,7 @@ const tenant = {
 const profile: AccessProfile = { isPlatformSuperAdmin: false, permissions: ['platform.tenants.manage', 'platform.integrations.read', 'platform.integrations.manage'], phone: '13800000000', roles: [], tenantId: 0, userId: 700, userName: '平台管理员', version: 1 }
 const approvalMode: ApprovalPoliciesData = { required: false, policies: [] }
 
-const selfBuiltCurrent = {
+const selfBuiltCurrent: WeComIntegrationRecord = {
   id: 'integration-current', mode: 'self_built', slot: 'current', status: 'active', verifiedWxCorpId: 'ww-fixture-corp', agentId: '1000002', providerAppId: '', credentialConfigured: true, credentialHint: '••••self', scope: ['archive.read', 'contacts.read'], scopeDigest: 'digest-current', missingCapabilities: [], generation: 8, version: 8, verificationLevel: 'local_contract', verifiedAt: '2026-08-27T00:00:00Z', lastErrorCode: '', updatedAt: '2026-08-27T00:00:00Z',
 }
 
@@ -103,7 +104,7 @@ const tenantB = {
   packageName: '基础版',
 }
 
-const delegatedCandidate = {
+const delegatedCandidate: WeComIntegrationRecord = {
   id: 'integration-candidate', mode: 'third_party_delegated', slot: 'candidate', status: 'active', verifiedWxCorpId: 'ww-fixture-corp', agentId: '', providerAppId: 'provider-fixture', credentialConfigured: true, credentialHint: '••••code', scope: ['archive.read'], scopeDigest: 'digest-candidate', missingCapabilities: [], generation: 8, version: 9, verificationLevel: 'local_contract', verifiedAt: '2026-08-27T01:00:00Z', lastErrorCode: '', updatedAt: '2026-08-27T01:00:00Z',
 }
 
@@ -112,8 +113,8 @@ describe('SaaS 客户租户治理页面', () => {
   let root: Root
   let client: QueryClient
   let tenantProviderVersion: number
-  let integrationView: { tenantId: number; corpId: number; current: typeof selfBuiltCurrent | null; candidate: typeof delegatedCandidate | null }
-  let integrationViewB: { tenantId: number; corpId: number; current: typeof selfBuiltCurrent | null; candidate: typeof delegatedCandidate | null }
+  let integrationView: { tenantId: number; corpId: number; current: WeComIntegrationRecord | null; candidate: WeComIntegrationRecord | null }
+  let integrationViewB: { tenantId: number; corpId: number; current: WeComIntegrationRecord | null; candidate: WeComIntegrationRecord | null }
   let activationMutationObserverProbe: ReturnType<typeof vi.fn>
 
   beforeEach(() => {
