@@ -77,10 +77,24 @@ function Get-OrCreateSecretFile {
     return $path
 }
 
+function Get-DefaultSecretRoot {
+    $fallbackRoot = Split-Path -Parent $repositoryRoot
+    $commonDirectory = (& git -C $repositoryRoot rev-parse --git-common-dir 2>$null | Select-Object -First 1)
+    if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($commonDirectory)) {
+        $commonDirectory = $commonDirectory.Trim()
+        if (-not [System.IO.Path]::IsPathRooted($commonDirectory)) {
+            $commonDirectory = Join-Path $repositoryRoot $commonDirectory
+        }
+        $mainRepositoryRoot = Split-Path -Parent ([System.IO.Path]::GetFullPath($commonDirectory))
+        $fallbackRoot = Split-Path -Parent $mainRepositoryRoot
+    }
+    return (Join-Path $fallbackRoot "output\docker-desktop-secrets\$ProjectName")
+}
+
 function Initialize-LocalIdentityRealmSecrets {
     Import-LocalEnvironmentFile -Path $localEnvironmentFile
     $secretRoot = if ([string]::IsNullOrWhiteSpace($env:MOCHAT_DOCKER_DESKTOP_SECRET_DIR)) {
-        Join-Path (Split-Path -Parent $repositoryRoot) "output\docker-desktop-secrets\$ProjectName"
+        Get-DefaultSecretRoot
     } else {
         $env:MOCHAT_DOCKER_DESKTOP_SECRET_DIR
     }
