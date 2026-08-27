@@ -353,3 +353,42 @@ func TestPrepareDashboardPermissionDependenciesCreatesThe0127TablesAndStaffResou
 		}
 	}
 }
+
+func TestArchiveFixtureAppendUsesEncryptedSDKAndChunkedMediaContracts(t *testing.T) {
+	fixture, err := NewArchiveFixture()
+	if err != nil {
+		t.Fatal(err)
+	}
+	message, err := fixture.Append(FixtureInput{Sequence: 11, MessageID: DatasetMarker + "-DYNAMIC-11", Type: "image", Body: []byte("deterministic-image"), FileName: "dynamic.png", MIMEType: "image/png"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	store, err := wecomarchivedemo.NewEvidenceStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	service, err := wecomarchivedemo.NewArchiveService(fixture, fixture.PrivateKeyPEM(), store, 100, 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	page, err := service.FetchPage(context.Background(), 10, 10)
+	if err != nil || len(page.Messages) != 1 || !bytes.Contains(page.Messages[0], []byte(message.SDKFileID)) {
+		t.Fatalf("page=%+v err=%v", page, err)
+	}
+	var assembled []byte
+	index := ""
+	for {
+		chunk, err := fixture.GetMediaData(context.Background(), message.SDKFileID, index, 5)
+		if err != nil {
+			t.Fatal(err)
+		}
+		assembled = append(assembled, chunk.Data...)
+		if chunk.Finished {
+			break
+		}
+		index = chunk.NextIndexBuf
+	}
+	if string(assembled) != "deterministic-image" {
+		t.Fatalf("media=%q", assembled)
+	}
+}

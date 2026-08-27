@@ -15,7 +15,10 @@ import (
 const maxRequestBody = 64 << 10
 
 type Config struct {
-	BearerToken string
+	BearerToken       string
+	FixtureEnabled    bool
+	FixtureAdminToken string
+	FixtureManager    *FixtureManager
 }
 
 type Handler struct {
@@ -25,8 +28,12 @@ type Handler struct {
 
 func NewHandler(config Config, store *Store) (http.Handler, error) {
 	config.BearerToken = strings.TrimSpace(config.BearerToken)
+	config.FixtureAdminToken = strings.TrimSpace(config.FixtureAdminToken)
 	if len(config.BearerToken) < 40 || store == nil {
 		return nil, errors.New("archive bridge configuration is invalid")
+	}
+	if config.FixtureEnabled && (len(config.FixtureAdminToken) < 40 || config.FixtureManager == nil) {
+		return nil, errors.New("archive bridge fixture configuration is invalid")
 	}
 	handler := &Handler{config: config, store: store}
 	mux := http.NewServeMux()
@@ -34,11 +41,95 @@ func NewHandler(config Config, store *Store) (http.Handler, error) {
 	mux.HandleFunc("POST /v1/archive/messages", handler.messages)
 	mux.HandleFunc("POST /v1/archive/media/chunks", handler.media)
 	mux.HandleFunc("POST /v1/archive/component/session", handler.component)
+	if config.FixtureEnabled {
+		mux.HandleFunc("POST /v1/fixture/seed", handler.fixtureSeed)
+		mux.HandleFunc("POST /v1/fixture/send", handler.fixtureSend)
+		mux.HandleFunc("POST /v1/fixture/status", handler.fixtureStatus)
+		mux.HandleFunc("POST /v1/fixture/cleanup", handler.fixtureCleanup)
+	}
 	// Keep the established app contract during the migration window. These
 	// aliases still require the explicit integration_mode field.
 	mux.HandleFunc("POST /work-message/archive/messages", handler.messages)
 	mux.HandleFunc("POST /work-message/archive/media", handler.media)
 	return handler.requireBearer(mux), nil
+}
+
+type fixtureSeedRequest struct {
+	Binding Binding `json:"binding"`
+	Dataset string  `json:"dataset"`
+}
+
+func (h *Handler) fixtureSeed(w http.ResponseWriter, r *http.Request) {
+	var input fixtureSeedRequest
+	if decodeStrict(w, r, &input) != nil {
+		writeBridgeError(w, http.StatusBadRequest, "FIXTURE_REQUEST_INVALID")
+		return
+	}
+	status, err := h.config.FixtureManager.Seed(input.Binding, input.Dataset)
+	if err != nil {
+		writeBridgeError(w, fixtureErrorStatus(err), ErrorCode(err))
+		return
+	}
+	writeJSON(w, http.StatusOK, status)
+}
+
+func (h *Handler) fixtureSend(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		Binding    Binding `json:"binding"`
+		Dataset    string  `json:"dataset"`
+		Type       string  `json:"type"`
+		Text       string  `json:"text,omitempty"`
+		DataBase64 string  `json:"dataBase64,omitempty"`
+		FileName   string  `json:"fileName,omitempty"`
+		MIMEType   string  `json:"mimeType,omitempty"`
+	}
+	if decodeStrict(w, r, &input) != nil {
+		writeBridgeError(w, http.StatusBadRequest, "FIXTURE_REQUEST_INVALID")
+		return
+	}
+	result, err := h.config.FixtureManager.Send(FixtureSendInput{Binding: input.Binding, Dataset: input.Dataset, Type: input.Type, Text: input.Text, DataBase64: input.DataBase64, FileName: input.FileName, MIMEType: input.MIMEType})
+	if err != nil {
+		writeBridgeError(w, fixtureErrorStatus(err), ErrorCode(err))
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (h *Handler) fixtureStatus(w http.ResponseWriter, r *http.Request) {
+	var input struct{}
+	if decodeStrict(w, r, &input) != nil {
+		writeBridgeError(w, http.StatusBadRequest, "FIXTURE_REQUEST_INVALID")
+		return
+	}
+	writeJSON(w, http.StatusOK, h.config.FixtureManager.Status())
+}
+
+func (h *Handler) fixtureCleanup(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		Binding        Binding `json:"binding"`
+		Dataset        string  `json:"dataset"`
+		ConfirmDataset string  `json:"confirmDataset"`
+	}
+	if decodeStrict(w, r, &input) != nil {
+		writeBridgeError(w, http.StatusBadRequest, "FIXTURE_REQUEST_INVALID")
+		return
+	}
+	status, err := h.config.FixtureManager.Cleanup(input.Binding, input.Dataset, input.ConfirmDataset)
+	if err != nil {
+		writeBridgeError(w, fixtureErrorStatus(err), ErrorCode(err))
+		return
+	}
+	writeJSON(w, http.StatusOK, status)
+}
+
+func fixtureErrorStatus(err error) int {
+	if ErrorCode(err) == "FIXTURE_DATASET_NOT_FOUND" {
+		return http.StatusNotFound
+	}
+	if ErrorCode(err) == "FIXTURE_BINDING_CONFLICT" {
+		return http.StatusConflict
+	}
+	return http.StatusBadRequest
 }
 
 func (h *Handler) health(w http.ResponseWriter, _ *http.Request) {
@@ -178,8 +269,12 @@ func (h *Handler) requireBearer(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
+		expected := h.config.BearerToken
+		if strings.HasPrefix(r.URL.Path, "/v1/fixture/") {
+			expected = h.config.FixtureAdminToken
+		}
 		provided := strings.TrimSpace(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))
-		if len(provided) != len(h.config.BearerToken) || subtle.ConstantTimeCompare([]byte(provided), []byte(h.config.BearerToken)) != 1 {
+		if len(provided) != len(expected) || subtle.ConstantTimeCompare([]byte(provided), []byte(expected)) != 1 {
 			writeBridgeError(w, http.StatusUnauthorized, "ARCHIVE_UNAUTHORIZED")
 			return
 		}

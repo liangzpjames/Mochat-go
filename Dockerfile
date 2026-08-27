@@ -47,6 +47,7 @@ RUN SOURCE_FINGERPRINT="$(python3 scripts/source_fingerprint.py | python3 -c 'im
 	&& CGO_ENABLED=0 GOOS=linux go build -ldflags "$BUILD_LDFLAGS" -o /out/mochat-bootstrap ./cmd/mochat-bootstrap \
 	&& CGO_ENABLED=0 GOOS=linux go build -ldflags "$BUILD_LDFLAGS" -o /out/mochat-saas-maintenance ./cmd/mochat-saas-maintenance \
 	&& CGO_ENABLED=0 GOOS=linux go build -ldflags "$BUILD_LDFLAGS" -o /out/mochat-archive-simulator ./cmd/mochat-archive-simulator \
+	&& CGO_ENABLED=0 GOOS=linux go build -ldflags "$BUILD_LDFLAGS" -o /out/mochat-archive-bridge ./cmd/mochat-archive-bridge \
 	&& CGO_ENABLED=0 GOOS=linux go build -ldflags "$BUILD_LDFLAGS" -o /out/mochat-archive-acceptance ./cmd/mochat-archive-acceptance
 
 FROM alpine:3.22
@@ -63,6 +64,7 @@ COPY --from=build /out/mochat-migrate /usr/local/bin/mochat-migrate
 COPY --from=build /out/mochat-bootstrap /usr/local/bin/mochat-bootstrap
 COPY --from=build /out/mochat-saas-maintenance /usr/local/bin/mochat-saas-maintenance
 COPY --from=build /out/mochat-archive-simulator /usr/local/bin/mochat-archive-simulator
+COPY --from=build /out/mochat-archive-bridge /usr/local/bin/mochat-archive-bridge
 COPY --from=build /out/mochat-archive-acceptance /usr/local/bin/mochat-archive-acceptance
 COPY --from=build /src/web ./web
 COPY --from=frontend-build /src/web/apps/dashboard/dist ./web/apps/dashboard/dist

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/md5"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/base64"
 	"encoding/binary"
@@ -14,7 +15,9 @@ import (
 	"image"
 	"image/color"
 	"image/png"
+	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -48,6 +51,21 @@ func (e FixtureError) MediaErrorCode() string { return e.Code }
 
 type fixtureMessage struct {
 	envelope archivefixture.EncryptedChatData
+}
+
+type FixtureInput struct {
+	Sequence  uint64
+	MessageID string
+	Type      string
+	Body      []byte
+	FileName  string
+	MIMEType  string
+}
+
+type FixtureMessage struct {
+	Sequence  uint64 `json:"seq"`
+	MessageID string `json:"msgid"`
+	SDKFileID string `json:"sdkFileId,omitempty"`
 }
 
 type ArchiveFixture struct {
@@ -216,6 +234,68 @@ func (f *ArchiveFixture) PrivateKeyPEM() string {
 		return ""
 	}
 	return f.finance.PrivateKeyPEM()
+}
+
+func (f *ArchiveFixture) Append(input FixtureInput) (FixtureMessage, error) {
+	if f == nil || f.finance == nil {
+		return FixtureMessage{}, errors.New("local archive fixture is unavailable")
+	}
+	input.MessageID = strings.TrimSpace(input.MessageID)
+	input.Type = strings.ToLower(strings.TrimSpace(input.Type))
+	if input.Sequence == 0 || input.MessageID == "" || len(input.Body) == 0 {
+		return FixtureMessage{}, errors.New("local archive fixture message is invalid")
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.closed {
+		return FixtureMessage{}, errors.New("local archive fixture is closed")
+	}
+	for _, existing := range f.messages {
+		if existing.envelope.Sequence == input.Sequence || existing.envelope.MessageID == input.MessageID {
+			return FixtureMessage{}, errors.New("local archive fixture message already exists")
+		}
+	}
+	payload := map[string]any{}
+	sdkFileID := ""
+	switch input.Type {
+	case "text":
+		payload["content"] = string(input.Body)
+	case "image", "voice", "video", "file":
+		digest := sha256.Sum256([]byte(input.MessageID))
+		sdkFileID = DatasetMarker + "-SDKFILE-" + hex.EncodeToString(digest[:8])
+		f.media[sdkFileID] = append([]byte(nil), input.Body...)
+		payload["sdkfileid"] = sdkFileID
+		payload["md5sum"] = mediaMD5(input.Body)
+		payload["filesize"] = len(input.Body)
+		if input.Type == "voice" || input.Type == "video" {
+			payload["play_length"] = 1
+		}
+		if input.Type == "file" {
+			name := strings.TrimSpace(input.FileName)
+			if name == "" {
+				name = DatasetMarker + "-fixture.bin"
+			}
+			payload["filename"] = name
+		}
+	default:
+		return FixtureMessage{}, errors.New("local archive fixture message type is unsupported")
+	}
+	message := map[string]any{
+		"msgid": input.MessageID, "action": "send", "from": DatasetMarker + "-STAFF-01",
+		"tolist": []string{DatasetMarker + "-EXTERNAL-01"}, "roomid": "",
+		"msgtime": int64(1787760000000 + input.Sequence), "msgtype": input.Type, input.Type: payload,
+	}
+	plain, err := json.Marshal(message)
+	if err != nil {
+		return FixtureMessage{}, err
+	}
+	envelope, err := f.finance.Encrypt(input.Sequence, input.MessageID, plain)
+	if err != nil {
+		return FixtureMessage{}, err
+	}
+	f.messages = append(f.messages, fixtureMessage{envelope: envelope})
+	sort.Slice(f.messages, func(i, j int) bool { return f.messages[i].envelope.Sequence < f.messages[j].envelope.Sequence })
+	return FixtureMessage{Sequence: input.Sequence, MessageID: input.MessageID, SDKFileID: sdkFileID}, nil
 }
 
 func (f *ArchiveFixture) MediaFileIDs() map[string]string {

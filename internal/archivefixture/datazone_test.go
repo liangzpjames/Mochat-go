@@ -107,3 +107,35 @@ func TestDataZoneProviderFetchesSparseSequencesInOrder(t *testing.T) {
 		t.Fatalf("sparse page=%+v err=%v", page, err)
 	}
 }
+
+func TestDataZoneProviderStateRestoresExistingEncryptedLocator(t *testing.T) {
+	provider, err := NewDataZoneProvider("ww-corp-state")
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider.WithContentTTL(24 * time.Hour)
+	item, err := provider.Append(DataZoneContent{Sequence: 9, MessageID: "dz-persisted", Type: "file", Body: []byte("persisted-private-body"), FileName: "fixture.txt", MIMEType: "text/plain"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, err := provider.ExportState()
+	if err != nil {
+		t.Fatal(err)
+	}
+	restored, err := NewDataZoneProviderFromState(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	page, err := restored.Fetch("ww-corp-state", 0, 10)
+	if err != nil || len(page) != 1 || page[0].EncryptedSecretKey != item.EncryptedSecretKey {
+		t.Fatalf("restored page=%+v err=%v", page, err)
+	}
+	secret, err := restored.DecryptSecretKey(page[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	content, err := restored.Render("ww-corp-state", item.MessageID, secret)
+	if err != nil || string(content.Body) != "persisted-private-body" {
+		t.Fatalf("restored content=%+v err=%v", content, err)
+	}
+}

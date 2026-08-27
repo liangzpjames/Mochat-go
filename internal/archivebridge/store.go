@@ -115,6 +115,21 @@ func (s *Store) Status() map[string]any {
 	return map[string]any{"status": "ok", "bindingCount": len(s.drivers), "modeCounts": counts}
 }
 
+func (s *Store) Unregister(binding Binding) error {
+	if s == nil || normalizeBinding(&binding) != nil {
+		return &BridgeError{Code: "ARCHIVE_BINDING_INVALID"}
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	key := bindingKey(binding.TenantID, binding.CorpID)
+	driver, ok := s.drivers[key]
+	if ok && driver.Binding != binding {
+		return &BridgeError{Code: "ARCHIVE_BINDING_CONFLICT"}
+	}
+	delete(s.drivers, key)
+	return nil
+}
+
 func normalizeBinding(binding *Binding) error {
 	if binding == nil {
 		return &BridgeError{Code: "ARCHIVE_BINDING_INVALID"}

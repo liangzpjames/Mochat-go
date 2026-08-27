@@ -105,12 +105,12 @@ services:
       MOCHAT_GO_WECOM_CREDENTIAL_REQUIRE_ENCRYPTION: "${MOCHAT_GO_WECOM_CREDENTIAL_REQUIRE_ENCRYPTION:-0}"
       MOCHAT_GO_WECOM_CREDENTIAL_ROTATION_LIMIT: "${MOCHAT_GO_WECOM_CREDENTIAL_ROTATION_LIMIT:-100}"
       MOCHAT_GO_ENABLE_WEWORK_CALLBACK_WORKER: "${MOCHAT_GO_ENABLE_WEWORK_CALLBACK_WORKER:-0}"
-      MOCHAT_GO_ENABLE_WORK_MESSAGE_ARCHIVE_SYNC_CRON: "${MOCHAT_GO_ENABLE_WORK_MESSAGE_ARCHIVE_SYNC_CRON:-0}"
+      MOCHAT_GO_ENABLE_WORK_MESSAGE_ARCHIVE_SYNC_CRON: "${MOCHAT_GO_ENABLE_WORK_MESSAGE_ARCHIVE_SYNC_CRON:-1}"
       MOCHAT_GO_WORK_MESSAGE_ARCHIVE_SYNC_CRON_INTERVAL_SECONDS: "${MOCHAT_GO_WORK_MESSAGE_ARCHIVE_SYNC_CRON_INTERVAL_SECONDS:-60}"
       MOCHAT_GO_WORK_MESSAGE_ARCHIVE_SYNC_CRON_RUN_ON_START: "${MOCHAT_GO_WORK_MESSAGE_ARCHIVE_SYNC_CRON_RUN_ON_START:-0}"
       MOCHAT_GO_WORK_MESSAGE_ARCHIVE_SYNC_LIMIT: "${MOCHAT_GO_WORK_MESSAGE_ARCHIVE_SYNC_LIMIT:-100}"
-      MOCHAT_GO_WORK_MESSAGE_ARCHIVE_BRIDGE_BASE_URL: "${MOCHAT_GO_WORK_MESSAGE_ARCHIVE_BRIDGE_BASE_URL:-}"
-      MOCHAT_GO_WORK_MESSAGE_ARCHIVE_BRIDGE_TOKEN: "${MOCHAT_GO_WORK_MESSAGE_ARCHIVE_BRIDGE_TOKEN:-}"
+      MOCHAT_GO_WORK_MESSAGE_ARCHIVE_BRIDGE_BASE_URL: "${MOCHAT_GO_WORK_MESSAGE_ARCHIVE_BRIDGE_BASE_URL:-http://archive-bridge:8083}"
+      MOCHAT_GO_WORK_MESSAGE_ARCHIVE_BRIDGE_TOKEN: "${MOCHAT_ARCHIVE_BRIDGE_BEARER:-local-desktop-bridge-0123456789012345678901234567890123456789}"
       MOCHAT_GO_ENABLE_EMPLOYEE_APPLY_WORKER: "${MOCHAT_GO_ENABLE_EMPLOYEE_APPLY_WORKER:-0}"
       MOCHAT_GO_ENABLE_WORK_CONTACT_SYNC_WORKER: "${MOCHAT_GO_ENABLE_WORK_CONTACT_SYNC_WORKER:-0}"
       MOCHAT_GO_ENABLE_WORK_ROOM_SYNC_WORKER: "${MOCHAT_GO_ENABLE_WORK_ROOM_SYNC_WORKER:-0}"
@@ -268,11 +268,61 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      archive-bridge:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:8080/readyz"]
       interval: 5s
       timeout: 3s
       retries: 30
+
+  archive-bridge:
+    profiles:
+      - app
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+      args:
+        NPM_REGISTRY: "${MOCHAT_NPM_REGISTRY:-https://registry.npmmirror.com}"
+        GOPROXY: "${MOCHAT_GOPROXY:-https://goproxy.cn,direct}"
+    entrypoint: ["mochat-archive-bridge"]
+    environment:
+      TZ: "${MOCHAT_TIMEZONE:-Asia/Shanghai}"
+      MOCHAT_ARCHIVE_BRIDGE_ADDR: "0.0.0.0:8083"
+      MOCHAT_ARCHIVE_BRIDGE_BEARER: "${MOCHAT_ARCHIVE_BRIDGE_BEARER:-local-desktop-bridge-0123456789012345678901234567890123456789}"
+      MOCHAT_ARCHIVE_FIXTURE_ENABLED: "${MOCHAT_ARCHIVE_FIXTURE_ENABLED:-true}"
+      MOCHAT_ARCHIVE_FIXTURE_ADMIN_BEARER: "${MOCHAT_ARCHIVE_FIXTURE_ADMIN_BEARER:-local-desktop-fixture-admin-0123456789012345678901234567890123456789}"
+      MOCHAT_ARCHIVE_FIXTURE_STATE_PATH: "/app/storage/archive-fixture/state.json"
+    volumes:
+      - app-storage:/app/storage
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:8083/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  archive-simulator:
+    profiles:
+      - archive-fixture
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+      args:
+        NPM_REGISTRY: "${MOCHAT_NPM_REGISTRY:-https://registry.npmmirror.com}"
+        GOPROXY: "${MOCHAT_GOPROXY:-https://goproxy.cn,direct}"
+    entrypoint: ["mochat-archive-simulator"]
+    environment:
+      TZ: "${MOCHAT_TIMEZONE:-Asia/Shanghai}"
+      MOCHAT_MYSQL_DSN: "${MOCHAT_MYSQL_USER:-mochat}:${MOCHAT_MYSQL_PASSWORD:-mochat_pass}@tcp(mysql:3306)/${MOCHAT_MYSQL_DATABASE:-mochat}?parseTime=true&loc=Local"
+      MOCHAT_ARCHIVE_FIXTURE_URL: "http://archive-bridge:8083"
+      MOCHAT_ARCHIVE_FIXTURE_ADMIN_BEARER: "${MOCHAT_ARCHIVE_FIXTURE_ADMIN_BEARER:-local-desktop-fixture-admin-0123456789012345678901234567890123456789}"
+    volumes:
+      - "${MOCHAT_ARCHIVE_FIXTURE_INPUT_DIR:-./fixtures}:/fixtures/input:ro"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      archive-bridge:
+        condition: service_healthy
 
   mysql:
     image: mariadb:10.6

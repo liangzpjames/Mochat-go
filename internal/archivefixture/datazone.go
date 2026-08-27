@@ -5,7 +5,9 @@ import (
 	"crypto/cipher"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/x509"
 	"encoding/base64"
+	"encoding/pem"
 	"errors"
 	"io"
 	"sort"
@@ -56,6 +58,19 @@ type dataZoneEntry struct {
 	expiresAt  time.Time
 }
 
+type DataZoneStateEntry struct {
+	Message    DataZoneMessage `json:"message"`
+	Ciphertext []byte          `json:"ciphertext"`
+	ExpiresAt  time.Time       `json:"expiresAt"`
+}
+
+type DataZoneState struct {
+	CorpID        string               `json:"corpId"`
+	PrivateKeyPEM string               `json:"privateKeyPem"`
+	Revoked       bool                 `json:"revoked"`
+	Entries       []DataZoneStateEntry `json:"entries"`
+}
+
 type DataZoneProvider struct {
 	mu         sync.RWMutex
 	corpID     string
@@ -63,6 +78,7 @@ type DataZoneProvider struct {
 	now        func() time.Time
 	revoked    bool
 	entries    map[string]dataZoneEntry
+	contentTTL time.Duration
 }
 
 func NewDataZoneProvider(corpID string) (*DataZoneProvider, error) {
@@ -74,7 +90,31 @@ func NewDataZoneProvider(corpID string) (*DataZoneProvider, error) {
 	if err != nil {
 		return nil, errors.New("data zone fixture key generation failed")
 	}
-	return &DataZoneProvider{corpID: corpID, privateKey: privateKey, now: time.Now, entries: map[string]dataZoneEntry{}}, nil
+	return &DataZoneProvider{corpID: corpID, privateKey: privateKey, now: time.Now, entries: map[string]dataZoneEntry{}, contentTTL: 5 * time.Minute}, nil
+}
+
+func NewDataZoneProviderFromState(state DataZoneState) (*DataZoneProvider, error) {
+	state.CorpID = strings.TrimSpace(state.CorpID)
+	block, _ := pem.Decode([]byte(state.PrivateKeyPEM))
+	if state.CorpID == "" || block == nil {
+		return nil, errors.New("data zone fixture state is invalid")
+	}
+	privateKey, err := x509.ParsePKCS8PrivateKey(block.Bytes)
+	if err != nil {
+		return nil, errors.New("data zone fixture state key is invalid")
+	}
+	rsaKey, ok := privateKey.(*rsa.PrivateKey)
+	if !ok || rsaKey.Validate() != nil {
+		return nil, errors.New("data zone fixture state key is invalid")
+	}
+	provider := &DataZoneProvider{corpID: state.CorpID, privateKey: rsaKey, now: time.Now, revoked: state.Revoked, entries: map[string]dataZoneEntry{}, contentTTL: 5 * time.Minute}
+	for _, item := range state.Entries {
+		if strings.TrimSpace(item.Message.MessageID) == "" || item.Message.PublicKeyVersion != dataZonePublicKeyVersion || len(item.Ciphertext) == 0 || item.ExpiresAt.IsZero() {
+			return nil, errors.New("data zone fixture state entry is invalid")
+		}
+		provider.entries[item.Message.MessageID] = dataZoneEntry{message: item.Message, ciphertext: append([]byte(nil), item.Ciphertext...), expiresAt: item.ExpiresAt}
+	}
+	return provider, nil
 }
 
 func (p *DataZoneProvider) WithClock(now func() time.Time) *DataZoneProvider {
@@ -84,6 +124,33 @@ func (p *DataZoneProvider) WithClock(now func() time.Time) *DataZoneProvider {
 		p.mu.Unlock()
 	}
 	return p
+}
+
+func (p *DataZoneProvider) WithContentTTL(ttl time.Duration) *DataZoneProvider {
+	if p != nil && ttl > 0 {
+		p.mu.Lock()
+		p.contentTTL = ttl
+		p.mu.Unlock()
+	}
+	return p
+}
+
+func (p *DataZoneProvider) ExportState() (DataZoneState, error) {
+	if p == nil || p.privateKey == nil {
+		return DataZoneState{}, errors.New("data zone fixture state is unavailable")
+	}
+	encoded, err := x509.MarshalPKCS8PrivateKey(p.privateKey)
+	if err != nil {
+		return DataZoneState{}, errors.New("data zone fixture state key is unavailable")
+	}
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	state := DataZoneState{CorpID: p.corpID, PrivateKeyPEM: string(pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: encoded})), Revoked: p.revoked, Entries: make([]DataZoneStateEntry, 0, len(p.entries))}
+	for _, entry := range p.entries {
+		state.Entries = append(state.Entries, DataZoneStateEntry{Message: entry.message, Ciphertext: append([]byte(nil), entry.ciphertext...), ExpiresAt: entry.expiresAt})
+	}
+	sort.Slice(state.Entries, func(i, j int) bool { return state.Entries[i].Message.Sequence < state.Entries[j].Message.Sequence })
+	return state, nil
 }
 
 func (p *DataZoneProvider) Append(content DataZoneContent) (DataZoneMessage, error) {
@@ -122,7 +189,11 @@ func (p *DataZoneProvider) Append(content DataZoneContent) (DataZoneMessage, err
 	if _, exists := p.entries[message.MessageID]; exists {
 		return DataZoneMessage{}, protocolError("DATA_ZONE_MESSAGE_EXISTS")
 	}
-	p.entries[message.MessageID] = dataZoneEntry{message: message, ciphertext: ciphertext, expiresAt: now.Add(5 * time.Minute)}
+	ttl := p.contentTTL
+	if ttl <= 0 {
+		ttl = 5 * time.Minute
+	}
+	p.entries[message.MessageID] = dataZoneEntry{message: message, ciphertext: ciphertext, expiresAt: now.Add(ttl)}
 	return message, nil
 }
 
