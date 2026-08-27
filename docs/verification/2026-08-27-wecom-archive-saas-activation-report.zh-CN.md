@@ -70,4 +70,4 @@ cleanup 使用固定 tenant/corp/user/integration ID、固定数据集消息前�
 - 真实企微 CorpID、会话存档 Secret、RSA、可信 IP、线上授权企业与永久授权码：SKIP / 外部条件。
 - 本地 MariaDB：PASS，使用独立 Docker MariaDB 10.6；这不能替代目标生产数据库版本与生产数据升级演练。
 - 应用内浏览器：PASS；结论来自实际点击、刷新、媒体解码/就绪态和失败态检查，不以数据库计数或截图替代。
-- 当前 Compose 保持运行，未执行 `down -v`，便于继续浏览器验收。
+- 当前 Compose 保持运行，未执行 `down -v`，便于用户继续复验。
