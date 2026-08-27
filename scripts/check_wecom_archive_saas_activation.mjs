@@ -9,7 +9,7 @@ const required = [
   ['cmd/mochat-archive-acceptance/main.go', ['cleanupStatements', 'safeDatasetObjectPath', 'production']],
   ['web/apps/dashboard/src/features/auth/activation-page.tsx', ['location.hash', "window.history.replaceState({}, '', '/activate')"]],
   ['deploy/local-acceptance/docker-compose.yml', ['name: mochat-wecom-acceptance-20260827', '19080:8080', '19091:9091', 'MOCHAT_BOOTSTRAP_SAAS_ADMIN_PASSWORD_FILE', 'mochat-local-acceptance-admin']],
-  ['deploy/local-acceptance/init/099-apply-migrations.sh', ['0104_scrm_opportunity_owner', '0127_dashboard_page_rbac', '0129_identity_realms_single_corp_schema', '0133_archive_simulation_registry', '0138_archive_source_sync', '0143_group_conversation_workspace', '0166_wecom_integration_and_archive_media']],
+  ['deploy/local-acceptance/init/099-apply-migrations.sh', ['0104_scrm_opportunity_owner', '0127_dashboard_page_rbac', '0129_identity_realms_single_corp_schema', '0133_archive_simulation_registry', '0138_archive_source_sync', '0143_group_conversation_workspace', '0164_saas_tenant_ai_provider', '0166_wecom_integration_and_archive_media']],
   ['scripts/run_wecom_archive_saas_activation_acceptance.ps1', ['mochat-wecom-acceptance-20260827', 'MOCHAT-LOCAL-ACCEPTANCE-20260827', '[Security.Cryptography.RandomNumberGenerator]::Create()', 'dashboard-acceptance-password']],
 ];
 
@@ -56,6 +56,11 @@ export async function checkRepository(root) {
   const durableMigration = migrations.indexOf('0138_archive_source_sync.up.sql');
   if (simulationMigration < 0 || durableMigration < 0 || simulationMigration > durableMigration) {
     errors.push('acceptance migrations do not install 0133 before 0138');
+  }
+  const aiProviderMigration = migrations.indexOf('0164_saas_tenant_ai_provider.up.sql');
+  const integrationMigration = migrations.indexOf('0166_wecom_integration_and_archive_media.up.sql');
+  if (aiProviderMigration < 0 || integrationMigration < 0 || aiProviderMigration > integrationMigration) {
+    errors.push('acceptance migrations do not install 0164 before 0166');
   }
   return errors;
 }

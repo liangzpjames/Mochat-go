@@ -22,6 +22,15 @@ test('acceptance migrations install the archive simulation registry before durab
   assert.ok(simulation < durable, '0133 must run before 0138');
 });
 
+test('acceptance migrations install tenant AI providers before the integration schema', async () => {
+  const init = await readFile('deploy/local-acceptance/init/099-apply-migrations.sh', 'utf8');
+  const aiProviders = init.indexOf('0164_saas_tenant_ai_provider.up.sql');
+  const integrations = init.indexOf('0166_wecom_integration_and_archive_media.up.sql');
+  assert.ok(aiProviders >= 0, '0164 SaaS tenant AI provider migration is missing');
+  assert.ok(integrations >= 0, '0166 WeCom integration migration is missing');
+  assert.ok(aiProviders < integrations, '0164 must run before 0166');
+});
+
 test('acceptance seed exercises durable replay, formal integration transitions and activation services', async () => {
   const source = await readFile('cmd/mochat-archive-acceptance/main.go', 'utf8');
   assert.doesNotMatch(source, /if\s+!found\s*\{[\s\S]*?NewSyncService/, 'seed must not bypass Sync for an existing succeeded run');

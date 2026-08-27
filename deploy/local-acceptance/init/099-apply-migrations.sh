@@ -22,6 +22,7 @@ for name in \
   0133_archive_simulation_registry.up.sql \
   0138_archive_source_sync.up.sql \
   0143_group_conversation_workspace.up.sql \
+  0164_saas_tenant_ai_provider.up.sql \
   0166_wecom_integration_and_archive_media.up.sql
 do
   mariadb --protocol=socket -uroot -p"${MARIADB_ROOT_PASSWORD}" "${MARIADB_DATABASE}" < "/mochat-migrations/${name}"

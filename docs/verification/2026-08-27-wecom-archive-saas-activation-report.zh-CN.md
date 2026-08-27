@@ -23,6 +23,7 @@
 | fixture / durable / media 相关 Go 测试 | PASS | Finance SDK JSON、分页 cursor、失败不推进、重放幂等、分片与 checkpoint/restart 合同 |
 | Node 静态专项门禁 | PASS | DTO/locator、durable 与 legacy 互斥、激活 URL 清理、独立 Compose、密码文件和固定数据集 |
 | Compose 配置渲染 | PASS | 固定 project，独立端口和命名卷，敏感项来自 ignored env/file |
+| 验收库增量迁移顺序 | PASS | 静态合同要求 `0133 < 0138`、`0164 < 0166`；现有隔离库原位应用 0164 后，租户 AI Provider 正式 API 返回 HTTP/envelope 200 |
 | MariaDB `0166 down → up` | PASS | down 后 integration/media 两表均不存在，up 后两表恢复 |
 | `seed -defer-media` / 重放 | PASS | runId=8、cursor=10、10 messages、7 pending；再次调用正式 Sync 返回同一 runId 且 `syncIdempotent=true` |
 | worker checkpoint/restart | PASS | 捕获 fetching `bytesReceived=154`、attempt/checkpointAttempt=1；SIGKILL 后精确过期 lease，scheduler-backed worker takeover；recoveredObjects=1、workerRuns=1 |
