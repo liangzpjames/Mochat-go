@@ -35,7 +35,10 @@ function archiveMediaURL(id: string, value: string): string {
 }
 
 function messageMedia(content: Record<string, unknown>): MessageMedia | null {
-  const value = content.media;
+  return parseMessageMedia(content.media);
+}
+
+function parseMessageMedia(value: unknown): MessageMedia | null {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return null;
   const media = value as Record<string, unknown>;
   const states: readonly MediaState[] = ['pending', 'fetching', 'ready', 'failed', 'missing', 'corrupt'];
@@ -45,6 +48,11 @@ function messageMedia(content: Record<string, unknown>): MessageMedia | null {
   const result: MessageMedia = { id: media.id, type: media.type, name: media.name, mimeType: media.mimeType, size: media.size, status: media.status as MediaState };
   if (typeof media.url === 'string') result.url = archiveMediaURL(media.id, media.url);
   return result;
+}
+
+function messageMediaItems(content: Record<string, unknown>): MessageMedia[] {
+  if (!Array.isArray(content.mediaItems)) return [];
+  return content.mediaItems.map(parseMessageMedia).filter((value): value is MessageMedia => value !== null);
 }
 
 type PreviewState =
@@ -183,6 +191,10 @@ function MediaStateView({ media }: { media: MessageMedia }) {
 }
 
 export function ConversationMessageContent({ type, content }: Props) {
+  const mediaItems = messageMediaItems(content);
+  if (mediaItems.length > 1) return <div className="conversation-message-media-list">
+    {mediaItems.map((item) => <MediaStateView key={item.id} media={item} />)}
+  </div>;
   const media = messageMedia(content);
   if (media !== null) return <MediaStateView media={media} />;
   if (type === 1 || type === 100) {

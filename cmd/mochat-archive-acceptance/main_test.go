@@ -172,9 +172,15 @@ func TestVerifyDashboardMediaHTTPUsesRealLoginAndProjectsGlobalArchiveMedia(t *t
 			for _, fixture := range []struct {
 				sequence, messageType int
 				mediaStatus           string
-			}{{1, 1, ""}, {6, 6, ""}, {7, 7, ""}, {8, 2, "missing"}, {9, 9, "corrupt"}, {10, 100, ""}} {
+			}{{1, 1, ""}, {6, 6, ""}, {7, 7, ""}, {8, 2, "missing"}, {9, 9, "mixed"}, {10, 100, ""}} {
 				content := map[string]any{"value": datasetID}
-				if fixture.mediaStatus != "" {
+				if fixture.mediaStatus == "mixed" {
+					content["media"] = map[string]any{"id": "mixed-ready-id", "type": "image", "status": "ready", "url": "/dashboard/archive/media/mixed-ready-id/content"}
+					content["mediaItems"] = []map[string]any{
+						{"id": "mixed-ready-id", "type": "image", "status": "ready", "url": "/dashboard/archive/media/mixed-ready-id/content"},
+						{"id": "corrupt-id", "type": "image", "status": "corrupt"},
+					}
+				} else if fixture.mediaStatus != "" {
 					content["media"] = map[string]any{"id": fixture.mediaStatus + "-id", "type": "image", "status": fixture.mediaStatus}
 				}
 				messages = append(messages, map[string]any{
@@ -195,7 +201,7 @@ func TestVerifyDashboardMediaHTTPUsesRealLoginAndProjectsGlobalArchiveMedia(t *t
 	if evidence.MessageCount != 10 || strings.Join(evidence.MediaTypes, ",") != "image,voice,video,file" || strings.Join(evidence.TerminalMediaStatuses, ",") != "missing,corrupt" {
 		t.Fatalf("evidence=%+v", evidence)
 	}
-	if !reflect.DeepEqual(evidence.MessageTypes, []int{1, 2, 3, 4, 5, 9}) {
+	if !reflect.DeepEqual(evidence.MessageTypes, []int{1, 2, 3, 4, 5, 6, 7, 9, 100}) {
 		t.Fatalf("message types=%v", evidence.MessageTypes)
 	}
 	if !unauthenticated || !authenticated || !missingRead || !corruptRead || !globalListRead || !globalDetailRead {

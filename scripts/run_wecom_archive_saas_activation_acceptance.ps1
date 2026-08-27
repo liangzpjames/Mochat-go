@@ -105,10 +105,30 @@ function Invoke-Compose([string[]]$Arguments) {
     }
 }
 
+function Ensure-AcceptanceImage {
+    if (-not $NoBuild) {
+        Invoke-Compose @('build', 'acceptance')
+    }
+}
+
+function Test-CheckpointState([string]$State) {
+    & docker compose -p $ProjectName --env-file $EnvironmentFile -f $ComposeFile --profile tools run --rm acceptance checkpoint -checkpoint-state $State 2>$null | Out-Null
+    return $LASTEXITCODE -eq 0
+}
+
+function Wait-CheckpointState([string]$State, [int]$Attempts = 120) {
+    for ($attempt = 0; $attempt -lt $Attempts; $attempt++) {
+        if (Test-CheckpointState $State) {
+            return
+        }
+        Start-Sleep -Milliseconds 250
+    }
+    throw "acceptance checkpoint state '$State' was not observed"
+}
+
 function Start-AcceptanceServices {
     $arguments = @('up', '-d')
     if (-not $NoBuild) {
-		Invoke-Compose @('build', 'acceptance')
         $arguments += '--build'
     }
     $arguments += @('mysql', 'redis', 'bridge', 'app')
@@ -120,18 +140,33 @@ Write-Host "Dataset: $Dataset (本地验收 / 非生产)"
 
 switch ($Action) {
     'seed' {
+        Ensure-AcceptanceImage
         Start-AcceptanceServices
+		Invoke-Compose @('stop', 'worker')
         Invoke-Compose @('--profile', 'tools', 'run', '--rm', 'bootstrap')
-        Invoke-Compose @('--profile', 'tools', 'run', '--rm', 'acceptance', 'seed')
-		Invoke-Compose @('up', '-d', 'worker')
+		Invoke-Compose @('--profile', 'tools', 'run', '--rm', 'acceptance', 'seed', '-defer-media')
+		if (-not (Test-CheckpointState 'recovered')) {
+			Invoke-Compose @('up', '-d', 'worker')
+			Wait-CheckpointState 'partial'
+			# A zero-second stop interrupts the active worker with SIGKILL after a real persisted checkpoint.
+			Invoke-Compose @('stop', '-t', '0', 'worker')
+			Invoke-Compose @('--profile', 'tools', 'run', '--rm', 'acceptance', 'checkpoint', '-checkpoint-state', 'partial')
+			Invoke-Compose @('--profile', 'tools', 'run', '--rm', 'acceptance', 'checkpoint', '-checkpoint-state', 'expire')
+			Invoke-Compose @('up', '-d', 'worker')
+			Wait-CheckpointState 'recovered'
+		}
+		Invoke-Compose @('--profile', 'tools', 'run', '--rm', 'acceptance', 'seed')
         Invoke-Compose @('ps')
     }
     'verify' {
+		Ensure-AcceptanceImage
 		Invoke-Compose @('up', '-d', 'worker')
-		Invoke-Compose @('restart', 'worker')
+		Invoke-Compose @('--profile', 'tools', 'run', '--rm', 'acceptance', 'checkpoint', '-checkpoint-state', 'recovered')
         Invoke-Compose @('--profile', 'tools', 'run', '--rm', 'acceptance', 'verify')
     }
     'cleanup' {
+		Ensure-AcceptanceImage
+		Invoke-Compose @('stop', 'worker')
         $arguments = @('--profile', 'tools', 'run', '--rm', 'acceptance', 'cleanup')
         if ($DryRun) {
             $arguments += '-dry-run'

@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -67,14 +68,18 @@ func (s *MySQLStore) projectWorkMessageMedia(ctx context.Context, tenantID, corp
 		return err
 	}
 	for _, ref := range refs {
+		mediaItems := make([]map[string]any, 0, len(byMessage[strings.TrimSpace(ref.MsgID)]))
 		for _, row := range byMessage[strings.TrimSpace(ref.MsgID)] {
 			if !archiveMediaSourceMatches(ref.SourceIdentity, row.SourceIdentity) {
 				continue
 			}
+			mediaItems = append(mediaItems, archiveMediaPayload(row))
+		}
+		if len(mediaItems) > 0 {
 			content := workMessageMediaContent(*ref.Content)
-			content["media"] = archiveMediaPayload(row)
+			content["media"] = mediaItems[0]
+			content["mediaItems"] = mediaItems
 			*ref.Content = content
-			break
 		}
 	}
 	return nil
@@ -128,9 +133,18 @@ func (s *MySQLStore) ProjectWorkMessagePageMedia(ctx context.Context, tenantID, 
 			if media, exists := content["media"].(map[string]any); exists {
 				page.Items[index].Media = media
 			}
+			page.Items[index].ContentRaw = workMessageMediaContentJSON(content, page.Items[index].ContentRaw)
 		}
 	}
 	return nil
+}
+
+func workMessageMediaContentJSON(content map[string]any, fallback string) string {
+	encoded, err := json.Marshal(content)
+	if err != nil {
+		return fallback
+	}
+	return string(encoded)
 }
 
 func archiveMessageMsgID(id string) string {

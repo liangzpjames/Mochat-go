@@ -60,7 +60,10 @@ type options struct {
 	APIBaseURL            string
 	DashboardPasswordFile string
 	ActivationFixtureDir  string
+	CheckpointState       string
 	DryRun                bool
+	DeferMedia            bool
+	MediaChunkDelay       time.Duration
 	Timeout               time.Duration
 }
 
@@ -99,6 +102,8 @@ func run(ctx context.Context, output io.Writer, args []string, getenv func(strin
 		return verify(ctx, output, values)
 	case "cleanup":
 		return cleanup(ctx, output, values)
+	case "checkpoint":
+		return checkpoint(ctx, output, values)
 	default:
 		return fmt.Errorf("unsupported action %q", values.Action)
 	}
@@ -126,8 +131,19 @@ func parseOptions(args []string, getenv func(string) string) (options, error) {
 	flags.StringVar(&values.APIBaseURL, "api-base-url", envOr(getenv, "MOCHAT_ACCEPTANCE_API_BASE_URL", "http://127.0.0.1:19080"), "application base URL")
 	flags.StringVar(&values.DashboardPasswordFile, "dashboard-password-file", getenv("MOCHAT_ACCEPTANCE_DASHBOARD_PASSWORD_FILE"), "local Dashboard acceptance password file")
 	flags.StringVar(&values.ActivationFixtureDir, "activation-fixture-dir", envOr(getenv, "MOCHAT_ACCEPTANCE_ACTIVATION_FIXTURE_DIR", ".runtime/wecom-acceptance/activation"), "directory for local activation fixture tokens")
+	flags.StringVar(&values.CheckpointState, "checkpoint-state", "", "partial, expire, or recovered")
 	flags.BoolVar(&values.DryRun, "dry-run", false, "report cleanup counts without deleting")
+	flags.BoolVar(&values.DeferMedia, "defer-media", false, "leave media pending for the durable worker")
 	flags.DurationVar(&values.Timeout, "timeout", 2*time.Minute, "command timeout")
+	mediaDelay := strings.TrimSpace(getenv("MOCHAT_ACCEPTANCE_MEDIA_CHUNK_DELAY"))
+	if mediaDelay != "" {
+		parsed, err := time.ParseDuration(mediaDelay)
+		if err != nil || parsed < 0 {
+			return options{}, errors.New("fixture media chunk delay is invalid")
+		}
+		values.MediaChunkDelay = parsed
+	}
+	flags.DurationVar(&values.MediaChunkDelay, "media-chunk-delay", values.MediaChunkDelay, "fixture media response delay")
 	if err := flags.Parse(args); err != nil {
 		return options{}, err
 	}
@@ -164,10 +180,15 @@ func envOr(getenv func(string) string, key, fallback string) string {
 }
 
 func newFixtureBridge(stateDir, token string) (http.Handler, func(), error) {
+	return newFixtureBridgeWithDelay(stateDir, token, 0)
+}
+
+func newFixtureBridgeWithDelay(stateDir, token string, mediaChunkDelay time.Duration) (http.Handler, func(), error) {
 	fixture, err := archivesource.NewArchiveFixture()
 	if err != nil {
 		return nil, nil, err
 	}
+	fixture.SetMediaChunkDelay(mediaChunkDelay)
 	evidence, err := wecomarchivedemo.NewEvidenceStore(stateDir)
 	if err != nil {
 		fixture.Close()
@@ -192,7 +213,7 @@ func newFixtureBridge(stateDir, token string) (http.Handler, func(), error) {
 }
 
 func serveBridge(ctx context.Context, output io.Writer, values options) error {
-	handler, closeFixture, err := newFixtureBridge(values.StateDir, values.BridgeToken)
+	handler, closeFixture, err := newFixtureBridgeWithDelay(values.StateDir, values.BridgeToken, values.MediaChunkDelay)
 	if err != nil {
 		return err
 	}
@@ -280,17 +301,19 @@ func seed(ctx context.Context, output io.Writer, values options) error {
 	if err != nil {
 		return err
 	}
-	media := archiveprovider.NewMediaSyncService(archiveStore, client, values.StorageRoot)
 	processed := 0
-	for processed < 32 {
-		didWork, runErr := media.RunOne(ctx)
-		if runErr != nil && !terminalFixtureMediaError(runErr) {
-			return runErr
+	if !values.DeferMedia {
+		media := archiveprovider.NewMediaSyncService(archiveStore, client, values.StorageRoot)
+		for processed < 32 {
+			didWork, runErr := media.RunOne(ctx)
+			if runErr != nil && !terminalFixtureMediaError(runErr) {
+				return runErr
+			}
+			if !didWork {
+				break
+			}
+			processed++
 		}
-		if !didWork {
-			break
-		}
-		processed++
 	}
 	counts, err := collectCounts(ctx, db)
 	if err != nil {
@@ -298,7 +321,7 @@ func seed(ctx context.Context, output io.Writer, values options) error {
 	}
 	return json.NewEncoder(output).Encode(map[string]any{
 		"dataset": datasetID, "action": "seed", "tenantId": acceptanceTenant, "corpId": acceptanceCorp,
-		"runId": run.ID, "cursor": run.Cursor.Sequence, "syncIdempotent": run.Idempotent, "mediaProcessed": processed, "counts": counts, "activationFixtures": activationStates, "production": false,
+		"runId": run.ID, "cursor": run.Cursor.Sequence, "syncIdempotent": run.Idempotent, "mediaProcessed": processed, "mediaDeferred": values.DeferMedia, "counts": counts, "activationFixtures": activationStates, "production": false,
 	})
 }
 
@@ -612,6 +635,99 @@ func collectCounts(ctx context.Context, db *sql.DB) (acceptanceCounts, error) {
 	return result, nil
 }
 
+type checkpointEvidence struct {
+	State             string `json:"state"`
+	Status            string `json:"status,omitempty"`
+	BytesReceived     int64  `json:"bytesReceived,omitempty"`
+	Attempt           int    `json:"attempt,omitempty"`
+	CheckpointAttempt int    `json:"checkpointAttempt,omitempty"`
+	RecoveredObjects  int    `json:"recoveredObjects,omitempty"`
+	WorkerRuns        int    `json:"workerRuns,omitempty"`
+}
+
+func checkpoint(ctx context.Context, output io.Writer, values options) error {
+	db, _, err := openAcceptanceStore(ctx, values)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	state := strings.ToLower(strings.TrimSpace(values.CheckpointState))
+	switch state {
+	case "partial", "expire":
+		var id, status, indexBuf string
+		var bytesReceived int64
+		var attempt, checkpointAttempt int
+		err := db.QueryRowContext(ctx, `SELECT id,status,bytes_received,COALESCE(index_buf,''),attempt,checkpoint_attempt
+			FROM mochat_go_archive_media_objects
+			WHERE tenant_id=? AND corp_id=? AND msgid LIKE ? AND status='fetching' AND bytes_received>0 AND COALESCE(index_buf,'')<>'' AND checkpoint_attempt=attempt
+			ORDER BY bytes_received DESC LIMIT 1`, acceptanceTenant, acceptanceCorp, datasetID+"-MSG-%").Scan(&id, &status, &bytesReceived, &indexBuf, &attempt, &checkpointAttempt)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return errors.New("acceptance partial media checkpoint is not available")
+			}
+			return err
+		}
+		partPath := filepath.Join(values.StorageRoot, "archive-media", fmt.Sprintf("%s.attempt-%d.part", id, attempt))
+		info, err := os.Stat(partPath)
+		if err != nil || info.Size() != bytesReceived {
+			return errors.New("acceptance partial media checkpoint file does not match the durable ledger")
+		}
+		if state == "expire" {
+			result, err := db.ExecContext(ctx, `UPDATE mochat_go_archive_media_objects SET lease_expires_at=DATE_SUB(NOW(6),INTERVAL 1 SECOND),updated_at=NOW(6)
+				WHERE id=? AND tenant_id=? AND corp_id=? AND status='fetching' AND attempt=? AND checkpoint_attempt=? AND bytes_received=?`, id, acceptanceTenant, acceptanceCorp, attempt, checkpointAttempt, bytesReceived)
+			if err != nil {
+				return err
+			}
+			if affected, err := result.RowsAffected(); err != nil || affected != 1 {
+				return errors.New("acceptance checkpoint lease fault injection lost its exact target")
+			}
+		}
+		return json.NewEncoder(output).Encode(map[string]any{"dataset": datasetID, "action": "checkpoint", "production": false, "evidence": checkpointEvidence{State: state, Status: status, BytesReceived: bytesReceived, Attempt: attempt, CheckpointAttempt: checkpointAttempt}})
+	case "recovered":
+		counts, err := collectCounts(ctx, db)
+		if err != nil {
+			return err
+		}
+		if counts != (acceptanceCounts{Runs: 1, Messages: 10, Media: 7, Ready: 5, Missing: 1, Corrupt: 1}) {
+			return fmt.Errorf("acceptance checkpoint recovery counts do not match contract: %+v", counts)
+		}
+		var unfinished, recovered, workerRuns int
+		if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM mochat_go_archive_media_objects WHERE tenant_id=? AND corp_id=? AND msgid LIKE ? AND status IN ('pending','fetching','failed')`, acceptanceTenant, acceptanceCorp, datasetID+"-MSG-%").Scan(&unfinished); err != nil {
+			return err
+		}
+		if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM mochat_go_archive_media_objects WHERE tenant_id=? AND corp_id=? AND msgid LIKE ? AND status='ready' AND attempt>=2 AND checkpoint_attempt=attempt`, acceptanceTenant, acceptanceCorp, datasetID+"-MSG-%").Scan(&recovered); err != nil {
+			return err
+		}
+		if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM mochat_go_archive_sync_runs WHERE tenant_id=? AND corp_id=? AND source_id=? AND idempotency_key LIKE ? AND status='succeeded'`, acceptanceTenant, acceptanceCorp, acceptanceSource, acceptanceWorkerRunLike).Scan(&workerRuns); err != nil {
+			return err
+		}
+		if unfinished != 0 || recovered < 1 || workerRuns < 1 {
+			return fmt.Errorf("durable worker recovery evidence incomplete: unfinished=%d recovered=%d workerRuns=%d", unfinished, recovered, workerRuns)
+		}
+		rows, err := db.QueryContext(ctx, `SELECT id FROM mochat_go_archive_media_objects WHERE tenant_id=? AND corp_id=? AND msgid LIKE ?`, acceptanceTenant, acceptanceCorp, datasetID+"-MSG-%")
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var id string
+			if err := rows.Scan(&id); err != nil {
+				return err
+			}
+			parts, err := filepath.Glob(filepath.Join(values.StorageRoot, "archive-media", id+".attempt-*.part"))
+			if err != nil || len(parts) != 0 {
+				return errors.New("durable worker recovery left an acceptance attempt file")
+			}
+		}
+		if err := rows.Err(); err != nil {
+			return err
+		}
+		return json.NewEncoder(output).Encode(map[string]any{"dataset": datasetID, "action": "checkpoint", "production": false, "evidence": checkpointEvidence{State: state, Status: "ready", RecoveredObjects: recovered, WorkerRuns: workerRuns}})
+	default:
+		return errors.New("checkpoint state must be partial, expire, or recovered")
+	}
+}
+
 func verify(ctx context.Context, output io.Writer, values options) error {
 	db, _, err := openAcceptanceStore(ctx, values)
 	if err != nil {
@@ -923,6 +1039,7 @@ func verifyDashboardGlobalMessagesHTTP(ctx context.Context, client *http.Client,
 	foundTypes := map[string]bool{}
 	foundMessageTypes := map[int]bool{}
 	foundTerminalStatuses := map[string]bool{}
+	mixedReady, mixedCorrupt := false, false
 	for _, message := range detailEnvelope.Data.Messages {
 		if !strings.HasPrefix(message.ID, "msg:"+datasetID+"-MSG-") || message.ArchiveSource != "external" {
 			continue
@@ -938,6 +1055,21 @@ func verifyDashboardGlobalMessagesHTTP(ctx context.Context, client *http.Client,
 		if status == "missing" || status == "corrupt" {
 			foundTerminalStatuses[status] = true
 		}
+		if message.Type == 9 {
+			items, _ := message.Content["mediaItems"].([]any)
+			for _, item := range items {
+				projected, _ := item.(map[string]any)
+				itemStatus, _ := projected["status"].(string)
+				itemURL, _ := projected["url"].(string)
+				if itemStatus == "ready" && strings.HasPrefix(itemURL, "/dashboard/archive/media/") && strings.HasSuffix(itemURL, "/content") {
+					mixedReady = true
+				}
+				if itemStatus == "corrupt" {
+					mixedCorrupt = true
+					foundTerminalStatuses["corrupt"] = true
+				}
+			}
+		}
 	}
 	requiredTypes := []string{"image", "voice", "video", "file"}
 	for _, mediaType := range requiredTypes {
@@ -945,11 +1077,14 @@ func verifyDashboardGlobalMessagesHTTP(ctx context.Context, client *http.Client,
 			return dashboardProjectionEvidence{}, fmt.Errorf("dashboard global message detail missing ready %s projection", mediaType)
 		}
 	}
-	requiredMessageTypes := []int{1, 2, 3, 4, 5, 9}
+	requiredMessageTypes := []int{1, 2, 3, 4, 5, 6, 7, 9, 100}
 	for _, messageType := range requiredMessageTypes {
 		if !foundMessageTypes[messageType] {
 			return dashboardProjectionEvidence{}, fmt.Errorf("dashboard global message detail missing message type %d", messageType)
 		}
+	}
+	if !mixedReady || !mixedCorrupt {
+		return dashboardProjectionEvidence{}, errors.New("dashboard global message detail missing mixed ready/corrupt media projections")
 	}
 	requiredTerminalStatuses := []string{"missing", "corrupt"}
 	for _, terminalStatus := range requiredTerminalStatuses {

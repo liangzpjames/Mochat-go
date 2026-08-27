@@ -20,6 +20,7 @@ import (
 	"image/png"
 	"strconv"
 	"sync"
+	"time"
 
 	"jiyi/mochat-go/internal/wecomarchivedemo"
 )
@@ -65,6 +66,7 @@ type ArchiveFixture struct {
 	mediaFileIDs       map[string]string
 	media              map[string][]byte
 	mediaModes         map[string]MediaMode
+	mediaChunkDelay    time.Duration
 	closed             bool
 }
 
@@ -248,6 +250,15 @@ func (f *ArchiveFixture) SetMediaMode(sdkFileID string, mode MediaMode) {
 	f.mediaModes[sdkFileID] = mode
 }
 
+func (f *ArchiveFixture) SetMediaChunkDelay(delay time.Duration) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if delay < 0 {
+		delay = 0
+	}
+	f.mediaChunkDelay = delay
+}
+
 func (f *ArchiveFixture) GetChatData(seq uint64, limit uint32, timeoutSeconds int) ([]byte, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -296,6 +307,18 @@ func (f *ArchiveFixture) GetMediaData(ctx context.Context, sdkFileID, indexBuf s
 	}
 	if err := ctx.Err(); err != nil {
 		return wecomarchivedemo.MediaChunk{}, err
+	}
+	f.mu.Lock()
+	delay := f.mediaChunkDelay
+	f.mu.Unlock()
+	if delay > 0 {
+		timer := time.NewTimer(delay)
+		defer timer.Stop()
+		select {
+		case <-ctx.Done():
+			return wecomarchivedemo.MediaChunk{}, ctx.Err()
+		case <-timer.C:
+		}
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()

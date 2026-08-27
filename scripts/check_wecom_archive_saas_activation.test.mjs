@@ -48,6 +48,17 @@ test('acceptance runtime secures Windows secrets, rebuilds the CLI and runs a du
   assert.match(compose, /worker:[\s\S]*restart:\s*unless-stopped/);
 });
 
+test('every data action refreshes the acceptance image and proves an interrupted checkpoint takeover', async () => {
+  const script = await readFile('scripts/run_wecom_archive_saas_activation_acceptance.ps1', 'utf8');
+  for (const action of ['seed', 'verify', 'cleanup']) {
+    const branch = script.match(new RegExp(`'${action}'\\s*\\{([\\s\\S]*?)(?=\\n\\s*'[^']+'\\s*\\{|\\n\\s*})`))?.[1] ?? '';
+    assert.ok(branch.includes('Ensure-AcceptanceImage'), `${action} does not refresh the acceptance image`);
+  }
+  for (const contract of ['-defer-media', 'checkpoint', 'SIGKILL', 'partial', 'expire', 'recovered']) {
+    assert.ok(script.includes(contract), `acceptance runtime does not prove ${contract}`);
+  }
+});
+
 test('acceptance cleanup scopes the durable run key and verifies orphan removal', async () => {
   const source = await readFile('cmd/mochat-archive-acceptance/main.go', 'utf8');
   assert.match(source, /DELETE FROM mochat_go_archive_sync_runs[^`]*idempotency_key=\?/);

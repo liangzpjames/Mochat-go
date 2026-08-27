@@ -128,6 +128,17 @@ describe('ConversationMessageContent', () => {
     expect(screen.getByRole('alert').textContent).toContain('媒体已损坏');
   });
 
+  it('renders every projected mixed media item including terminal states', async () => {
+    const corruptID = 'ecf0fa42-a7fd-4b9a-97d4-1d52c29f7797';
+    const api: ArchiveMediaClient = { download: vi.fn().mockResolvedValue({ blob: new Blob(['png']), filename: 'mixed.png' }) };
+    render(<ArchiveMediaClientProvider client={api}><ConversationMessageContent type={9} content={{ mediaItems: [
+      { id: mediaID, type: 'image', name: 'mixed.png', mimeType: 'image/png', size: 3, status: 'ready', url: `/dashboard/archive/media/${mediaID}/content` },
+      { id: corruptID, type: 'image', name: 'broken.png', mimeType: 'image/png', size: 3, status: 'corrupt' },
+    ] }} /></ArchiveMediaClientProvider>);
+    expect(await screen.findByRole('img', { name: 'mixed.png' })).toBeTruthy();
+    expect(screen.getByRole('alert').textContent).toContain('媒体已损坏');
+  });
+
   it('fails safely when ready media has no authenticated URL and keeps legacy media compatible', () => {
     const { rerender } = render(<ConversationMessageContent type={5} content={{ media: { id: 'file-id', type: 'file', name: '合同.pdf', mimeType: 'application/pdf', size: 1, status: 'ready' } }} />);
     expect(screen.getByRole('alert').textContent).toContain('媒体暂不可用');

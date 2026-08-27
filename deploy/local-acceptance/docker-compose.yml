@@ -47,6 +47,7 @@ services:
     command: ["bridge", "-addr", "0.0.0.0:9091", "-state-dir", "/acceptance/bridge"]
     environment:
       MOCHAT_ACCEPTANCE_BRIDGE_TOKEN: ${MOCHAT_ACCEPTANCE_BRIDGE_TOKEN:-}
+      MOCHAT_ACCEPTANCE_MEDIA_CHUNK_DELAY: 40ms
     ports:
       - "127.0.0.1:19091:9091"
     volumes:

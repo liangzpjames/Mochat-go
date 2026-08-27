@@ -27,6 +27,7 @@ func TestWorkMessageMediaProjectionBatchesAndKeepsSourceIdentity(t *testing.T) {
 		WithArgs(11, 27, "same", "second").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "msgid", "source_identity", "media_type", "media_name", "mime_type", "size_bytes", "status", "last_error_code"}).
 			AddRow("8ff7bf2d-5604-43bc-a600-3ec91d575085", "same", "wecom:ww-a", "image", "safe.png", "image/png", 8, "ready", "").
+			AddRow("ecf0fa42-a7fd-4b9a-97d4-1d52c29f7797", "same", "wecom:ww-a", "image", "broken.png", "image/png", 8, "corrupt", "archive.media_integrity_mismatch").
 			AddRow("81596770-01df-4b51-b1dc-30f2f2379679", "same", "wecom:ww-other", "image", "wrong.png", "image/png", 8, "ready", "").
 			AddRow("2b91d440-a26e-482b-ad1b-8ee6f95b284f", "second", "wecom:ww-a", "voice", "voice.wav", "audio/wav", 9, "failed", "archive.media_fetch_failed"))
 	if err := store.projectWorkMessageMedia(context.Background(), 11, 27, refs); err != nil {
@@ -39,6 +40,10 @@ func TestWorkMessageMediaProjectionBatchesAndKeepsSourceIdentity(t *testing.T) {
 	media, ok := firstContent["media"].(map[string]any)
 	if !ok || media["id"] != "8ff7bf2d-5604-43bc-a600-3ec91d575085" || media["url"] != "/dashboard/archive/media/8ff7bf2d-5604-43bc-a600-3ec91d575085/content" {
 		t.Fatalf("first media = %#v", firstContent["media"])
+	}
+	mediaItems, ok := firstContent["mediaItems"].([]map[string]any)
+	if !ok || len(mediaItems) != 2 || mediaItems[0]["status"] != "ready" || mediaItems[1]["status"] != "corrupt" {
+		t.Fatalf("first mediaItems = %#v", firstContent["mediaItems"])
 	}
 	secondContent := second.(map[string]any)
 	failed, ok := secondContent["media"].(map[string]any)
