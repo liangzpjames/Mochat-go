@@ -156,25 +156,19 @@ describe('createAccessLoader', () => {
     }))({ request: new Request('https://app.test/company-setting/website') })).rejects.toMatchObject({ status: 403 });
   });
 
-  it('redirects a pending binding to settings and keeps the session', async () => {
+  it('keeps authorized Dashboard routes available for a pending binding', async () => {
     const pendingProfile = { ...profile, corpBindingStatus: 'pending' as const };
     const loadProfile = vi.fn(() => Promise.resolve(pendingProfile));
     const pendingDeps = deps({
       loadProfile,
-      knownRoutes: new Set(['/index', '/company-setting/website', '/chat/v2-all']),
-      manifestRoutes: new Set(['/index', '/company-setting/website', '/chat/v2-all']),
+      knownRoutes: new Set(['/company-setting/website', '/chat/v2-all']),
+      manifestRoutes: new Set(['/company-setting/website', '/chat/v2-all']),
     });
-    await expectRedirect(
-      createAccessLoader(pendingDeps)({ request: new Request('https://app.test/index') }),
-      '/company-setting/website',
-    );
-    expect(pendingDeps.clearSession).not.toHaveBeenCalled();
-    await expect(createAccessLoader(pendingDeps)({
-      request: new Request('https://app.test/company-setting/website'),
-    })).resolves.toMatchObject({
+    await expect(createAccessLoader(pendingDeps)({ request: new Request('https://app.test/chat/v2-all') })).resolves.toMatchObject({
       profile: pendingProfile,
-      allowedRoutes: new Set(['/company-setting/website']),
+      allowedRoutes: new Set(['/chat/v2-all']),
     });
+    expect(pendingDeps.clearSession).not.toHaveBeenCalled();
   });
 
   it('does not let a flat benchmark route set grant access', async () => {

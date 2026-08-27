@@ -21,23 +21,24 @@ type companyProfileQueryer interface {
 }
 
 type companyBindingRecord struct {
-	ActorUserID        int
-	TenantID           int
-	CorpID             int
-	Status             int
-	Version            uint64
-	EmployeeGeneration uint64
-	ContactGeneration  uint64
-	AgentGeneration    uint64
-	CallbackGeneration uint64
-	VerifiedWXCorpID   string
-	VerifiedCorpName   string
-	VerifiedAt         sql.NullTime
-	DisplayName        string
-	LegacyWXCorpID     string
-	Ciphertext         string
-	KeyID              string
-	UpdatedAt          sql.NullTime
+	ActorUserID          int
+	TenantID             int
+	CorpID               int
+	WeComIntegrationMode string
+	Status               int
+	Version              uint64
+	EmployeeGeneration   uint64
+	ContactGeneration    uint64
+	AgentGeneration      uint64
+	CallbackGeneration   uint64
+	VerifiedWXCorpID     string
+	VerifiedCorpName     string
+	VerifiedAt           sql.NullTime
+	DisplayName          string
+	LegacyWXCorpID       string
+	Ciphertext           string
+	KeyID                string
+	UpdatedAt            sql.NullTime
 }
 
 func (s *MySQLStore) GetProfile(ctx context.Context, principal dashboardprincipal.DashboardPrincipal) (companyprofile.Profile, error) {
@@ -111,6 +112,9 @@ func (s *MySQLStore) GetVerificationSnapshot(ctx context.Context, principal dash
 	if err != nil {
 		return companyprofile.VerificationSnapshot{}, err
 	}
+	if !companyBindingUsesSelfBuiltWeCom(binding) {
+		return companyprofile.VerificationSnapshot{}, companyprofile.ErrIntegrationMode
+	}
 	credential, found, err := loadEncryptedCorpCredentialByID(ctx, s.db, binding.CorpID, false)
 	if err != nil {
 		return companyprofile.VerificationSnapshot{}, err
@@ -155,6 +159,9 @@ func (s *MySQLStore) CommitVerification(ctx context.Context, principal dashboard
 	binding, err := s.loadCompanyBinding(ctx, tx, principal, true)
 	if err != nil {
 		return companyprofile.Profile{}, err
+	}
+	if !companyBindingUsesSelfBuiltWeCom(binding) {
+		return companyprofile.Profile{}, companyprofile.ErrIntegrationMode
 	}
 	if binding.Version != input.ExpectedVersion {
 		return companyprofile.Profile{}, companyprofile.ErrVersionConflict
@@ -243,6 +250,9 @@ func (s *MySQLStore) ConfigureApplication(ctx context.Context, principal dashboa
 	binding, err := s.loadCompanyBinding(ctx, tx, principal, true)
 	if err != nil {
 		return companyprofile.Profile{}, err
+	}
+	if !companyBindingUsesSelfBuiltWeCom(binding) {
+		return companyprofile.Profile{}, companyprofile.ErrIntegrationMode
 	}
 	if binding.Version != input.ExpectedVersion {
 		return companyprofile.Profile{}, companyprofile.ErrVersionConflict
@@ -363,6 +373,9 @@ func (s *MySQLStore) GetCallbackConfiguration(ctx context.Context, principal das
 	if err != nil {
 		return companyprofile.CallbackConfiguration{}, err
 	}
+	if !companyBindingUsesSelfBuiltWeCom(binding) {
+		return companyprofile.CallbackConfiguration{}, companyprofile.ErrIntegrationMode
+	}
 	current, found, err := loadEncryptedCorpCredentialByID(ctx, s.db, binding.CorpID, false)
 	if err != nil {
 		return companyprofile.CallbackConfiguration{}, err
@@ -452,6 +465,9 @@ func (s *MySQLStore) rotateCorpCredentials(ctx context.Context, principal dashbo
 	binding, err := s.loadCompanyBinding(ctx, tx, principal, true)
 	if err != nil {
 		return companyprofile.Profile{}, err
+	}
+	if !companyBindingUsesSelfBuiltWeCom(binding) {
+		return companyprofile.Profile{}, companyprofile.ErrIntegrationMode
 	}
 	if binding.Version != input.ExpectedVersion {
 		return companyprofile.Profile{}, companyprofile.ErrVersionConflict
@@ -551,6 +567,9 @@ func (s *MySQLStore) RotateAgentCredentials(ctx context.Context, principal dashb
 	binding, err := s.loadCompanyBinding(ctx, tx, principal, true)
 	if err != nil {
 		return companyprofile.Profile{}, err
+	}
+	if !companyBindingUsesSelfBuiltWeCom(binding) {
+		return companyprofile.Profile{}, companyprofile.ErrIntegrationMode
 	}
 	if binding.Version != input.ExpectedVersion {
 		return companyprofile.Profile{}, companyprofile.ErrVersionConflict
@@ -732,7 +751,7 @@ func (s *MySQLStore) loadCompanyBinding(ctx context.Context, queryer companyProf
 		suffix = " FOR UPDATE"
 	}
 	row := queryer.QueryRowContext(ctx, `
-		SELECT b.tenant_id, b.corp_id, b.status, b.version,
+		SELECT b.tenant_id, b.corp_id, b.wecom_integration_mode, b.status, b.version,
 		       b.employee_credential_generation, b.contact_credential_generation,
 		       b.agent_credential_generation, b.callback_credential_generation,
 		       COALESCE(b.verified_wx_corpid,''), COALESCE(b.verified_corp_name,''), b.verified_at,
@@ -742,7 +761,7 @@ func (s *MySQLStore) loadCompanyBinding(ctx context.Context, queryer companyProf
 		JOIN mc_corp c ON c.id = b.corp_id AND c.tenant_id = b.tenant_id AND c.deleted_at IS NULL
 		WHERE b.tenant_id = ? AND b.corp_id = ?`+suffix, principal.TenantID, principal.CorpID)
 	var item companyBindingRecord
-	if err := row.Scan(&item.TenantID, &item.CorpID, &item.Status, &item.Version,
+	if err := row.Scan(&item.TenantID, &item.CorpID, &item.WeComIntegrationMode, &item.Status, &item.Version,
 		&item.EmployeeGeneration, &item.ContactGeneration, &item.AgentGeneration, &item.CallbackGeneration,
 		&item.VerifiedWXCorpID, &item.VerifiedCorpName,
 		&item.VerifiedAt, &item.DisplayName, &item.LegacyWXCorpID, &item.Ciphertext, &item.KeyID, &item.UpdatedAt); err != nil {
@@ -775,6 +794,32 @@ func (s *MySQLStore) companyProfileFromBinding(ctx context.Context, queryer comp
 		status = string(dashboardprincipal.CorpBindingStatusSuspended)
 	default:
 		return companyprofile.Profile{}, companyprofile.ErrTenantAccessDenied
+	}
+	if companyBindingWeComMode(binding) == "third_party_delegated" {
+		profile := companyprofile.Profile{
+			TenantID:              binding.TenantID,
+			CorpID:                binding.CorpID,
+			DisplayName:           binding.DisplayName,
+			WeComIntegrationMode:  "third_party_delegated",
+			AuthoritativeCorpName: binding.VerifiedCorpName,
+			BindingStatus:         status,
+			BindingVersion:        binding.Version,
+			CredentialGenerations: companyprofile.CredentialGenerationSet{Employee: binding.EmployeeGeneration, Contact: binding.ContactGeneration, Agent: binding.AgentGeneration, Callback: binding.CallbackGeneration},
+			Credentials:           companyprofile.CredentialStatuses{},
+		}
+		if strings.TrimSpace(binding.VerifiedWXCorpID) != "" {
+			profile.WXCorpID = strings.TrimSpace(binding.VerifiedWXCorpID)
+		}
+		if binding.VerifiedAt.Valid {
+			value := binding.VerifiedAt.Time
+			profile.VerifiedAt = &value
+		}
+		if binding.UpdatedAt.Valid {
+			profile.UpdatedAt = binding.UpdatedAt.Time
+		} else {
+			profile.UpdatedAt = time.Unix(0, 0).UTC()
+		}
+		return profile, nil
 	}
 	corpConfigured := false
 	employeeConfigured := false
@@ -831,6 +876,7 @@ func (s *MySQLStore) companyProfileFromBinding(ctx context.Context, queryer comp
 	}
 	profile := companyprofile.Profile{
 		TenantID: binding.TenantID, CorpID: binding.CorpID, DisplayName: binding.DisplayName,
+		WeComIntegrationMode:  companyBindingWeComMode(binding),
 		AuthoritativeCorpName: binding.VerifiedCorpName, BindingStatus: status, BindingVersion: binding.Version,
 		CredentialGenerations: companyprofile.CredentialGenerationSet{Employee: binding.EmployeeGeneration, Contact: binding.ContactGeneration, Agent: binding.AgentGeneration, Callback: binding.CallbackGeneration},
 		ApplicationAgentID:    strings.TrimSpace(applicationAgentID),
@@ -854,6 +900,18 @@ func (s *MySQLStore) companyProfileFromBinding(ctx context.Context, queryer comp
 		profile.UpdatedAt = time.Unix(0, 0).UTC()
 	}
 	return profile, nil
+}
+
+func companyBindingUsesSelfBuiltWeCom(binding companyBindingRecord) bool {
+	return companyBindingWeComMode(binding) == "self_built"
+}
+
+func companyBindingWeComMode(binding companyBindingRecord) string {
+	mode := strings.TrimSpace(binding.WeComIntegrationMode)
+	if mode == "" {
+		return "self_built"
+	}
+	return mode
 }
 
 // authoritativeApplicationAgentSelectionSQL is shared by provider status and

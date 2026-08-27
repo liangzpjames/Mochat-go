@@ -22,6 +22,7 @@ var (
 	ErrWeComCredentialDecrypt             = errors.New("WeCom integration credential cannot be decrypted")
 	ErrWeComActiveMediaLease              = errors.New("active archive media lease blocks integration switch")
 	ErrWeComCandidateNotVerified          = errors.New("WeCom integration candidate is not verified")
+	ErrWeComModeImmutable                 = errors.New("WeCom integration mode is immutable")
 )
 
 type WeComIntegration struct {
@@ -118,6 +119,7 @@ func (f WeComIntegrationVerifierFunc) Verify(ctx context.Context, request WeComV
 
 type WeComIntegrationStore interface {
 	WeComIntegration(context.Context, Actor, int) (WeComIntegrationView, error)
+	SaveWeComIntegrationCurrent(context.Context, Actor, int, WeComIntegrationCandidateInput) (WeComIntegration, error)
 	SaveWeComIntegrationCandidate(context.Context, Actor, int, WeComIntegrationCandidateInput) (WeComIntegration, error)
 	WeComIntegrationVerificationCandidate(context.Context, Actor, int, uint64) (WeComVerificationCandidate, error)
 	CompleteWeComIntegrationVerification(context.Context, Actor, int, uint64, WeComVerificationResult, string) (WeComIntegration, error)
@@ -140,64 +142,30 @@ func (s *WeComIntegrationService) Get(ctx context.Context, actor Actor, tenantID
 	}
 	return s.store.WeComIntegration(ctx, actor, tenantID)
 }
-func (s *WeComIntegrationService) SaveCandidate(ctx context.Context, actor Actor, tenantID int, input WeComIntegrationCandidateInput) (WeComIntegration, error) {
+func (s *WeComIntegrationService) SaveCurrent(ctx context.Context, actor Actor, tenantID int, input WeComIntegrationCandidateInput) (WeComIntegration, error) {
 	if s == nil || s.store == nil || tenantID <= 0 {
 		return WeComIntegration{}, ErrInvalidRequest
 	}
 	input = normalizeWeComCandidateInput(input)
+	if input.Mode != WeComIntegrationModeThirdPartyDelegated {
+		return WeComIntegration{}, ErrWeComModeImmutable
+	}
 	if err := ValidateWeComIntegrationCandidate(input, true); err != nil && !(errors.Is(err, ErrInvalidRequest) && weComCandidateMayRetain(input)) {
 		return WeComIntegration{}, err
 	}
-	return s.store.SaveWeComIntegrationCandidate(ctx, actor, tenantID, input)
+	return s.store.SaveWeComIntegrationCurrent(ctx, actor, tenantID, input)
+}
+func (s *WeComIntegrationService) SaveCandidate(ctx context.Context, actor Actor, tenantID int, input WeComIntegrationCandidateInput) (WeComIntegration, error) {
+	return WeComIntegration{}, ErrWeComModeImmutable
 }
 func (s *WeComIntegrationService) VerifyCandidate(ctx context.Context, actor Actor, tenantID int, version uint64) (WeComIntegration, error) {
-	if s == nil || s.store == nil || tenantID <= 0 || version == 0 {
-		return WeComIntegration{}, ErrInvalidRequest
-	}
-	candidate, err := s.store.WeComIntegrationVerificationCandidate(ctx, actor, tenantID, version)
-	if err != nil {
-		return WeComIntegration{}, err
-	}
-	fail := func(code string, cause error) (WeComIntegration, error) {
-		_, recordErr := s.store.CompleteWeComIntegrationVerification(ctx, actor, tenantID, version, WeComVerificationResult{}, code)
-		if recordErr != nil {
-			return WeComIntegration{}, recordErr
-		}
-		return WeComIntegration{}, cause
-	}
-	if s.verifier == nil {
-		return fail("WECOM_ONLINE_VERIFICATION_UNAVAILABLE", ErrWeComOnlineVerificationUnavailable)
-	}
-	result, err := s.verifier.Verify(ctx, WeComVerificationRequest{TenantID: candidate.TenantID, CorpID: candidate.CorpID, AuthoritativeWXCorpID: candidate.AuthoritativeWXCorpID, Mode: candidate.Integration.Mode, AgentID: candidate.Integration.AgentID, ProviderAppID: candidate.Integration.ProviderAppID, Scope: append([]string{}, candidate.Integration.Scope...), Credentials: candidate.Credentials})
-	if err != nil {
-		return fail("WECOM_CONTRACT_VERIFICATION_FAILED", ErrWeComOnlineVerificationUnavailable)
-	}
-	result.VerifiedWXCorpID = strings.TrimSpace(result.VerifiedWXCorpID)
-	result.Scope = normalizeWeComStrings(result.Scope)
-	result.MissingCapabilities = normalizeWeComStrings(result.MissingCapabilities)
-	result.VerificationLevel = strings.TrimSpace(result.VerificationLevel)
-	if result.VerificationLevel != WeComVerificationLocalContract {
-		return fail("WECOM_VERIFICATION_LEVEL_INVALID", ErrInvalidRequest)
-	}
-	if result.VerifiedWXCorpID == "" || result.VerifiedWXCorpID != candidate.AuthoritativeWXCorpID {
-		return fail("WECOM_CORP_MISMATCH", ErrWeComCorpMismatch)
-	}
-	if len(result.MissingCapabilities) > 0 {
-		return fail("WECOM_MISSING_CAPABILITIES", ErrWeComMissingCapabilities)
-	}
-	return s.store.CompleteWeComIntegrationVerification(ctx, actor, tenantID, version, result, "")
+	return WeComIntegration{}, ErrWeComModeImmutable
 }
 func (s *WeComIntegrationService) Switch(ctx context.Context, actor Actor, tenantID int, version uint64) (WeComIntegrationView, error) {
-	if s == nil || s.store == nil || tenantID <= 0 || version == 0 {
-		return WeComIntegrationView{}, ErrInvalidRequest
-	}
-	return s.store.SwitchWeComIntegration(ctx, actor, tenantID, version)
+	return WeComIntegrationView{}, ErrWeComModeImmutable
 }
 func (s *WeComIntegrationService) Rollback(ctx context.Context, actor Actor, tenantID int, version uint64) (WeComIntegrationView, error) {
-	if s == nil || s.store == nil || tenantID <= 0 || version == 0 {
-		return WeComIntegrationView{}, ErrInvalidRequest
-	}
-	return s.store.RollbackWeComIntegration(ctx, actor, tenantID, version)
+	return WeComIntegrationView{}, ErrWeComModeImmutable
 }
 func (s *WeComIntegrationService) Audits(ctx context.Context, actor Actor, tenantID int) ([]WeComIntegrationAudit, error) {
 	if s == nil || s.store == nil || tenantID <= 0 {

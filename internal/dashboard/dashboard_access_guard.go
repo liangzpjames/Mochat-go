@@ -100,7 +100,18 @@ func (guard *DashboardAccessGuard) Authorize(w http.ResponseWriter, request *htt
 	}
 	userID := principal.UserID
 	if principal.CorpStatus == dashboardprincipal.CorpBindingStatusPending {
-		return guard.authorizePendingBinding(w, request, principal, contract)
+		if isPendingCompanySyncContract(contract) {
+			writeDashboardCorpConfigurationRequired(w)
+			return false
+		}
+		if isPendingCompanyConfigurationContract(contract) {
+			if !principal.IsSuperAdmin {
+				writeDashboardPermissionDenied(w)
+				return false
+			}
+			guard.attachIdentityContext(request, principal)
+			return true
+		}
 	}
 	if method != http.MethodGet && method != http.MethodHead && dashboardPathPatternMatches("/dashboard/archive/media/{id}/content", path) {
 		// The principal boundary still applies, but unsupported methods do not
@@ -198,7 +209,7 @@ func isPendingCompanyConfigurationContract(contract string) bool {
 		"PUT /dashboard/company/application-credentials", "PUT /dashboard/company/archive-credentials",
 		"GET /dashboard/company/callback-configuration", "POST /dashboard/company/callback-configuration/regenerate",
 		"POST /dashboard/company/verify",
-		"GET /dashboard/company/audits", "GET /dashboard/providers/status":
+		"GET /dashboard/company/audits", "GET /dashboard/providers/status", "GET /dashboard/company/sync-status":
 		return true
 	default:
 		return false
@@ -206,7 +217,7 @@ func isPendingCompanyConfigurationContract(contract string) bool {
 }
 
 func isPendingCompanySyncContract(contract string) bool {
-	return contract == "POST /dashboard/company/employee-sync" || contract == "GET /dashboard/company/sync-status"
+	return contract == "POST /dashboard/company/employee-sync"
 }
 
 func isDashboardAccessManagementRoute(contract string) bool {

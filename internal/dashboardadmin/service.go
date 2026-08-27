@@ -182,8 +182,18 @@ type SubscriptionInput struct {
 	ExpiresAt    string `json:"expiresAt"`
 }
 
+const (
+	WeComIntegrationModeSelfBuilt           = "self_built"
+	WeComIntegrationModeThirdPartyDelegated = "third_party_delegated"
+)
+
+func ValidWeComIntegrationMode(mode string) bool {
+	return mode == WeComIntegrationModeSelfBuilt || mode == WeComIntegrationModeThirdPartyDelegated
+}
+
 type ProvisionDashboardTenant struct {
 	TenantName               string                 `json:"tenantName"`
+	WeComIntegrationMode     string                 `json:"wecomIntegrationMode"`
 	PackageID                int                    `json:"packageId"`
 	Limits                   SaaSAdminPackageLimits `json:"limits"`
 	Subscription             SubscriptionInput      `json:"subscription"`
@@ -265,14 +275,25 @@ type GovernanceResult struct {
 }
 
 type DashboardIdentityRecord struct {
-	ID              int
-	Name            string
-	LoginIdentifier string
-	UserStatus      int
-	IdentityStatus  int
-	ActivatedAt     string
-	IsSuperAdmin    bool
+	ID               int
+	Name             string
+	LoginIdentifier  string
+	UserStatus       int
+	IdentityStatus   int
+	ActivatedAt      string
+	IsSuperAdmin     bool
+	AvailableActions []string          `json:"availableActions"`
+	BlockedReasons   map[string]string `json:"blockedReasons"`
 }
+
+const (
+	DashboardGovernanceActionResendActivation     = "resend_activation"
+	DashboardGovernanceActionDisable              = "disable"
+	DashboardGovernanceActionRestore              = "restore"
+	DashboardGovernanceActionReplaceCurrent       = "replace_current"
+	DashboardGovernanceActionReplacementCandidate = "replacement_candidate"
+	DashboardGovernanceBlockLastSuperAdmin        = "LAST_SUPER_ADMIN"
+)
 
 type DashboardAdminGovernanceView struct {
 	TenantID       int
@@ -497,7 +518,45 @@ func (service *Service) DashboardAdminGovernance(ctx context.Context, actor Acto
 	if service == nil || service.store == nil {
 		return DashboardAdminGovernanceView{}, ErrStoreUnavailable
 	}
-	return service.store.DashboardAdminGovernance(ctx, actor, tenantID)
+	view, err := service.store.DashboardAdminGovernance(ctx, actor, tenantID)
+	if err != nil {
+		return DashboardAdminGovernanceView{}, err
+	}
+	return dashboardAdminGovernanceCapabilities(view), nil
+}
+
+func dashboardAdminGovernanceCapabilities(view DashboardAdminGovernanceView) DashboardAdminGovernanceView {
+	activeSuperAdmins := 0
+	for _, identity := range view.Identities {
+		if identity.IsSuperAdmin && identity.UserStatus == 1 && identity.IdentityStatus == 1 && identity.ActivatedAt != "" {
+			activeSuperAdmins++
+		}
+	}
+	for index := range view.Identities {
+		identity := &view.Identities[index]
+		identity.AvailableActions = []string{}
+		identity.BlockedReasons = map[string]string{}
+		active := identity.UserStatus == 1 && identity.IdentityStatus == 1
+		activated := identity.ActivatedAt != ""
+		if identity.IsSuperAdmin && active && !activated {
+			identity.AvailableActions = append(identity.AvailableActions, DashboardGovernanceActionResendActivation)
+		}
+		if identity.IsSuperAdmin && active && activated {
+			identity.AvailableActions = append(identity.AvailableActions, DashboardGovernanceActionReplaceCurrent)
+			if activeSuperAdmins > 1 {
+				identity.AvailableActions = append(identity.AvailableActions, DashboardGovernanceActionDisable)
+			} else {
+				identity.BlockedReasons[DashboardGovernanceActionDisable] = DashboardGovernanceBlockLastSuperAdmin
+			}
+		}
+		if identity.IsSuperAdmin && !active && activated {
+			identity.AvailableActions = append(identity.AvailableActions, DashboardGovernanceActionRestore)
+		}
+		if !identity.IsSuperAdmin && active && activated {
+			identity.AvailableActions = append(identity.AvailableActions, DashboardGovernanceActionReplacementCandidate)
+		}
+	}
+	return view
 }
 
 func (service *Service) ResendActivation(ctx context.Context, actor Actor, input ResendActivationInput) (ResendActivationResult, error) {
@@ -602,6 +661,9 @@ func validateProvision(input ProvisionDashboardTenant) error {
 		return ErrInvalidRequest
 	}
 	if strings.TrimSpace(input.TenantName) == "" || len([]rune(strings.TrimSpace(input.TenantName))) > 255 {
+		return ErrInvalidRequest
+	}
+	if !ValidWeComIntegrationMode(strings.TrimSpace(input.WeComIntegrationMode)) {
 		return ErrInvalidRequest
 	}
 	if strings.TrimSpace(input.AdminName) == "" || len([]rune(strings.TrimSpace(input.AdminName))) > 255 {

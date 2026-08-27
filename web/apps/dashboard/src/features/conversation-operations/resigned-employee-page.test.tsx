@@ -1,4 +1,5 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { ApiError } from '@mochat/api-client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -19,6 +20,16 @@ function renderPage(api: ConversationGlobalApi) {
 }
 
 describe('ResignedEmployeePage', () => {
+  it('shows the shared archive setup state instead of an employee directory error', async () => {
+    renderPage({
+      search: vi.fn(),
+      detail: vi.fn(),
+      staffDirectory: vi.fn(() => Promise.reject(new ApiError('forbidden', 'archive not authorized', { status: 403, code: 40301 }))),
+    });
+    expect(await screen.findByText('会话归档未开通')).toBeTruthy();
+    expect(screen.queryByText('员工目录加载失败')).toBeNull();
+  });
+
   it('requests departed employees, opens their conversation and hides deferred types', async () => {
     const search = vi.fn<ConversationGlobalApi['search']>().mockResolvedValue({ list: [conversation], total: 1, page: 1, pageSize: 20 });
     const staffDirectory = vi.fn<NonNullable<ConversationGlobalApi['staffDirectory']>>().mockResolvedValue({ departments: [], employees: [employee], counts: { all: 1, focused: 0, archived: 1, departed: 1 }, page: 1, pageSize: 50, total: 1, limitations: [], capabilities: [] });

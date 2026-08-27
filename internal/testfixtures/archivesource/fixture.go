@@ -311,7 +311,10 @@ func (f *ArchiveFixture) GetMediaData(ctx context.Context, sdkFileID, indexBuf s
 	f.mu.Lock()
 	delay := f.mediaChunkDelay
 	f.mu.Unlock()
-	if delay > 0 {
+	// The acceptance delay holds the second request only. This leaves a
+	// durable first-chunk checkpoint observable without making every remaining
+	// deterministic fixture chunk artificially slow.
+	if delay > 0 && indexBuf == "7" {
 		timer := time.NewTimer(delay)
 		defer timer.Stop()
 		select {

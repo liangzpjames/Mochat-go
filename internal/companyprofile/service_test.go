@@ -484,6 +484,19 @@ func TestServiceEmployeeSyncRequiresVerifiedBinding(t *testing.T) {
 	}
 }
 
+func TestServiceSyncStatusAllowsPendingUnconfiguredBinding(t *testing.T) {
+	store := &companyProfileContractStore{syncStatus: SyncStatus{Status: "idle"}}
+	service := NewService(store, &companyProfileTestVerifier{})
+
+	status, err := service.GetSyncStatus(context.Background(), companyProfileTestPrincipal(true, dashboardprincipal.CorpBindingStatusPending))
+	if err != nil {
+		t.Fatalf("GetSyncStatus() error = %v, want readable empty status", err)
+	}
+	if status.Status != "idle" || store.syncStatusCalls != 1 {
+		t.Fatalf("status=%+v calls=%d, want idle/1", status, store.syncStatusCalls)
+	}
+}
+
 func TestServiceEmployeeSyncUsesVerifiedPrincipalScopeOnly(t *testing.T) {
 	store := &companyProfileContractStore{verificationSnapshot: VerificationSnapshot{
 		Verified: true, WXCorpID: "ww-authoritative", BindingVersion: 1,

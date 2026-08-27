@@ -149,16 +149,10 @@ func (s *MySQLStore) DurableArchiveBindings(ctx context.Context) ([]archiveprovi
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT integration.tenant_id,integration.corp_id,integration.verified_wx_corpid
 		FROM mochat_go_wecom_integrations integration
+		INNER JOIN mc_tenant tenant ON tenant.id=integration.tenant_id AND tenant.status=1 AND tenant.deleted_at IS NULL
 		INNER JOIN mc_corp corp ON corp.tenant_id=integration.tenant_id AND corp.id=integration.corp_id AND corp.deleted_at IS NULL
 		INNER JOIN mochat_go_tenant_corp_bindings binding ON binding.tenant_id=integration.tenant_id AND binding.corp_id=integration.corp_id
-		WHERE integration.slot='current' AND integration.status='active' AND integration.verified_wx_corpid<>''
-		  AND integration.verified_at IS NOT NULL
-		  AND binding.status=2 AND binding.verified_at IS NOT NULL
-		  AND binding.verified_wx_corpid=integration.verified_wx_corpid
-		  AND JSON_VALID(integration.scope_json)=1
-		  AND JSON_CONTAINS(integration.scope_json, JSON_QUOTE('archive.read'))=1
-		  AND JSON_VALID(integration.missing_capabilities_json)=1
-		  AND JSON_LENGTH(integration.missing_capabilities_json) = 0
+		WHERE `+durableArchiveEligibilityPredicate+`
 		ORDER BY integration.tenant_id,integration.corp_id
 	`)
 	if err != nil {
@@ -175,6 +169,20 @@ func (s *MySQLStore) DurableArchiveBindings(ctx context.Context) ([]archiveprovi
 	}
 	return result, rows.Err()
 }
+
+// durableArchiveEligibilityPredicate is shared by source discovery and media
+// claiming so revoked capability or verified-corp drift fails closed at both
+// production boundaries.
+const durableArchiveEligibilityPredicate = `
+		integration.slot='current' AND integration.status='active' AND integration.verified_wx_corpid<>''
+		  AND integration.mode=binding.wecom_integration_mode
+		  AND integration.verified_at IS NOT NULL
+		  AND binding.status=2 AND binding.verified_at IS NOT NULL
+		  AND binding.verified_wx_corpid=integration.verified_wx_corpid
+		  AND JSON_VALID(integration.scope_json)=1
+		  AND JSON_CONTAINS(integration.scope_json, JSON_QUOTE('archive.read'))=1
+		  AND JSON_VALID(integration.missing_capabilities_json)=1
+		  AND JSON_LENGTH(integration.missing_capabilities_json) = 0`
 
 func (s *MySQLStore) LatestArchiveSyncCursor(ctx context.Context, scope archiveprovider.Scope, sourceID string) (archiveprovider.Cursor, error) {
 	if s == nil || s.db == nil || !scopeValid(scope) || strings.TrimSpace(sourceID) == "" {

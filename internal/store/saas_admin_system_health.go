@@ -12,6 +12,8 @@ import (
 
 	"jiyi/mochat-go/internal/dashboard"
 	"jiyi/mochat-go/internal/saasbackup"
+
+	mysqlDriver "github.com/go-sql-driver/mysql"
 )
 
 func (s *MySQLStore) SaaSAdminSystemHealthChecks(ctx context.Context, options dashboard.SaaSAdminSystemHealthOptions) ([]dashboard.SaaSAdminSystemHealthCheck, error) {
@@ -21,26 +23,9 @@ func (s *MySQLStore) SaaSAdminSystemHealthChecks(ctx context.Context, options da
 		Severity: dashboard.SaaSAdminSystemHealthStateCritical, Detail: "数据库查询正常",
 	})
 
-	var migrationCount int64
-	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM mochat_go_schema_migrations`).Scan(&migrationCount); err != nil {
+	migrationCheck, err := saasMigrationHealthCheck(ctx, s.db)
+	if err != nil {
 		return nil, err
-	}
-	var currentMigration string
-	err := s.db.QueryRowContext(ctx, `SELECT version FROM mochat_go_schema_migrations ORDER BY version DESC LIMIT 1`).Scan(&currentMigration)
-	if errors.Is(err, sql.ErrNoRows) {
-		currentMigration = ""
-	} else if err != nil {
-		return nil, err
-	}
-	migrationCheck := dashboard.SaaSAdminSystemHealthCheck{
-		Code: "schema_migration", Name: "数据库迁移", Category: "database", Status: dashboard.SaaSAdminSystemHealthStateHealthy,
-		Severity: dashboard.SaaSAdminSystemHealthStateCritical, Current: migrationCount, Threshold: dashboard.SaaSAdminExpectedMigrationCount,
-		Detail:   fmt.Sprintf("当前 %s，共 %d 个版本", currentMigration, migrationCount),
-		Metadata: map[string]any{"currentVersion": currentMigration, "expectedVersion": dashboard.SaaSAdminExpectedMigrationVersion, "migrationCount": migrationCount},
-	}
-	if currentMigration != dashboard.SaaSAdminExpectedMigrationVersion || migrationCount != dashboard.SaaSAdminExpectedMigrationCount {
-		migrationCheck.Status = dashboard.SaaSAdminSystemHealthStateCritical
-		migrationCheck.Detail = fmt.Sprintf("迁移未对齐：当前 %s/%d，期望 %s/%d", currentMigration, migrationCount, dashboard.SaaSAdminExpectedMigrationVersion, dashboard.SaaSAdminExpectedMigrationCount)
 	}
 	checks = append(checks, migrationCheck)
 
@@ -119,6 +104,41 @@ func (s *MySQLStore) SaaSAdminSystemHealthChecks(ctx context.Context, options da
 	}
 	checks = append(checks, domainDeliveryChecks...)
 	return checks, nil
+}
+
+func saasMigrationHealthCheck(ctx context.Context, db *sql.DB) (dashboard.SaaSAdminSystemHealthCheck, error) {
+	check := dashboard.SaaSAdminSystemHealthCheck{
+		Code: "schema_migration", Name: "数据库迁移", Category: "database", Status: dashboard.SaaSAdminSystemHealthStateHealthy,
+		Severity: dashboard.SaaSAdminSystemHealthStateCritical, Threshold: dashboard.SaaSAdminExpectedMigrationCount,
+		Metadata: map[string]any{"currentVersion": "", "expectedVersion": dashboard.SaaSAdminExpectedMigrationVersion, "migrationCount": int64(0), "ledgerAvailable": true},
+	}
+	var migrationCount int64
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM mochat_go_schema_migrations`).Scan(&migrationCount); err != nil {
+		var mysqlErr *mysqlDriver.MySQLError
+		if errors.As(err, &mysqlErr) && mysqlErr.Number == 1146 {
+			check.Status = dashboard.SaaSAdminSystemHealthStateCritical
+			check.Detail = "迁移账本不存在；数据库初始化不完整"
+			check.Metadata["ledgerAvailable"] = false
+			return check, nil
+		}
+		return dashboard.SaaSAdminSystemHealthCheck{}, err
+	}
+	var currentMigration string
+	err := db.QueryRowContext(ctx, `SELECT version FROM mochat_go_schema_migrations ORDER BY version DESC LIMIT 1`).Scan(&currentMigration)
+	if errors.Is(err, sql.ErrNoRows) {
+		currentMigration = ""
+	} else if err != nil {
+		return dashboard.SaaSAdminSystemHealthCheck{}, err
+	}
+	check.Current = migrationCount
+	check.Detail = fmt.Sprintf("当前 %s，共 %d 个版本", currentMigration, migrationCount)
+	check.Metadata["currentVersion"] = currentMigration
+	check.Metadata["migrationCount"] = migrationCount
+	if currentMigration != dashboard.SaaSAdminExpectedMigrationVersion || migrationCount != dashboard.SaaSAdminExpectedMigrationCount {
+		check.Status = dashboard.SaaSAdminSystemHealthStateCritical
+		check.Detail = fmt.Sprintf("迁移未对齐：当前 %s/%d，期望 %s/%d", currentMigration, migrationCount, dashboard.SaaSAdminExpectedMigrationVersion, dashboard.SaaSAdminExpectedMigrationCount)
+	}
+	return check, nil
 }
 
 func (s *MySQLStore) saasTenantDomainDeliverySystemHealthChecks(ctx context.Context, options dashboard.SaaSAdminSystemHealthOptions) ([]dashboard.SaaSAdminSystemHealthCheck, error) {

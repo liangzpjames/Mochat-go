@@ -184,6 +184,25 @@ describe('企业设置页面', () => {
     expect(screen.getByText('应用 Secret 已加密保存，出于安全原因不会回显。')).toBeTruthy();
   });
 
+  it('企业信息：第三方代开发模式只展示 SaaS 托管说明且不读取或修改企微凭据', async () => {
+    const getCallbackConfiguration = vi.fn();
+    const getSyncStatus = vi.fn();
+    const api = companyApi({
+      getProfile: vi.fn().mockResolvedValue({ ...companyProfile, wecomIntegrationMode: 'third_party_delegated' }),
+      getCallbackConfiguration,
+      getSyncStatus,
+    });
+    renderPage(<CompanyWebsitePage api={api} isSuperAdmin />);
+
+    expect(await screen.findByText('企微配置由 SaaS 平台维护')).toBeTruthy();
+    expect(screen.getAllByText('第三方代开发应用').length).toBeGreaterThanOrEqual(2);
+    expect(screen.queryByLabelText('应用 Secret')).toBeNull();
+    expect(screen.queryByRole('button', { name: '验证企业微信' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '开始员工同步' })).toBeNull();
+    expect(getCallbackConfiguration).not.toHaveBeenCalled();
+    expect(getSyncStatus).not.toHaveBeenCalled();
+  });
+
   it('企业信息：待配置和暂停状态均 fail closed，不提供错误的同步或验证入口', async () => {
     const pendingApi = companyApi({ getProfile: vi.fn().mockResolvedValue({ ...companyProfile, bindingStatus: 'pending', wxCorpId: undefined, authoritativeCorpName: undefined }) });
     renderPage(<CompanyWebsitePage api={pendingApi} isSuperAdmin />);

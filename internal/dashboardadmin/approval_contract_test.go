@@ -9,6 +9,7 @@ import (
 func TestDashboardAdminApprovalActionsNormalizeWithoutActorOrCredentialMaterial(t *testing.T) {
 	provisionBody := map[string]any{
 		"tenantName": "Acme", "packageId": 11, "limits": completeApprovalLimits(),
+		"wecomIntegrationMode": "self_built",
 		"subscription":         map[string]any{"status": "trialing", "billingCycle": "custom", "startsAt": "2026-08-11T00:00:00Z", "expiresAt": "2026-09-11T00:00:00Z"},
 		"adminLoginIdentifier": "13800000001", "adminName": "管理员", "idempotencyKey": "approval-provision", "expectedVersion": 3,
 	}

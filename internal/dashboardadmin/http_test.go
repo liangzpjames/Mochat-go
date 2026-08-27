@@ -150,7 +150,7 @@ func TestDashboardAdminHTTPGovernanceListUsesPathTenantAndNeverReturnsCredential
 	if bytes.Contains(response.Body.Bytes(), []byte("password")) || bytes.Contains(response.Body.Bytes(), []byte("digest")) || bytes.Contains(response.Body.Bytes(), []byte("secret")) {
 		t.Fatal("governance response exposed credential material")
 	}
-	if !bytes.Contains(response.Body.Bytes(), []byte(`"bindingVersion":8`)) || !bytes.Contains(response.Body.Bytes(), []byte(`"isSuperAdmin":true`)) || !bytes.Contains(response.Body.Bytes(), []byte(`"identityStatus":1`)) {
+	if !bytes.Contains(response.Body.Bytes(), []byte(`"bindingVersion":8`)) || !bytes.Contains(response.Body.Bytes(), []byte(`"isSuperAdmin":true`)) || !bytes.Contains(response.Body.Bytes(), []byte(`"identityStatus":1`)) || !bytes.Contains(response.Body.Bytes(), []byte(`"availableActions":["replace_current"]`)) || !bytes.Contains(response.Body.Bytes(), []byte(`"disable":"LAST_SUPER_ADMIN"`)) {
 		t.Fatalf("governance response=%s, want binding version and identity facts", response.Body.String())
 	}
 }

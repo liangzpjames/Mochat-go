@@ -152,7 +152,7 @@ func TestDashboardAccessGuardManualAIInsightRunIsSuperadminDenyOnly(t *testing.T
 	}
 }
 
-func TestDashboardAccessGuardPendingBindingAllowsOnlyConfigurationContracts(t *testing.T) {
+func TestDashboardAccessGuardPendingBindingAllowsAuthorizedReadsAndBlocksProviderWrites(t *testing.T) {
 	tests := []struct {
 		name        string
 		method      string
@@ -161,7 +161,7 @@ func TestDashboardAccessGuardPendingBindingAllowsOnlyConfigurationContracts(t *t
 		wantAllowed bool
 		wantCode    string
 	}{
-		{name: "business page", method: http.MethodGet, path: "/dashboard/workContact/123", wantCode: "CORP_CONFIGURATION_REQUIRED"},
+		{name: "business page", method: http.MethodGet, path: "/dashboard/workContact/123", wantAllowed: true},
 		{name: "profile", method: http.MethodGet, path: "/dashboard/access/profile", superadmin: true, wantAllowed: true},
 		{name: "company profile for superadmin", method: http.MethodGet, path: "/dashboard/company/profile", superadmin: true, wantAllowed: true},
 		{name: "company profile for ordinary user", method: http.MethodGet, path: "/dashboard/company/profile", wantCode: DashboardPermissionDeniedCode},
@@ -171,10 +171,10 @@ func TestDashboardAccessGuardPendingBindingAllowsOnlyConfigurationContracts(t *t
 		{name: "provider status for pending ordinary user", method: http.MethodGet, path: "/dashboard/providers/status", wantCode: DashboardPermissionDeniedCode},
 		{name: "callback rotation for superadmin", method: http.MethodPost, path: "/dashboard/company/callback-configuration/regenerate", superadmin: true, wantAllowed: true},
 		{name: "employee sync remains blocked", method: http.MethodPost, path: "/dashboard/company/employee-sync", superadmin: true, wantCode: "CORP_CONFIGURATION_REQUIRED"},
-		{name: "sync status remains blocked", method: http.MethodGet, path: "/dashboard/company/sync-status", superadmin: true, wantCode: "CORP_CONFIGURATION_REQUIRED"},
-		{name: "unknown api remains blocked", method: http.MethodGet, path: "/dashboard/not-classified", superadmin: true, wantCode: "CORP_CONFIGURATION_REQUIRED"},
+		{name: "sync status is a readable empty-state contract", method: http.MethodGet, path: "/dashboard/company/sync-status", superadmin: true, wantAllowed: true},
+		{name: "unknown api remains denied by RBAC", method: http.MethodGet, path: "/dashboard/not-classified", superadmin: true, wantCode: DashboardPermissionDeniedCode},
 		{name: "session", method: http.MethodGet, path: "/dashboard/auth/session", superadmin: true, wantAllowed: true},
-		{name: "security MFA is not a configuration contract", method: http.MethodGet, path: "/dashboard/user/securityMFA", superadmin: true, wantCode: "CORP_CONFIGURATION_REQUIRED"},
+		{name: "security MFA remains available", method: http.MethodGet, path: "/dashboard/user/securityMFA", superadmin: true, wantAllowed: true},
 		{name: "logout", method: http.MethodPost, path: "/dashboard/auth/logout", superadmin: true, wantAllowed: true},
 	}
 	for _, test := range tests {

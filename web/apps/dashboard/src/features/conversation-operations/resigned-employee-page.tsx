@@ -6,6 +6,7 @@ import { useSearchParams } from 'react-router';
 import { useDashboardAccess } from '../../app/access-context';
 import { updateSearch } from '../../shared/query-state';
 import type { ConversationGlobalApi, ConversationTargetType } from '../conversation-global/conversation-global-api';
+import { ConversationArchiveUnavailableState, isConversationArchiveUnavailable } from '../conversation-global/conversation-archive-state';
 import { EmployeeConversationDetail } from '../conversation-global/employee-conversation-detail';
 import { EmployeeConversationDirectory } from '../conversation-global/employee-conversation-directory';
 import { EmployeeConversationList } from '../conversation-global/employee-conversation-list';
@@ -168,6 +169,8 @@ export function ResignedEmployeePage({ api }: { api: ConversationGlobalApi }) {
     const nextTypes = detailMessageTypes.includes(type) ? detailMessageTypes.filter((item) => item !== type) : [...detailMessageTypes, type];
     setSearchParams(setRepeated(new URLSearchParams(searchParams), 'messageTypes', nextTypes));
   }
+
+  if (isConversationArchiveUnavailable(directoryQuery.error)) return <ConversationArchiveUnavailableState />;
 
   return (
     <ConversationOperationsShell title="离职员工" description="查看离职员工的真实归档会话和历史消息">

@@ -66,6 +66,29 @@ func TestCompanyProfileStoreAllowsGrantedOrdinaryActorOnRealMariaDB(t *testing.T
 	}
 }
 
+func TestCompanySyncStatusIsIdleBeforeWeComConfigurationOnRealMariaDB(t *testing.T) {
+	db := newDashboardAdminProvisioningDB(t)
+	createDashboardAdminProvisioningFixture(t, db)
+	manager := testWeComCredentialManager(t, wecomcredentials.Config{
+		EncryptionKey: testCompanyCredentialKey(28), EncryptionKeyID: "company-unconfigured-key",
+		RequireEncryption: true, DedicatedConfigured: true,
+	})
+	prepareCompanyProfileRepositoryFixture(t, db, manager)
+	store := NewMySQLStore(db).WithWeComCredentialCipher(manager)
+	principal := dashboardprincipal.DashboardPrincipal{
+		UserID: 10, TenantID: 1, CorpID: 100, CorpStatus: dashboardprincipal.CorpBindingStatusPending,
+		IsSuperAdmin: true, AuthVersion: 1,
+	}
+
+	status, err := store.GetSyncStatus(context.Background(), principal)
+	if err != nil {
+		t.Fatalf("GetSyncStatus() error = %v, want idle status for an unconfigured tenant", err)
+	}
+	if status.Status != "idle" || status.Departments != 0 || status.Employees != 0 {
+		t.Fatalf("GetSyncStatus() = %+v, want an empty idle status", status)
+	}
+}
+
 func TestCompanyProfileApplicationCallbackAndArchiveConfigurationIsAtomicRealMariaDB(t *testing.T) {
 	db := newDashboardAdminProvisioningDB(t)
 	createDashboardAdminProvisioningFixture(t, db)

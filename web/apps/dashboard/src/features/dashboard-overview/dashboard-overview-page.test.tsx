@@ -232,8 +232,9 @@ describe('DashboardOverviewPage', () => {
     expect(screen.getByRole('article', { name: '已分析会话' }).textContent).toContain('--');
     expect(screen.queryByRole('status', { name: 'AI 洞察数据暂缺' })).toBeNull();
     expect(screen.getByRole('status', { name: '部分质检数据暂缺' })).toBeTruthy();
-    expect(screen.getByRole('status', { name: '员工排行数据暂缺' })).toBeTruthy();
-    expect(screen.getByRole('status', { name: '会话轨迹数据暂缺' })).toBeTruthy();
+    expect(screen.getByRole('status', { name: '暂无员工会话排行' })).toBeTruthy();
+    expect(screen.getByRole('status', { name: '暂无会话轨迹' })).toBeTruthy();
+    expect(screen.queryByText(/需确认.*权限/)).toBeNull();
   });
 
   it('alerts when a real snapshot field is missing instead of masking it as zero', async () => {

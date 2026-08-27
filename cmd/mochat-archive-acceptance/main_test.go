@@ -108,6 +108,43 @@ func TestCleanupStatementsAreDatasetScoped(t *testing.T) {
 		if !strings.Contains(normalized, "?") {
 			t.Fatalf("cleanup is not parameter scoped: %s", statement)
 		}
+		if strings.Contains(normalized, "delete from mochat_go_saas_admin_users") {
+			t.Fatalf("dataset cleanup must preserve the reusable local operator account: %s", statement)
+		}
+	}
+}
+
+func TestActivationFixtureCleanupDeletesWeComIntegrationBeforeCorpBinding(t *testing.T) {
+	source, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := strings.Index(string(source), "func cleanupActivationFixturesTx")
+	end := strings.Index(string(source), "func verifyCleanupOrphans")
+	if start < 0 || end <= start {
+		t.Fatal("activation cleanup function boundaries not found")
+	}
+	body := string(source[start:end])
+	integrationDelete := strings.Index(body, "DELETE FROM mochat_go_wecom_integrations")
+	bindingDelete := strings.Index(body, "DELETE FROM mochat_go_tenant_corp_bindings")
+	if integrationDelete < 0 || bindingDelete < 0 || integrationDelete > bindingDelete {
+		t.Fatalf("activation cleanup must delete scoped WeCom integrations before bindings")
+	}
+}
+
+func TestActivationFixtureProvisioningPinsAnImmutableWeComMode(t *testing.T) {
+	source, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := strings.Index(string(source), "func prepareActivationFixtures")
+	end := strings.Index(string(source), "func acceptanceActivationLimits")
+	if start < 0 || end <= start {
+		t.Fatal("activation fixture provisioning function boundaries not found")
+	}
+	body := string(source[start:end])
+	if !strings.Contains(body, "WeComIntegrationModeSelfBuilt") || !strings.Contains(body, "WeComIntegrationModeThirdPartyDelegated") || !strings.Contains(body, "WeComIntegrationMode: integrationMode") {
+		t.Fatal("activation fixtures must select an explicit immutable mode, including delegated coverage")
 	}
 }
 

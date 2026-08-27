@@ -68,19 +68,6 @@ export function createAccessLoader(deps: AccessLoaderDeps) {
         deps.clearQueries();
         throwRouterResponse(redirect(`/login?returnTo=${encodeURIComponent(localReturnTo(request))}`));
       }
-      if (profile.corpBindingStatus === 'pending') {
-        const settingsPath = '/company-setting/website';
-        if (pathname !== settingsPath) {
-          throwRouterResponse(redirect(settingsPath));
-        }
-        return {
-          session,
-          corp,
-          profile,
-          allowedRoutes: new Set([settingsPath]),
-          allowedActions: new Set(),
-        };
-      }
       const routes = new Set<string>();
       const actions = new Set<string>();
       const catalogByPath = new Map(profile.catalog.map((item) => [item.path, item]));

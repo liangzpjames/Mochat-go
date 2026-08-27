@@ -18,6 +18,7 @@ services:
       - mysql-data-v4:/var/lib/mysql
       - ../standalone/schema/mochat.sql:/docker-entrypoint-initdb.d/001-mochat.sql:ro
       - ../standalone/migrations:/mochat-migrations:ro
+      - ./init:/local-acceptance-init:ro
       - ./init/099-apply-migrations.sh:/docker-entrypoint-initdb.d/099-apply-migrations.sh:ro
     healthcheck:
       test: ["CMD-SHELL", "mariadb-admin ping -h 127.0.0.1 -umochat_acceptance -p\"$${MARIADB_PASSWORD}\""]
@@ -47,7 +48,9 @@ services:
     command: ["bridge", "-addr", "0.0.0.0:9091", "-state-dir", "/acceptance/bridge"]
     environment:
       MOCHAT_ACCEPTANCE_BRIDGE_TOKEN: ${MOCHAT_ACCEPTANCE_BRIDGE_TOKEN:-}
-      MOCHAT_ACCEPTANCE_MEDIA_CHUNK_DELAY: 40ms
+      # Keep an in-flight durable checkpoint observable before the forced app
+      # restart; production media code remains unchanged.
+      MOCHAT_ACCEPTANCE_MEDIA_CHUNK_DELAY: 3s
     ports:
       - "127.0.0.1:19091:9091"
     volumes:
@@ -62,12 +65,15 @@ services:
     build:
       context: ../..
       dockerfile: Dockerfile
+    restart: unless-stopped
     environment: &app-environment
       TZ: Asia/Shanghai
       MOCHAT_GO_RUNTIME_ROLE: all
       MOCHAT_GO_STANDALONE: "1"
       MOCHAT_GO_ENABLE_FRONTEND_SERVERS: "1"
       MOCHAT_GO_ENABLE_ALL_MIGRATED_ROUTES: "1"
+      MOCHAT_GO_ENABLE_PHASE2_2_SCRM_PILOT: "1"
+      MOCHAT_GO_ENABLE_AI_DEBT_CLEARANCE: "1"
       MOCHAT_GO_ADDR: 0.0.0.0:8080
       MOCHAT_API_BASE_URL: http://127.0.0.1:19080
       MOCHAT_SIDEBAR_BASE_URL: http://127.0.0.1:19081
@@ -93,7 +99,9 @@ services:
       MOCHAT_GO_WORK_MESSAGE_ARCHIVE_BRIDGE_BASE_URL: http://bridge:9091
       MOCHAT_GO_WORK_MESSAGE_ARCHIVE_BRIDGE_TOKEN: ${MOCHAT_ACCEPTANCE_BRIDGE_TOKEN:-}
       MOCHAT_GO_ENABLE_WORK_MESSAGE_ARCHIVE_SYNC_CRON: "0"
-      MOCHAT_GO_ENABLE_DURABLE_WORK_MESSAGE_ARCHIVE: "0"
+      MOCHAT_GO_ENABLE_DURABLE_WORK_MESSAGE_ARCHIVE: "1"
+      MOCHAT_GO_WORK_MESSAGE_ARCHIVE_SYNC_CRON_INTERVAL_SECONDS: "5"
+      MOCHAT_GO_WORK_MESSAGE_ARCHIVE_SYNC_CRON_RUN_ON_START: "1"
       MOCHAT_FILE_STORAGE_ROOT: /app/storage/upload/static
       MOCHAT_SAAS_ADMIN_DIST: /app/web/apps/saas-admin/dist
       MOCHAT_GO_ENABLE_SAAS_ADMIN_DASHBOARD: "1"
@@ -120,29 +128,6 @@ services:
       timeout: 3s
       retries: 60
       start_period: 15s
-
-  worker:
-    image: mochat-wecom-acceptance-20260827-acceptance
-    restart: unless-stopped
-    environment:
-      <<: *app-environment
-      MOCHAT_GO_RUNTIME_ROLE: scheduler
-      MOCHAT_GO_ENABLE_FRONTEND_SERVERS: "0"
-      MOCHAT_GO_ENABLE_DURABLE_WORK_MESSAGE_ARCHIVE: "1"
-      MOCHAT_GO_WORK_MESSAGE_ARCHIVE_SYNC_CRON_INTERVAL_SECONDS: "5"
-      MOCHAT_GO_WORK_MESSAGE_ARCHIVE_SYNC_CRON_RUN_ON_START: "1"
-    volumes:
-      - app-storage:/app/storage
-      - audit-anchor-storage:/app/audit-anchors
-      - ${MOCHAT_ACCEPTANCE_RUNTIME_DIR:-./.runtime-placeholder}/saas-mfa.key:/run/secrets/saas-mfa.key:ro
-      - ${MOCHAT_ACCEPTANCE_RUNTIME_DIR:-./.runtime-placeholder}/dashboard-mfa.key:/run/secrets/dashboard-mfa.key:ro
-    depends_on:
-      mysql:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      bridge:
-        condition: service_healthy
 
   acceptance:
     profiles: ["tools"]

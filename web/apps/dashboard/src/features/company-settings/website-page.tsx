@@ -71,13 +71,13 @@ export function CompanyWebsitePage({ api, isSuperAdmin, onTenantAccessDenied, on
 	const callbackQuery = useQuery({
 	  queryKey: ['company-callback-configuration'],
 	  queryFn: () => api.getCallbackConfiguration(),
-	  enabled: canView && profile !== undefined,
+	  enabled: canView && profile !== undefined && profile.wecomIntegrationMode !== 'third_party_delegated',
 	  retry: false,
 	});
   const syncQuery = useQuery({
     queryKey: ['company-sync-status'],
     queryFn: () => api.getSyncStatus(),
-    enabled: canView && profile !== undefined,
+    enabled: canView && profile !== undefined && profile.wecomIntegrationMode !== 'third_party_delegated',
     retry: false,
   });
   const auditsQuery = useQuery({
@@ -126,6 +126,10 @@ export function CompanyWebsitePage({ api, isSuperAdmin, onTenantAccessDenied, on
     }
     if (error instanceof ApiError && error.machineCode === 'WECOM_CREDENTIAL_INVALID') {
       setOperationFeedback({ scope, tone: 'error', message: '企业微信凭据校验失败，请检查后重试。' });
+      return;
+    }
+    if (error instanceof ApiError && error.machineCode === 'WECOM_INTEGRATION_MODE_MISMATCH') {
+      setOperationFeedback({ scope, tone: 'error', message: '当前租户使用第三方代开发应用，企微凭据只能由 SaaS 平台维护。' });
       return;
     }
     if (error instanceof ApiError && error.machineCode === 'INVALID_REQUEST') {
@@ -270,6 +274,7 @@ export function CompanyWebsitePage({ api, isSuperAdmin, onTenantAccessDenied, on
             <div><span>企业微信 CorpID</span><strong>{profile.wxCorpId || '待验证'}</strong></div>
             <div><span>绑定版本</span><strong>{profile.bindingVersion}</strong></div>
             <div><span>资料状态</span><strong>{statusText[profile.bindingStatus]}</strong></div>
+            <div><span>企微对接模式</span><strong>{profile.wecomIntegrationMode === 'third_party_delegated' ? '第三方代开发应用' : '自建应用'}</strong></div>
           </div>
           <div className="company-profile-form-row">
             <label>展示名称<input value={displayName} onChange={(event) => setDisplayName(event.target.value)} maxLength={255} /></label>
@@ -284,6 +289,7 @@ export function CompanyWebsitePage({ api, isSuperAdmin, onTenantAccessDenied, on
           <ScopedFeedback feedback={operationFeedback} scope="profile" />
         </section>
 
+        {profile.wecomIntegrationMode !== 'third_party_delegated' ? <>
         <section className="phase35-card company-profile-card" aria-labelledby="company-application-heading">
 		  <header className="company-profile-card-header">
 			<div>
@@ -435,6 +441,18 @@ export function CompanyWebsitePage({ api, isSuperAdmin, onTenantAccessDenied, on
           </div>
           <ScopedFeedback feedback={operationFeedback} scope="sync" />
         </section>
+        </> : (
+          <section className="phase35-card company-profile-card" aria-labelledby="company-delegated-heading">
+            <header className="company-profile-card-header">
+              <div>
+                <p className="company-profile-eyebrow">企微对接</p>
+                <h2 id="company-delegated-heading">第三方代开发应用</h2>
+                <p>当前租户的企微应用与授权凭据由 SaaS 平台安全维护。Dashboard 不展示、不复制、也不能修改这些敏感配置。</p>
+              </div>
+            </header>
+            <PageState state="empty" title="企微配置由 SaaS 平台维护" description="未完成配置时仍可继续使用 Dashboard，业务页面会正常展示空数据。" />
+          </section>
+        )}
 
         <section className="phase35-card company-profile-card" aria-labelledby="company-audit-heading">
           <header className="company-profile-card-header"><div><p className="company-profile-eyebrow">变更记录</p><h2 id="company-audit-heading">企业配置审计</h2><p>仅展示变更动作和版本事实，不包含 Secret、密文或凭据正文。</p></div></header>

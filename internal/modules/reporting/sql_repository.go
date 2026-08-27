@@ -366,11 +366,11 @@ func qualityTrendPoints(days []string, dayMap map[string]QualityTrendPoint) []Qu
 func reportIntPtr(value int) *int { return &value }
 
 func (r *SQLRepository) optionalCount(ctx context.Context, table, where string, args ...any) (*int, bool, error) {
-	var exists int
-	if err := r.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name=?", table).Scan(&exists); err != nil {
+	exists, err := r.tableExists(ctx, table)
+	if err != nil {
 		return nil, false, err
 	}
-	if exists == 0 {
+	if !exists {
 		return nil, false, nil
 	}
 	var value int
@@ -378,6 +378,14 @@ func (r *SQLRepository) optionalCount(ctx context.Context, table, where string, 
 		return nil, true, err
 	}
 	return &value, true, nil
+}
+
+func (r *SQLRepository) tableExists(ctx context.Context, table string) (bool, error) {
+	var count int
+	if err := r.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name=?", table).Scan(&count); err != nil {
+		return false, err
+	}
+	return count > 0, nil
 }
 
 func archiveMessageUnion(tables []archiveTableShape, q ReportQuery) (string, []any) {
@@ -543,7 +551,20 @@ func (r *SQLRepository) queryConversion(ctx context.Context, q ReportQuery) (Rep
 	limits := limitation(q, "scrm")
 	whereByStage := make([]string, len(stages))
 	argsByStage := make([][]any, len(stages))
+	availableByStage := make([]bool, len(stages))
 	for i, s := range stages {
+		availableByStage[i] = true
+		if s.key == "order" {
+			available, err := r.tableExists(ctx, s.table)
+			if err != nil {
+				return ReportResult{}, err
+			}
+			if !available {
+				availableByStage[i] = false
+				limits = append(limits, Limitation{Provider: "scrm_orders", Code: "table_unavailable", Message: "订单数据表不可用，按空数据展示"})
+				continue
+			}
+		}
 		w, a := scope(q, s.alias, "created_at")
 		if s.deleted {
 			w += " AND " + s.alias + ".deleted_at IS NULL"
@@ -591,6 +612,10 @@ func (r *SQLRepository) queryConversion(ctx context.Context, q ReportQuery) (Rep
 	}
 	if idx < 0 {
 		return ReportResult{}, fmt.Errorf("%w: unknown conversion stage", ErrInvalidQuery)
+	}
+	if !availableByStage[idx] {
+		res.Pagination.Total = 0
+		return res, nil
 	}
 	items, err := r.conversionStageItems(ctx, stages[idx], whereByStage[idx], argsByStage[idx], q)
 	if err != nil {
@@ -744,9 +769,16 @@ GROUP BY t.table_name`)
 // queryAIInsight reads the most recent persisted smart-analysis result for the
 // corp. Page reads never invoke the model; the once-daily job writes these rows.
 func (r *SQLRepository) queryAIInsight(ctx context.Context, tenantID, corpID int64) (*AIInsightSummary, error) {
+	available, err := r.tableExists(ctx, "mochat_go_ai_conversation_insights")
+	if err != nil {
+		return nil, err
+	}
+	if !available {
+		return nil, nil
+	}
 	var summary, provider string
 	var generatedAt sql.NullTime
-	err := r.db.QueryRowContext(ctx, `
+	err = r.db.QueryRowContext(ctx, `
 		SELECT summary, provider, generated_at
 		FROM mochat_go_ai_conversation_insights
 		WHERE tenant_id = ? AND corp_id = ? AND analysis_type = 'smart' AND status = 'succeeded'

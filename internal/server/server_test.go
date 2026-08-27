@@ -1406,15 +1406,43 @@ func TestSaaSAdminDashboardProvisioningRouteDispatchesExactMutationPaths(t *test
 	if record.Code != http.StatusOK {
 		t.Fatalf("dashboard admin governance read status=%d body=%s, want exact handler", record.Code, record.Body.String())
 	}
+	for _, methodPath := range []struct{ method, path string }{
+		{http.MethodGet, "/dashboard/saasAdmin/tenants/41/wecom-integration"},
+		{http.MethodPut, "/dashboard/saasAdmin/tenants/41/wecom-integration"},
+		{http.MethodGet, "/dashboard/saasAdmin/tenants/41/wecom-integration/audits"},
+	} {
+		req := httptest.NewRequest(methodPath.method, methodPath.path, nil)
+		rec := httptest.NewRecorder()
+		srv.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK || rec.Body.String() != "dashboard admin provisioning" {
+			t.Fatalf("method=%s path=%s status=%d body=%q, want exact provisioning handler", methodPath.method, methodPath.path, rec.Code, rec.Body.String())
+		}
+	}
 	for _, route := range []string{
 		"POST /dashboard/saasAdmin/tenants/provision",
 		"POST /dashboard/saasAdmin/tenants/{tenantId}/activation/resend",
 		"POST /dashboard/saasAdmin/tenants/{tenantId}/super-admin/replace",
 		"POST /dashboard/saasAdmin/tenants/{tenantId}/super-admin/status",
 		"GET /dashboard/saasAdmin/tenants/{tenantId}/dashboard-admins",
+		"GET /dashboard/saasAdmin/tenants/{tenantId}/wecom-integration",
+		"PUT /dashboard/saasAdmin/tenants/{tenantId}/wecom-integration",
+		"GET /dashboard/saasAdmin/tenants/{tenantId}/wecom-integration/audits",
 	} {
 		if !containsString(srv.migratedRoutes(), route) {
 			t.Fatalf("route %q missing from %+v", route, srv.migratedRoutes())
+		}
+	}
+	for _, retired := range []struct{ method, path, route string }{
+		{http.MethodPut, "/dashboard/saasAdmin/tenants/41/wecom-integration/candidate", "PUT /dashboard/saasAdmin/tenants/{tenantId}/wecom-integration/candidate"},
+		{http.MethodPost, "/dashboard/saasAdmin/tenants/41/wecom-integration/candidate/verify", "POST /dashboard/saasAdmin/tenants/{tenantId}/wecom-integration/candidate/verify"},
+		{http.MethodPost, "/dashboard/saasAdmin/tenants/41/wecom-integration/switch", "POST /dashboard/saasAdmin/tenants/{tenantId}/wecom-integration/switch"},
+		{http.MethodPost, "/dashboard/saasAdmin/tenants/41/wecom-integration/rollback", "POST /dashboard/saasAdmin/tenants/{tenantId}/wecom-integration/rollback"},
+	} {
+		req := httptest.NewRequest(retired.method, retired.path, nil)
+		rec := httptest.NewRecorder()
+		srv.ServeHTTP(rec, req)
+		if rec.Code == http.StatusOK || containsString(srv.migratedRoutes(), retired.route) {
+			t.Fatalf("retired immutable-mode route remains public: %s %s status=%d", retired.method, retired.path, rec.Code)
 		}
 	}
 	for _, path := range []string{

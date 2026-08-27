@@ -23208,10 +23208,12 @@ func (s *MySQLStore) ContactMessageBatchSendPage(ctx context.Context, filter das
 	if filter.PerPage <= 0 {
 		filter.PerPage = 10
 	}
-	where := []string{"user_id = ?", "deleted_at IS NULL"}
+	where := []string{"batch.user_id = ?", "batch.deleted_at IS NULL"}
 	args := []any{filter.UserID}
 	if filter.TenantID > 0 && filter.CorpID > 0 {
-		where = append(where, "tenant_id = ?", "corp_id = ?")
+		// Resolve the tenant through mc_corp so reads also work before the
+		// controlled 0139 batch-table tenant backfill has been executed.
+		where = append(where, "corp.tenant_id = ?", "batch.corp_id = ?")
 		args = append(args, filter.TenantID, filter.CorpID)
 	}
 	if filter.RestrictEmployeeIDs {
@@ -23229,7 +23231,8 @@ func (s *MySQLStore) ContactMessageBatchSendPage(ctx context.Context, filter das
 	var total int
 	if err := s.db.QueryRowContext(ctx, `
 		SELECT COUNT(*)
-		FROM mc_contact_message_batch_send
+		FROM mc_contact_message_batch_send batch
+		JOIN mc_corp corp ON corp.id=batch.corp_id
 		WHERE `+strings.Join(where, " AND "), args...).Scan(&total); err != nil {
 		return dashboard.ContactMessageBatchSendPage{}, err
 	}
@@ -23243,13 +23246,14 @@ func (s *MySQLStore) ContactMessageBatchSendPage(ctx context.Context, filter das
 	queryArgs := append([]any{}, args...)
 	queryArgs = append(queryArgs, filter.PerPage, (filter.Page-1)*filter.PerPage)
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, corp_id, user_id, medium_id, batch_title, user_name, employee_ids, filter_params, filter_params_detail, content,
-		       send_way, definite_time, send_time, send_employee_total, send_contact_total, send_total,
-		       not_send_total, received_total, not_received_total, receive_limit_total, not_friend_total,
-		       send_status, created_at
-		FROM mc_contact_message_batch_send
+		SELECT batch.id, batch.corp_id, batch.user_id, batch.medium_id, batch.batch_title, batch.user_name, batch.employee_ids, batch.filter_params, batch.filter_params_detail, batch.content,
+		       batch.send_way, batch.definite_time, batch.send_time, batch.send_employee_total, batch.send_contact_total, batch.send_total,
+		       batch.not_send_total, batch.received_total, batch.not_received_total, batch.receive_limit_total, batch.not_friend_total,
+		       batch.send_status, batch.created_at
+		FROM mc_contact_message_batch_send batch
+		JOIN mc_corp corp ON corp.id=batch.corp_id
 		WHERE `+strings.Join(where, " AND ")+`
-		ORDER BY id DESC
+		ORDER BY batch.id DESC
 		LIMIT ? OFFSET ?
 	`, queryArgs...)
 	if err != nil {

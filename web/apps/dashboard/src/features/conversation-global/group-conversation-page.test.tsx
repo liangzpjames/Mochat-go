@@ -1,4 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { ApiError } from '@mochat/api-client';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter } from 'react-router';
@@ -28,6 +29,13 @@ function renderPage(api: ConversationGlobalApi, entry = '/chat/v2-group') { cons
 
 describe('GroupConversationPage', () => {
   afterEach(cleanup);
+  it('shows the shared archive setup state instead of an error when archive is not configured', async () => {
+    const { api } = createApi();
+    api.groupRoomDirectory = vi.fn(() => Promise.reject(new ApiError('forbidden', 'archive not authorized', { status: 403, code: 40301 })));
+    renderPage(api);
+    expect(await screen.findByText('会话归档未开通')).toBeTruthy();
+    expect(screen.queryByText('群聊目录加载失败')).toBeNull();
+  });
   it('loads the directory first, then loads the three selected-room data streams', async () => {
     const { api, groupRoomProfile, groupRoomMessages, groupRoomMembers } = createApi();
     renderPage(api);

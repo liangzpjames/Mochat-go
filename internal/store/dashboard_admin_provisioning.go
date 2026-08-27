@@ -404,6 +404,7 @@ func lockSaaSActorTx(ctx context.Context, tx *sql.Tx, actorUserID int) error {
 func dashboardProvisionFingerprint(input dashboardadmin.ProvisionDashboardTenant) (string, error) {
 	canonical := struct {
 		TenantName           string
+		WeComIntegrationMode string
 		PackageID            int
 		Limits               dashboardadmin.SaaSAdminPackageLimits
 		Subscription         dashboardadmin.SubscriptionInput
@@ -412,9 +413,10 @@ func dashboardProvisionFingerprint(input dashboardadmin.ProvisionDashboardTenant
 		IdempotencyKey       string
 		ExpectedVersion      uint64
 	}{
-		TenantName: strings.TrimSpace(input.TenantName),
-		PackageID:  input.PackageID,
-		Limits:     input.Limits,
+		TenantName:           strings.TrimSpace(input.TenantName),
+		WeComIntegrationMode: strings.TrimSpace(input.WeComIntegrationMode),
+		PackageID:            input.PackageID,
+		Limits:               input.Limits,
 		Subscription: dashboardadmin.SubscriptionInput{
 			PackageCode:  strings.TrimSpace(input.Subscription.PackageCode),
 			Status:       strings.TrimSpace(input.Subscription.Status),
@@ -587,9 +589,16 @@ func insertDashboardProvisionArtifactsTx(ctx context.Context, tx *sql.Tx, actorU
 	}
 	corpID := int(corpID64)
 	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO mochat_go_tenant_corp_bindings (tenant_id, corp_id, status, version, verified_corp_name, created_at, updated_at)
-		VALUES (?, ?, 1, 1, '', NOW(), NOW())
-	`, tenantID, corpID); err != nil {
+		INSERT INTO mochat_go_tenant_corp_bindings (tenant_id, corp_id, status, wecom_integration_mode, version, verified_corp_name, created_at, updated_at)
+		VALUES (?, ?, 1, ?, 1, '', NOW(), NOW())
+	`, tenantID, corpID, strings.TrimSpace(input.WeComIntegrationMode)); err != nil {
+		return dashboardadmin.ProvisionResult{}, err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO mochat_go_wecom_integrations
+			(id, tenant_id, corp_id, mode, slot, status, scope_json, scope_digest, missing_capabilities_json, generation, version, last_audit_at)
+		VALUES (UUID(), ?, ?, ?, 'current', 'unconfigured', JSON_ARRAY(), SHA2('', 256), JSON_ARRAY(), 1, 1, NOW(6))
+	`, tenantID, corpID, strings.TrimSpace(input.WeComIntegrationMode)); err != nil {
 		return dashboardadmin.ProvisionResult{}, err
 	}
 
@@ -682,14 +691,15 @@ func insertDashboardProvisionArtifactsTx(ctx context.Context, tx *sql.Tx, actorU
 	}
 
 	after := map[string]any{
-		"tenantId":         tenantID,
-		"corpId":           corpID,
-		"dashboardUserId":  userID,
-		"packageCode":      pkg.Code,
-		"packageVersion":   pkg.Version,
-		"activationIssued": true,
-		"isSuperAdmin":     true,
-		"requestId":        requestID,
+		"tenantId":             tenantID,
+		"corpId":               corpID,
+		"dashboardUserId":      userID,
+		"packageCode":          pkg.Code,
+		"packageVersion":       pkg.Version,
+		"activationIssued":     true,
+		"isSuperAdmin":         true,
+		"requestId":            requestID,
+		"wecomIntegrationMode": strings.TrimSpace(input.WeComIntegrationMode),
 	}
 	afterJSON, err := json.Marshal(after)
 	if err != nil {
@@ -738,6 +748,9 @@ func validateDashboardProvisionStoreInput(input dashboardadmin.ProvisionDashboar
 	if strings.TrimSpace(input.TenantName) == "" || len([]rune(strings.TrimSpace(input.TenantName))) > 255 ||
 		strings.TrimSpace(input.AdminName) == "" || len([]rune(strings.TrimSpace(input.AdminName))) > 255 ||
 		!dashboardAdminValidPhone(input.AdminLoginIdentifier) || strings.TrimSpace(input.IdempotencyKey) == "" || len([]rune(strings.TrimSpace(input.IdempotencyKey))) > 128 {
+		return dashboardadmin.ErrInvalidRequest
+	}
+	if !dashboardadmin.ValidWeComIntegrationMode(strings.TrimSpace(input.WeComIntegrationMode)) {
 		return dashboardadmin.ErrInvalidRequest
 	}
 	if input.Subscription.Status != "trialing" && input.Subscription.Status != "active" {

@@ -161,6 +161,8 @@ export interface DashboardIdentityRecord {
   identityStatus: number
   activatedAt: string
   isSuperAdmin: boolean
+  availableActions: Array<'resend_activation' | 'disable' | 'restore' | 'replace_current' | 'replacement_candidate'>
+  blockedReasons: Record<string, string>
 }
 
 export interface DashboardAdminGovernanceData {

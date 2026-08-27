@@ -548,6 +548,13 @@ func (s *MySQLStore) GetSyncStatus(ctx context.Context, principal dashboardprinc
 		}
 		return companyprofile.SyncStatus{}, err
 	}
+	// A newly provisioned tenant owns a pending binding before any WeCom
+	// credentials are configured. Reading its sync status is a harmless
+	// Dashboard query and must remain available as an empty state; only the
+	// actual sync mutation requires a verified active binding.
+	if status == 1 && strings.TrimSpace(verified) == "" {
+		return companyprofile.SyncStatus{Status: "idle"}, nil
+	}
 	if status != 2 || strings.TrimSpace(verified) == "" {
 		return companyprofile.SyncStatus{}, companyprofile.ErrTenantAccessDenied
 	}

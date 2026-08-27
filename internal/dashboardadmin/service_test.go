@@ -92,6 +92,44 @@ func TestDashboardAdminGovernanceRequiresSaaSActorAndDelegatesTenantPath(t *test
 	}
 }
 
+func TestDashboardAdminGovernanceReturnsActionableIdentityCapabilities(t *testing.T) {
+	store := &recordingStore{governance: DashboardAdminGovernanceView{TenantID: 41, BindingVersion: 7, Identities: []DashboardIdentityRecord{
+		{ID: 51, IsSuperAdmin: true, UserStatus: 1, IdentityStatus: 1, ActivatedAt: "2026-08-27T00:00:00Z"},
+		{ID: 52, IsSuperAdmin: false, UserStatus: 1, IdentityStatus: 1, ActivatedAt: "2026-08-27T00:00:00Z"},
+		{ID: 53, IsSuperAdmin: true, UserStatus: 1, IdentityStatus: 1},
+		{ID: 54, IsSuperAdmin: true, UserStatus: 2, IdentityStatus: 2, ActivatedAt: "2026-08-26T00:00:00Z"},
+	}}}
+	view, err := NewService(store).DashboardAdminGovernance(context.Background(), validActor(), 41)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertAction := func(id int, action string, want bool) {
+		t.Helper()
+		for _, identity := range view.Identities {
+			if identity.ID != id {
+				continue
+			}
+			got := false
+			for _, item := range identity.AvailableActions {
+				got = got || item == action
+			}
+			if got != want {
+				t.Fatalf("identity=%d action=%s got=%v want=%v capabilities=%+v", id, action, got, want, identity)
+			}
+			return
+		}
+		t.Fatalf("identity=%d not found", id)
+	}
+	assertAction(51, DashboardGovernanceActionDisable, false)
+	assertAction(51, DashboardGovernanceActionReplaceCurrent, true)
+	assertAction(52, DashboardGovernanceActionReplacementCandidate, true)
+	assertAction(53, DashboardGovernanceActionResendActivation, true)
+	assertAction(54, DashboardGovernanceActionRestore, true)
+	if view.Identities[0].BlockedReasons[DashboardGovernanceActionDisable] != DashboardGovernanceBlockLastSuperAdmin {
+		t.Fatalf("disable block=%q", view.Identities[0].BlockedReasons[DashboardGovernanceActionDisable])
+	}
+}
+
 func TestPlatformSuperAdminWildcardPermissionAuthorizesTenantGovernance(t *testing.T) {
 	if !(Actor{UserID: 7, Active: true, Permissions: []string{"*"}}).HasPermission(PermissionTenantsManage) {
 		t.Fatal("platform wildcard permission was not recognized")
@@ -307,11 +345,35 @@ func validActor() Actor {
 func validProvisionInput() ProvisionDashboardTenant {
 	return ProvisionDashboardTenant{
 		TenantName:           "客户租户",
+		WeComIntegrationMode: WeComIntegrationModeSelfBuilt,
 		PackageID:            11,
 		AdminLoginIdentifier: "13800000000",
 		AdminName:            "租户管理员",
 		IdempotencyKey:       "provision-key-1",
 		ExpectedVersion:      1,
 		Subscription:         SubscriptionInput{PackageCode: "pro", Status: "trialing", BillingCycle: "custom", StartsAt: "2026-08-11T00:00:00Z", ExpiresAt: "2026-09-11T00:00:00Z"},
+	}
+}
+
+func TestProvisionRequiresImmutableWeComIntegrationMode(t *testing.T) {
+	service := NewService(&recordingStore{})
+	for _, mode := range []string{"", "self-built", "third_party", "unknown"} {
+		input := validProvisionInput()
+		input.WeComIntegrationMode = mode
+		if _, err := service.ProvisionDashboardTenant(context.Background(), validActor(), input); !errors.Is(err, ErrInvalidRequest) {
+			t.Fatalf("mode=%q error=%v, want ErrInvalidRequest", mode, err)
+		}
+	}
+	for _, mode := range []string{WeComIntegrationModeSelfBuilt, WeComIntegrationModeThirdPartyDelegated} {
+		store := &recordingStore{}
+		service := NewService(store)
+		input := validProvisionInput()
+		input.WeComIntegrationMode = mode
+		if _, err := service.ProvisionDashboardTenant(context.Background(), validActor(), input); err != nil {
+			t.Fatalf("mode=%q error=%v", mode, err)
+		}
+		if store.seenInput.WeComIntegrationMode != mode {
+			t.Fatalf("stored mode=%q, want %q", store.seenInput.WeComIntegrationMode, mode)
+		}
 	}
 }

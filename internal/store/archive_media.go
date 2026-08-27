@@ -75,9 +75,12 @@ func (s *MySQLStore) ClaimArchiveMedia(ctx context.Context, at time.Time) (archi
 		       media.status,media.index_buf,media.bytes_received,media.checkpoint_attempt,
 		       media.download_finished,media.download_sha256,media.attempt
 		FROM mochat_go_archive_media_objects media
+		INNER JOIN mc_tenant tenant ON tenant.id=media.tenant_id AND tenant.status=1 AND tenant.deleted_at IS NULL
 		INNER JOIN mc_corp corp ON corp.tenant_id=media.tenant_id AND corp.id=media.corp_id AND corp.deleted_at IS NULL
-		LEFT JOIN mochat_go_tenant_corp_bindings binding ON binding.tenant_id=media.tenant_id AND binding.corp_id=media.corp_id
-		WHERE media.status IN ('pending','failed') OR (media.status='fetching' AND media.lease_expires_at <= ?)
+		INNER JOIN mochat_go_tenant_corp_bindings binding ON binding.tenant_id=media.tenant_id AND binding.corp_id=media.corp_id
+		INNER JOIN mochat_go_wecom_integrations integration ON integration.tenant_id=media.tenant_id AND integration.corp_id=media.corp_id
+		WHERE `+durableArchiveEligibilityPredicate+`
+		  AND (media.status IN ('pending','failed') OR (media.status='fetching' AND media.lease_expires_at <= ?))
 		ORDER BY media.updated_at ASC,media.id ASC
 		LIMIT 1 FOR UPDATE
 	`, at).Scan(&object.ID, &object.Scope.TenantID, &object.Scope.CorpID, &object.WXCorpID,

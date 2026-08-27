@@ -122,7 +122,7 @@ function Test-CheckpointState([string]$State) {
     }
 }
 
-function Wait-CheckpointState([string]$State, [int]$Attempts = 120) {
+function Wait-CheckpointState([string]$State, [int]$Attempts = 480) {
     for ($attempt = 0; $attempt -lt $Attempts; $attempt++) {
         if (Test-CheckpointState $State) {
             return
@@ -187,18 +187,17 @@ switch ($Action) {
     'seed' {
         Ensure-AcceptanceImage
         Start-AcceptanceServices
-        Invoke-Compose @('stop', 'worker')
         Invoke-Compose @('--profile', 'tools', 'run', '--rm', 'bootstrap')
 		Initialize-SaaSAdminPassword
 		Invoke-Compose @('--profile', 'tools', 'run', '--rm', 'acceptance', 'seed', '-defer-media')
 		if (-not (Test-CheckpointState 'recovered')) {
-			Invoke-Compose @('up', '-d', 'worker')
 			Wait-CheckpointState 'partial'
-			# A zero-second stop interrupts the active worker with SIGKILL after a real persisted checkpoint.
-			Invoke-Compose @('stop', '-t', '0', 'worker')
+			# A zero-second stop forces Docker's SIGKILL fallback, interrupting the
+			# durable scheduler in the all-in-one app after a persisted checkpoint.
+			Invoke-Compose @('stop', '-t', '0', 'app')
 			Invoke-Compose @('--profile', 'tools', 'run', '--rm', 'acceptance', 'checkpoint', '-checkpoint-state', 'partial')
 			Invoke-Compose @('--profile', 'tools', 'run', '--rm', 'acceptance', 'checkpoint', '-checkpoint-state', 'expire')
-			Invoke-Compose @('up', '-d', 'worker')
+			Invoke-Compose @('up', '-d', 'app')
 			Wait-CheckpointState 'recovered'
 		}
 		Invoke-Compose @('--profile', 'tools', 'run', '--rm', 'acceptance', 'seed')
@@ -206,13 +205,12 @@ switch ($Action) {
     }
     'verify' {
 		Ensure-AcceptanceImage
-		Invoke-Compose @('up', '-d', 'worker')
+		Invoke-Compose @('up', '-d', 'app')
 		Invoke-Compose @('--profile', 'tools', 'run', '--rm', 'acceptance', 'checkpoint', '-checkpoint-state', 'recovered')
         Invoke-Compose @('--profile', 'tools', 'run', '--rm', 'acceptance', 'verify')
     }
     'cleanup' {
 		Ensure-AcceptanceImage
-		Invoke-Compose @('stop', 'worker')
         $arguments = @('--profile', 'tools', 'run', '--rm', 'acceptance', 'cleanup')
         if ($DryRun) {
             $arguments += '-dry-run'

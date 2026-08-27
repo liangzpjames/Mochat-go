@@ -352,7 +352,7 @@ func (s *Service) StartEmployeeSync(ctx context.Context, principal dashboardprin
 }
 
 func (s *Service) GetSyncStatus(ctx context.Context, principal dashboardprincipal.DashboardPrincipal) (SyncStatus, error) {
-	if err := s.authorize(ctx, principal, false); err != nil {
+	if err := s.authorize(ctx, principal, true); err != nil {
 		return SyncStatus{}, err
 	}
 	if s == nil || s.store == nil {
@@ -388,5 +388,5 @@ func hasWeComCredentialInput(input WeComCredentialsInput) bool {
 func IsKnownError(err error) bool {
 	return errors.Is(err, ErrInvalidRequest) || errors.Is(err, ErrPermissionDenied) || errors.Is(err, ErrTenantAccessDenied) ||
 		errors.Is(err, ErrNotFound) || errors.Is(err, ErrVersionConflict) || errors.Is(err, ErrCorpIDImmutable) ||
-		errors.Is(err, ErrCredentialInvalid) || errors.Is(err, ErrStoreUnavailable) || errors.Is(err, ErrVerifierUnavailable)
+		errors.Is(err, ErrCredentialInvalid) || errors.Is(err, ErrIntegrationMode) || errors.Is(err, ErrStoreUnavailable) || errors.Is(err, ErrVerifierUnavailable)
 }

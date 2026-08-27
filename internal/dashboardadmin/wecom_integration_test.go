@@ -36,6 +36,10 @@ func (s *fakeWeComIntegrationStore) SaveWeComIntegrationCandidate(_ context.Cont
 	}
 	return WeComIntegration{ID: "candidate", Mode: input.Mode, Slot: "candidate", Status: "pending_verification", Version: input.Version + 1, CredentialConfigured: true}, nil
 }
+func (s *fakeWeComIntegrationStore) SaveWeComIntegrationCurrent(_ context.Context, _ Actor, tenantID int, input WeComIntegrationCandidateInput) (WeComIntegration, error) {
+	s.seenTenant, s.seenInput = tenantID, input
+	return WeComIntegration{ID: "current", Mode: input.Mode, Slot: "current", Status: "pending_verification", Version: input.Version + 1, CredentialConfigured: true}, nil
+}
 
 func TestWeComIntegrationHTTPUsesPathTenantRejectsBodyScopeAndDoesNotEchoSecrets(t *testing.T) {
 	store := &fakeWeComIntegrationStore{view: WeComIntegrationView{TenantID: 41, CorpID: 63, Current: &WeComIntegration{ID: "current", Slot: "current", Status: "active", CredentialConfigured: true, CredentialHint: "configured", CredentialCiphertext: "cipher-secret", CredentialKeyID: "key-secret"}}}
@@ -54,10 +58,10 @@ func TestWeComIntegrationHTTPUsesPathTenantRejectsBodyScopeAndDoesNotEchoSecrets
 			t.Fatalf("GET leaked %q: %s", forbidden, get.Body.String())
 		}
 	}
-	bad := httptest.NewRecorder()
-	handler.ServeHTTP(bad, auth(httptest.NewRequest(http.MethodPut, "/dashboard/saasAdmin/tenants/41/wecom-integration/candidate", bytes.NewBufferString(`{"mode":"self_built","employeeSecret":"secret-value","tenantId":99,"version":1}`))))
-	if bad.Code != http.StatusBadRequest {
-		t.Fatalf("body tenant accepted: status=%d body=%s", bad.Code, bad.Body.String())
+	retired := httptest.NewRecorder()
+	handler.ServeHTTP(retired, auth(httptest.NewRequest(http.MethodPut, "/dashboard/saasAdmin/tenants/41/wecom-integration/candidate", bytes.NewBufferString(`{"mode":"third_party_delegated","providerAppId":"provider","permanentCode":"secret-value","tenantId":99,"version":1}`))))
+	if retired.Code != http.StatusNotFound {
+		t.Fatalf("retired candidate route status=%d body=%s", retired.Code, retired.Body.String())
 	}
 }
 func (s *fakeWeComIntegrationStore) WeComIntegrationVerificationCandidate(context.Context, Actor, int, uint64) (WeComVerificationCandidate, error) {
@@ -103,29 +107,36 @@ func TestWeComIntegrationCandidateModeContractsAndSecretRetention(t *testing.T) 
 	}
 }
 
-func TestWeComIntegrationVerifierIsLocalContractAndCorpMismatchFailsClosed(t *testing.T) {
+func TestWeComIntegrationLegacyCandidateLifecycleFailsClosed(t *testing.T) {
 	store := &fakeWeComIntegrationStore{candidate: WeComVerificationCandidate{Integration: WeComIntegration{ID: "candidate", Version: 3}, TenantID: 41, CorpID: 63, AuthoritativeWXCorpID: "ww-authoritative", Credentials: wecomcredentials.AuthorizationCredential{Mode: "self_built", EmployeeSecret: "secret"}}}
 	service := NewWeComIntegrationService(store, WeComIntegrationVerifierFunc(func(_ context.Context, request WeComVerificationRequest) (WeComVerificationResult, error) {
-		if request.Credentials.EmployeeSecret != "secret" {
-			t.Fatal("decrypted credential not supplied")
-		}
-		return WeComVerificationResult{VerifiedWXCorpID: "ww-other", Scope: []string{"contacts.read"}, VerificationLevel: "local_contract"}, nil
+		t.Fatal("retired verifier must not be called")
+		return WeComVerificationResult{}, nil
 	}))
-	_, err := service.VerifyCandidate(context.Background(), Actor{UserID: 7, Active: true}, 41, 3)
-	if !errors.Is(err, ErrWeComCorpMismatch) || store.verificationCode != "WECOM_CORP_MISMATCH" {
-		t.Fatalf("err=%v code=%q", err, store.verificationCode)
+	for name, call := range map[string]func() error{
+		"save": func() error {
+			_, err := service.SaveCandidate(context.Background(), Actor{UserID: 7, Active: true}, 41, WeComIntegrationCandidateInput{Mode: WeComIntegrationModeThirdPartyDelegated})
+			return err
+		},
+		"verify": func() error {
+			_, err := service.VerifyCandidate(context.Background(), Actor{UserID: 7, Active: true}, 41, 3)
+			return err
+		},
+		"switch": func() error {
+			_, err := service.Switch(context.Background(), Actor{UserID: 7, Active: true}, 41, 3)
+			return err
+		},
+		"rollback": func() error {
+			_, err := service.Rollback(context.Background(), Actor{UserID: 7, Active: true}, 41, 3)
+			return err
+		},
+	} {
+		if err := call(); !errors.Is(err, ErrWeComModeImmutable) {
+			t.Fatalf("%s err=%v, want immutable", name, err)
+		}
 	}
-	if store.currentBefore.ID != store.currentAfter.ID || store.currentBefore.Generation != store.currentAfter.Generation {
-		t.Fatal("candidate verification failure changed current")
-	}
-}
-
-func TestWeComIntegrationDefaultVerifierFailsClosed(t *testing.T) {
-	store := &fakeWeComIntegrationStore{candidate: WeComVerificationCandidate{Integration: WeComIntegration{ID: "candidate", Version: 3}, TenantID: 41, CorpID: 63, AuthoritativeWXCorpID: "ww-authoritative"}}
-	service := NewWeComIntegrationService(store, nil)
-	_, err := service.VerifyCandidate(context.Background(), Actor{UserID: 7, Active: true}, 41, 3)
-	if !errors.Is(err, ErrWeComOnlineVerificationUnavailable) || store.verificationCode != "WECOM_ONLINE_VERIFICATION_UNAVAILABLE" {
-		t.Fatalf("err=%v code=%q", err, store.verificationCode)
+	if store.seenTenant != 0 || store.verificationCode != "" {
+		t.Fatal("retired lifecycle reached persistence")
 	}
 }
 

@@ -16,8 +16,8 @@ import (
 )
 
 const (
-	SaaSAdminExpectedMigrationVersion = "0166_wecom_integration_and_archive_media"
-	SaaSAdminExpectedMigrationCount   = 166
+	SaaSAdminExpectedMigrationVersion = "0167_tenant_wecom_mode"
+	SaaSAdminExpectedMigrationCount   = 167
 
 	SaaSAdminSystemHealthStateHealthy  = "healthy"
 	SaaSAdminSystemHealthStateWarning  = "warning"

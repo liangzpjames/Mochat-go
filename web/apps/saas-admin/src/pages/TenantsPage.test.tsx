@@ -41,16 +41,13 @@ const mocks = vi.hoisted(() => {
     activationDeliveryURL: vi.fn((path: string, origin = 'http://localhost') => new URL(path, origin).toString()),
     fetchWeComIntegration: vi.fn((tenantId: number) => apiRequest(integrationPath(tenantId))),
     fetchWeComIntegrationAudits: vi.fn((tenantId: number) => apiRequest(integrationPath(tenantId, '/audits'))),
-    saveWeComIntegrationCandidate: vi.fn((tenantId: number, payload: unknown) => apiRequest(integrationPath(tenantId, '/candidate'), { method: 'PUT', body: JSON.stringify(payload) })),
-    verifyWeComIntegrationCandidate: vi.fn((tenantId: number, version: number) => apiRequest(integrationPath(tenantId, '/candidate/verify'), { method: 'POST', body: JSON.stringify({ version }) })),
-    switchWeComIntegration: vi.fn((tenantId: number, version: number) => apiRequest(integrationPath(tenantId, '/switch'), { method: 'POST', body: JSON.stringify({ version }) })),
-    rollbackWeComIntegration: vi.fn((tenantId: number, version: number) => apiRequest(integrationPath(tenantId, '/rollback'), { method: 'POST', body: JSON.stringify({ version }) })),
+    saveDelegatedWeComIntegration: vi.fn((tenantId: number, payload: unknown) => apiRequest(integrationPath(tenantId), { method: 'PUT', body: JSON.stringify(payload) })),
   }
 })
 
 vi.mock('@/lib/api', () => mocks)
 
-import TenantsPage, { tenantAIProviderState, weComIntegrationLoadErrorMessage } from './TenantsPage'
+import TenantsPage, { tenantAIProviderState } from './TenantsPage'
 import type { AccessProfile, ApprovalPoliciesData } from '@/lib/types'
 
 ;(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -130,7 +127,7 @@ describe('SaaS 客户租户治理页面', () => {
     let governanceVersion = 1
     tenantProviderVersion = 3
     activationMutationObserverProbe = vi.fn()
-    integrationView = { tenantId: 41, corpId: 501, current: { ...selfBuiltCurrent }, candidate: { ...delegatedCandidate } }
+		integrationView = { tenantId: 41, corpId: 501, current: { ...selfBuiltCurrent }, candidate: null }
     integrationViewB = { tenantId: 52, corpId: 502, current: { ...delegatedCandidate, id: 'integration-b-current', slot: 'current', generation: 20, version: 20 }, candidate: null }
     mocks.apiRequest.mockImplementation(async (path: string, init?: RequestInit) => {
       if (path.startsWith('/dashboard/saasAdmin/overview')) return { tenants: [tenant, tenantB], summary: {}, access: {}, canPlatformScope: true, generatedAt: '', platformAdminTenantId: 0, scope: 'platform', tenantPopulation: 2 }
@@ -141,18 +138,15 @@ describe('SaaS 客户租户治理页面', () => {
       }
       if (path === '/dashboard/saasAdmin/tenantAIProvider?tenantId=41') return { configured: true, provider: { tenantId: 41, providerCode: 'deepseek', baseUrl: 'https://api.deepseek.com', model: 'deepseek-chat', apiKeyConfigured: true, apiKeyHint: '••••cafe', credentialProtection: 'usable', effectiveAt: '2026-08-25T00:00:00Z', expiresAt: '2026-09-25T00:00:00Z', status: 'active', version: tenantProviderVersion, updatedAt: '2026-08-25T01:00:00Z' } }
       if (path === '/dashboard/saasAdmin/tenantAIProvider' && init?.method === 'PUT') { tenantProviderVersion += 1; return { provider: { tenantId: 41, providerCode: 'deepseek', baseUrl: 'https://api.deepseek.com', model: 'deepseek-chat', apiKeyConfigured: true, apiKeyHint: '••••ture', credentialProtection: 'usable', effectiveAt: '2026-08-25T00:00:00Z', expiresAt: '2026-09-25T00:00:00Z', status: 'active', version: tenantProviderVersion, updatedAt: '2026-08-25T02:00:00Z' } } }
-      if (path === '/dashboard/saasAdmin/tenants/41/dashboard-admins') return { tenantId: 41, bindingVersion: governanceVersion, identities: [{ id: 900, name: '待激活超管', loginIdentifier: '13800000002', userStatus: 1, identityStatus: 1, activatedAt: '', isSuperAdmin: true }, { id: 902, name: '已停用超管', loginIdentifier: '13800000004', userStatus: 2, identityStatus: 2, activatedAt: '2026-08-10T00:00:00Z', isSuperAdmin: true }, { id: 901, name: '替换候选', loginIdentifier: '13800000003', userStatus: 1, identityStatus: 1, activatedAt: '2026-08-10T00:00:00Z', isSuperAdmin: false }] }
-      if (path === '/dashboard/saasAdmin/tenants/52/dashboard-admins') return { tenantId: 52, bindingVersion: 4, identities: [{ id: 950, name: '第二客户超管', loginIdentifier: '13900000005', userStatus: 1, identityStatus: 1, activatedAt: '2026-08-20T00:00:00Z', isSuperAdmin: true }] }
+      if (path === '/dashboard/saasAdmin/tenants/41/dashboard-admins') return { tenantId: 41, bindingVersion: governanceVersion, identities: [{ id: 900, name: '待激活超管', loginIdentifier: '13800000002', userStatus: 1, identityStatus: 1, activatedAt: '', isSuperAdmin: true, availableActions: ['resend_activation'], blockedReasons: {} }, { id: 902, name: '已停用超管', loginIdentifier: '13800000004', userStatus: 2, identityStatus: 2, activatedAt: '2026-08-10T00:00:00Z', isSuperAdmin: true, availableActions: ['restore'], blockedReasons: {} }, { id: 901, name: '替换候选', loginIdentifier: '13800000003', userStatus: 1, identityStatus: 1, activatedAt: '2026-08-10T00:00:00Z', isSuperAdmin: false, availableActions: ['replacement_candidate'], blockedReasons: {} }, { id: 903, name: '当前超管', loginIdentifier: '13800000005', userStatus: 1, identityStatus: 1, activatedAt: '2026-08-10T00:00:00Z', isSuperAdmin: true, availableActions: ['replace_current'], blockedReasons: { disable: 'LAST_SUPER_ADMIN' } }] }
+      if (path === '/dashboard/saasAdmin/tenants/52/dashboard-admins') return { tenantId: 52, bindingVersion: 4, identities: [{ id: 950, name: '第二客户超管', loginIdentifier: '13900000005', userStatus: 1, identityStatus: 1, activatedAt: '2026-08-20T00:00:00Z', isSuperAdmin: true, availableActions: ['replace_current'], blockedReasons: { disable: 'LAST_SUPER_ADMIN' } }] }
       if (path === '/dashboard/saasAdmin/tenants/41/wecom-integration' && !init?.method) return integrationView
-      if (path === '/dashboard/saasAdmin/tenants/41/wecom-integration/audits') return [{ id: 71, action: 'wecom.integration.switch', targetId: 'integration-current', before: '{}', after: '{}', actorUserId: 700, createdAt: '2026-08-27T02:00:00Z' }]
-      if (path === '/dashboard/saasAdmin/tenants/41/wecom-integration/candidate' && init?.method === 'PUT') {
+      if (path === '/dashboard/saasAdmin/tenants/41/wecom-integration' && init?.method === 'PUT') {
         const payload = JSON.parse(String(init.body))
-        integrationView = { ...integrationView, candidate: { ...delegatedCandidate, mode: payload.mode, agentId: payload.mode === 'self_built' ? payload.agentId : '', providerAppId: payload.mode === 'third_party_delegated' ? payload.providerAppId : '', scope: payload.scope, version: Number(payload.version) + 1, status: 'pending_verification', verificationLevel: '', credentialConfigured: true, credentialHint: '••••saved' } }
-        return integrationView.candidate
+        integrationView = { ...integrationView, current: { ...(integrationView.current || delegatedCandidate), id: integrationView.current?.id || 'delegated-current', slot: 'current', mode: 'third_party_delegated', providerAppId: payload.providerAppId, scope: payload.scope, version: Number(payload.version) + 1, status: 'pending_verification', credentialConfigured: true, credentialHint: '••••saved' }, candidate: null }
+        return integrationView.current
       }
-      if (path === '/dashboard/saasAdmin/tenants/41/wecom-integration/candidate/verify') return { ...delegatedCandidate, version: 10 }
-      if (path === '/dashboard/saasAdmin/tenants/41/wecom-integration/switch') return { ...integrationView, current: { ...delegatedCandidate, slot: 'current', version: 10, generation: 10 }, candidate: { ...selfBuiltCurrent, slot: 'candidate', version: 10, generation: 10 } }
-      if (path === '/dashboard/saasAdmin/tenants/41/wecom-integration/rollback') return integrationView
+      if (path === '/dashboard/saasAdmin/tenants/41/wecom-integration/audits') return [{ id: 71, action: 'wecom.integration.switch', targetId: 'integration-current', before: '{}', after: '{}', actorUserId: 700, createdAt: '2026-08-27T02:00:00Z' }]
       if (path === '/dashboard/saasAdmin/tenantAIProvider?tenantId=52') return { configured: false, provider: { tenantId: 52, providerCode: 'custom', baseUrl: '', model: '', apiKeyConfigured: false, apiKeyHint: '', credentialProtection: 'usable', effectiveAt: '', expiresAt: '', status: 'disabled', version: 0, updatedAt: '' } }
       if (path === '/dashboard/saasAdmin/tenants/52/wecom-integration' && !init?.method) return integrationViewB
       if (path === '/dashboard/saasAdmin/tenants/52/wecom-integration/audits') return []
@@ -177,6 +171,7 @@ describe('SaaS 客户租户治理页面', () => {
     setValue('超级管理员', '管理员')
     setValue('11 位手机号', '13800000001')
     setValue('销售套餐', '11')
+    setValue('开户企微对接模式', 'self_built')
     setValue('到期日期', '2026-09-11')
     clickButton('提交开户')
     expect(document.body.textContent).toContain('确认开户')
@@ -189,6 +184,7 @@ describe('SaaS 客户租户治理页面', () => {
     expect(plan.id).toBe(11)
     expect(payload.packageId).toBe(plan.id)
     expect(payload.expectedVersion).toBe(3)
+    expect(payload.wecomIntegrationMode).toBe('self_built')
     expect(Object.keys(payload.limits as Record<string, unknown>)).toHaveLength(26)
     expect(payload).not.toHaveProperty('password')
     expect(document.body.textContent).toContain('一次性激活入口')
@@ -263,8 +259,7 @@ describe('SaaS 客户租户治理页面', () => {
     expect(document.body.textContent).toContain('治理绑定版本')
     expect(document.body.textContent).toContain('重发激活')
     expect(document.body.textContent).toContain('替换超管')
-    expect(document.body.textContent).toContain('停用超管')
-    expect(document.body.textContent).toContain('恢复超管')
+    expect(document.body.textContent).toContain('至少保留一名可登录超级管理员')
     clickButton('重发激活')
     clickButton('确认执行')
     await settle()
@@ -276,6 +271,7 @@ describe('SaaS 客户租户治理页面', () => {
     expect(payload).not.toHaveProperty('actorId')
     expect(document.body.textContent).toContain('v2')
     setValue('重发/停用/恢复对象', '902')
+    expect(document.body.textContent).toContain('恢复超管')
     clickButton('恢复超管')
     clickButton('确认执行')
     await settle()
@@ -333,6 +329,7 @@ describe('SaaS 客户租户治理页面', () => {
     setValue('超级管理员', '审批管理员')
     setValue('11 位手机号', '13800000001')
     setValue('销售套餐', '11')
+    setValue('开户企微对接模式', 'third_party_delegated')
     setValue('到期日期', '2026-09-11')
     clickButton('提交开户')
     clickButton('确认开户')
@@ -342,8 +339,37 @@ describe('SaaS 客户租户治理页面', () => {
     const request = mocks.apiRequest.mock.calls.find(([path]) => path === '/dashboard/saasAdmin/approvalRequest')
     const body = JSON.parse(String(request?.[1]?.body)) as { actionType: string; payload: Record<string, unknown> }
     expect(body.actionType).toBe('dashboard.tenant.provision')
+    expect(body.payload.wecomIntegrationMode).toBe('third_party_delegated')
     expect(body.payload).not.toHaveProperty('password')
     expect(document.body.textContent).not.toContain('opaque-activation-value')
+  })
+
+  it('治理审批被受理后重复确认沿用同一幂等键', async () => {
+    act(() => root.unmount())
+    root = createRoot(container)
+    const requiredApprovalMode: ApprovalPoliciesData = {
+      required: true,
+      policies: [{ actionType: 'dashboard.activation.resend', enabled: true, expiryHours: 12, name: '重发激活', requiredApprovals: 2 }],
+    }
+    act(() => root.render(<QueryClientProvider client={client}><TenantsPage profile={profile} approvalMode={requiredApprovalMode} navigate={() => undefined} /></QueryClientProvider>))
+    await settle()
+    clickButton('详情')
+    await settle()
+    await settle()
+
+    clickButton('重发激活')
+    clickButton('确认执行')
+    await settle()
+    clickButton('重发激活')
+    clickButton('确认执行')
+    await settle()
+
+    const approvals = mocks.apiRequest.mock.calls.filter(([path]) => path === '/dashboard/saasAdmin/approvalRequest')
+    expect(approvals).toHaveLength(2)
+    const first = JSON.parse(String(approvals[0]?.[1]?.body)) as { idempotencyKey: string }
+    const second = JSON.parse(String(approvals[1]?.[1]?.body)) as { idempotencyKey: string }
+    expect(first.idempotencyKey).not.toBe('')
+    expect(second.idempotencyKey).toBe(first.idempotencyKey)
   })
 
   it('按租户读取并保存脱敏 AI Provider，Key 不进入 Query cache 且成功后清空', async () => {
@@ -458,7 +484,27 @@ describe('SaaS 客户租户治理页面', () => {
     expect((document.querySelector('input[placeholder="留空则保留现有密钥"]') as HTMLInputElement).value).toBe('')
   })
 
-  it('展示 current/candidate、本地合同与审计，并按模式发送互斥凭据后清空敏感输入', async () => {
+	it('治理幂等键按租户、对象、动作和版本隔离，成功后再次操作生成新键', async () => {
+		await settle()
+		clickButton('详情')
+		await settle()
+		await settle()
+		clickButton('重发激活')
+		clickButton('确认执行')
+		await settle()
+		clickButton('我已记录并关闭')
+		await settle()
+		clickButton('重发激活')
+		clickButton('确认执行')
+		await settle()
+		const requests = mocks.apiRequest.mock.calls.filter(([path]) => String(path).includes('/activation/resend'))
+		expect(requests).toHaveLength(2)
+		const requestID = (call: (typeof requests)[number]) => String((call[1]?.headers as Record<string, string> | undefined)?.['X-Request-ID'] || '')
+		expect(requestID(requests[0]!)).not.toBe('')
+		expect(requestID(requests[1]!)).not.toBe(requestID(requests[0]!))
+	})
+
+  it('自建应用模式只读展示且不提供 SaaS 配置或切换入口', async () => {
     await settle()
     clickButton('详情')
     await settle()
@@ -466,68 +512,26 @@ describe('SaaS 客户租户治理页面', () => {
 
     expect(document.body.textContent).toContain('企微对接模式')
     expect(document.body.textContent).toContain('当前：自建应用')
-    expect(document.body.textContent).toContain('候选：第三方代开发应用')
     expect(document.body.textContent).toContain('本地合同验证')
     expect(document.body.textContent).toContain('wecom.integration.switch')
-    expect(document.body.textContent).not.toContain('线上已验证')
-    clickButton('编辑候选')
-    setValue('对接模式', 'self_built')
-    expect(document.querySelector('input[placeholder="永久授权码"]')).toBeNull()
-    setValue('AgentID', '1000009')
-    setValue('员工 Secret', 'employee-secret')
-    setValue('通讯录 Secret', 'contact-secret')
-    setValue('应用 Secret', 'agent-secret')
-    setValue('会话存档 Secret', 'chat-secret')
-    clickButton('保存候选')
-    await settle()
-
-    const save = mocks.apiRequest.mock.calls.find(([path, init]) => path === '/dashboard/saasAdmin/tenants/41/wecom-integration/candidate' && init?.method === 'PUT')
-    const payload = JSON.parse(String(save?.[1]?.body)) as Record<string, unknown>
-    expect(payload).toMatchObject({ mode: 'self_built', agentId: '1000009', employeeSecret: 'employee-secret', contactSecret: 'contact-secret', agentSecret: 'agent-secret', chatSecret: 'chat-secret', version: 9 })
-    expect(payload).not.toHaveProperty('providerAppId')
-    expect(payload).not.toHaveProperty('permanentCode')
-    expect(document.querySelector('input[placeholder="员工 Secret"]')).toBeNull()
-    expect(JSON.stringify(client.getQueryCache().getAll().map((query) => query.state.data))).not.toContain('employee-secret')
+    expect(document.body.textContent).toContain('Dashboard「唯一企业资料」维护')
+    const integrationSection = document.querySelector('section[aria-label="企微对接模式"]')
+    expect(integrationSection?.textContent).not.toContain('候选：')
+    expect([...document.querySelectorAll('button')].some((button) => /切换|回滚|编辑候选/.test(button.textContent || ''))).toBe(false)
   })
 
-  it('第三方永久授权码使用密码输入，未验证候选禁止切换，切换与回滚都要求确认', async () => {
-    integrationView = { ...integrationView, candidate: { ...delegatedCandidate, status: 'pending_verification', verificationLevel: '', version: 9 } }
+  it('第三方模式只写当前授权且 payload 不包含任何自建 Secret', async () => {
+    integrationView = { ...integrationView, current: { ...delegatedCandidate, id: 'delegated-current', slot: 'current', status: 'unconfigured', verificationLevel: '', version: 9 }, candidate: null }
     await settle()
     clickButton('详情')
     await settle()
     await settle()
-    clickButton('编辑候选')
-    setValue('对接模式', 'third_party_delegated')
-    const permanentCode = document.querySelector('input[placeholder="永久授权码"]') as HTMLInputElement
-    expect(permanentCode.type).toBe('password')
-    expect(document.querySelector('input[placeholder="员工 Secret"]')).toBeNull()
-    const switchButton = [...document.querySelectorAll('button')].find((button) => button.textContent?.includes('切换为候选')) as HTMLButtonElement
-    expect(switchButton.disabled).toBe(true)
-    clickButton('验证候选')
-    await settle()
-    expect(mocks.apiRequest.mock.calls.some(([path]) => path === '/dashboard/saasAdmin/tenants/41/wecom-integration/candidate/verify')).toBe(true)
-    clickButton('切换为候选')
-    expect(mocks.apiRequest.mock.calls.filter(([path]) => path === '/dashboard/saasAdmin/tenants/41/wecom-integration/switch')).toHaveLength(0)
-    expect(document.body.textContent).toContain('确认切换企微模式')
-    clickButton('确认执行')
-    await settle()
-    expect(JSON.parse(String(mocks.apiRequest.mock.calls.find(([path]) => path === '/dashboard/saasAdmin/tenants/41/wecom-integration/switch')?.[1]?.body))).toEqual({ version: 10 })
-    clickButton('回滚上一模式')
-    expect(document.body.textContent).toContain('确认回滚企微模式')
-  })
-
-  it('第三方候选 payload 不包含任何自建 Secret，保存后授权码离开 DOM 和 Query cache', async () => {
-    await settle()
-    clickButton('详情')
-    await settle()
-    await settle()
-    clickButton('编辑候选')
-    setValue('对接模式', 'third_party_delegated')
+    clickButton('配置第三方应用')
     setValue('Provider App ID', 'provider-new')
     setValue('永久授权码', 'permanent-secret')
-    clickButton('保存候选')
+    clickButton('安全保存')
     await settle()
-    const save = mocks.apiRequest.mock.calls.filter(([path, init]) => path === '/dashboard/saasAdmin/tenants/41/wecom-integration/candidate' && init?.method === 'PUT').at(-1)
+    const save = mocks.apiRequest.mock.calls.filter(([path, init]) => path === '/dashboard/saasAdmin/tenants/41/wecom-integration' && init?.method === 'PUT').at(-1)
     const payload = JSON.parse(String(save?.[1]?.body)) as Record<string, unknown>
     expect(payload).toMatchObject({ mode: 'third_party_delegated', providerAppId: 'provider-new', permanentCode: 'permanent-secret', version: 9 })
     expect(payload).not.toHaveProperty('employeeSecret')
@@ -536,89 +540,29 @@ describe('SaaS 客户租户治理页面', () => {
     expect(payload).not.toHaveProperty('chatSecret')
     expect(document.body.textContent).not.toContain('permanent-secret')
     expect(JSON.stringify(client.getQueryCache().getAll().map((query) => query.state.data))).not.toContain('permanent-secret')
+    expect(document.body.textContent).not.toContain('切换为候选')
   })
 
-  it('企微模式版本冲突会刷新 current/candidate 并给出明确反馈', async () => {
+  it('第三方配置版本冲突刷新当前版本、清空授权码并允许重试', async () => {
+    integrationView = { ...integrationView, current: { ...delegatedCandidate, id: 'delegated-current', slot: 'current', version: 9 }, candidate: null }
     await settle()
     clickButton('详情')
     await settle()
     await settle()
-    mocks.apiRequest.mockImplementationOnce(async () => { throw new mocks.ApiError('version conflict', 409, 'VERSION_CONFLICT') })
-    clickButton('切换为候选')
-    clickButton('确认执行')
-    await settle()
-    await settle()
-    const refreshCalls = mocks.apiRequest.mock.calls.filter(([path, init]) => path === '/dashboard/saasAdmin/tenants/41/wecom-integration' && !init?.method)
-    expect(refreshCalls.length).toBeGreaterThanOrEqual(2)
-    expect(document.querySelector('[role="alert"]')?.textContent).toContain('页面已刷新至最新企微配置')
-  })
-
-  it('候选保存版本冲突后载入最新 candidate 版本并清空授权码，可在同一弹窗重试', async () => {
-    await settle()
-    clickButton('详情')
-    await settle()
-    await settle()
-    clickButton('编辑候选')
+    clickButton('配置第三方应用')
     setValue('永久授权码', 'discard-on-conflict')
-    integrationView = { ...integrationView, candidate: { ...delegatedCandidate, version: 12 } }
+    integrationView = { ...integrationView, current: { ...delegatedCandidate, id: 'delegated-current', slot: 'current', version: 12 }, candidate: null }
     mocks.apiRequest.mockImplementationOnce(async () => { throw new mocks.ApiError('version conflict', 409, 'VERSION_CONFLICT') })
-    clickButton('保存候选')
+    clickButton('安全保存')
     await settle()
     await settle()
     expect(document.body.textContent).toContain('页面已刷新至最新企微配置')
     expect((document.querySelector('input[placeholder="永久授权码"]') as HTMLInputElement).value).toBe('')
     setValue('永久授权码', 'retry-secret')
-    clickButton('保存候选')
+    clickButton('安全保存')
     await settle()
-    const retry = mocks.apiRequest.mock.calls.filter(([path, init]) => path === '/dashboard/saasAdmin/tenants/41/wecom-integration/candidate' && init?.method === 'PUT').at(-1)
+    const retry = mocks.apiRequest.mock.calls.filter(([path, init]) => path === '/dashboard/saasAdmin/tenants/41/wecom-integration' && init?.method === 'PUT').at(-1)
     expect(JSON.parse(String(retry?.[1]?.body)).version).toBe(12)
-  })
-
-  it('A 租户迟到的企微切换成功只更新 A cache，不覆盖或关闭已打开的 B', async () => {
-    const pending = deferred<typeof integrationView>()
-    await settle()
-    clickTenantDetails('测试客户')
-    await settle()
-    await settle()
-    const api = mocks.apiRequest.getMockImplementation()
-    mocks.apiRequest.mockImplementation((path: string, init?: RequestInit) => path === '/dashboard/saasAdmin/tenants/41/wecom-integration/switch' ? pending.promise : api?.(path, init))
-    clickButton('切换为候选')
-    clickButton('确认执行')
-    clickTenantDetails('第二测试客户')
-    await settle()
-    await settle()
-    const lateAView = { ...integrationView, current: { ...selfBuiltCurrent, version: 99, generation: 99 }, candidate: { ...delegatedCandidate, version: 99, generation: 99 } }
-    pending.resolve(lateAView)
-    await settle()
-    await settle()
-    expect((client.getQueryData(['tenant-wecom-integration', 41]) as typeof integrationView).current?.version).toBe(99)
-    expect((client.getQueryData(['tenant-wecom-integration', 52]) as typeof integrationViewB).current?.id).toBe('integration-b-current')
-    const section = document.querySelector('section[aria-label="企微对接模式"]')
-    expect(section?.textContent).toContain('当前：第三方代开发应用')
-    expect(document.body.textContent).toContain('第二测试客户')
-  })
-
-  it('A 租户迟到的企微 409 不刷新 B，也不把 A 错误写入 B 表单或状态区', async () => {
-    const pending = deferred<typeof integrationView>()
-    await settle()
-    clickTenantDetails('测试客户')
-    await settle()
-    await settle()
-    const api = mocks.apiRequest.getMockImplementation()
-    mocks.apiRequest.mockImplementation((path: string, init?: RequestInit) => path === '/dashboard/saasAdmin/tenants/41/wecom-integration/switch' ? pending.promise : api?.(path, init))
-    clickButton('切换为候选')
-    clickButton('确认执行')
-    clickTenantDetails('第二测试客户')
-    await settle()
-    await settle()
-    pending.reject(new mocks.ApiError('late A version conflict', 409, 'VERSION_CONFLICT'))
-    await settle()
-    await settle()
-    const section = document.querySelector('section[aria-label="企微对接模式"]')
-    expect(section?.textContent).toContain('当前：第三方代开发应用')
-    expect(section?.textContent).not.toContain('VERSION_CONFLICT')
-    expect((client.getQueryData(['tenant-wecom-integration', 52]) as typeof integrationViewB).current?.id).toBe('integration-b-current')
-    expect(mocks.apiRequest.mock.calls.filter(([path]) => path === '/dashboard/saasAdmin/tenants/52/wecom-integration').length).toBe(1)
   })
 
   it('只有 integrations.read 才查询企微配置，read-only 只显示状态不显示变更操作', async () => {
@@ -634,8 +578,8 @@ describe('SaaS 客户租户治理页面', () => {
     await settle()
     await settle()
     expect(mocks.apiRequest.mock.calls.some(([path]) => path === '/dashboard/saasAdmin/tenants/41/wecom-integration')).toBe(true)
-    expect(document.body.textContent).toContain('当前账号只有查看权限，不能保存、验证、切换或回滚企微配置。')
-    expect([...document.querySelectorAll('button')].some((button) => button.textContent?.includes('编辑候选'))).toBe(false)
+    expect(document.body.textContent).toContain('当前账号只有查看权限，不能写入第三方应用配置。')
+    expect([...document.querySelectorAll('button')].some((button) => button.textContent?.includes('配置第三方应用'))).toBe(false)
   })
 
   it('综合状态覆盖待生效、即将过期、过期、停用和凭证不可用', () => {
@@ -646,12 +590,6 @@ describe('SaaS 客户租户治理页面', () => {
     expect(tenantAIProviderState(true, { ...base, expiresAt: '2026-08-24T00:00:00Z' }, now).label).toBe('已过期')
     expect(tenantAIProviderState(true, { ...base, status: 'disabled' }, now).label).toBe('已停用')
     expect(tenantAIProviderState(true, { ...base, credentialProtection: 'unavailable' }, now).label).toBe('凭证不可用')
-  })
-
-  it('未绑定企业时给出可执行的企微对接阻塞原因，不暴露 TARGET_NOT_FOUND', () => {
-    const message = weComIntegrationLoadErrorMessage(new mocks.ApiError('request failed', 404, 'TARGET_NOT_FOUND'), '无法加载企微对接配置')
-    expect(message).toContain('先完成企业绑定')
-    expect(message).not.toContain('TARGET_NOT_FOUND')
   })
 
   it('只有 integrations.read 才读取配置，只有 integrations.manage 才显示编辑入口', async () => {

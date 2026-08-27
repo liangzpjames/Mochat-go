@@ -6,6 +6,7 @@ import { useSearchParams } from 'react-router';
 import { useDashboardAccess } from '../../app/access-context';
 import { updateSearch } from '../../shared/query-state';
 import type { ConversationGlobalApi, GroupMemberMode, GroupRoomDirectoryInput, GroupRoomMessage, GroupRoomMode } from './conversation-global-api';
+import { ConversationArchiveUnavailableState, isConversationArchiveUnavailable } from './conversation-archive-state';
 import { GroupConversationDirectory } from './group-conversation-directory';
 import { GroupConversationFilterDrawer, type GroupConversationFilterValue } from './group-conversation-filter-drawer';
 import { GroupConversationMessages } from './group-conversation-messages';
@@ -77,6 +78,8 @@ export function GroupConversationPage({ api }: { api: ConversationGlobalApi }) {
   function loadOlder() { if (messagesQuery.data?.hasMore && messagesQuery.data.nextBefore) setBefore(messagesQuery.data.nextBefore); }
   const mergedMessages = messagesQuery.data === undefined ? undefined : { ...messagesQuery.data, messages: loadedMessages.length > 0 ? loadedMessages : messagesQuery.data.messages };
   const directoryError = api.groupRoomDirectory === undefined ? new Error('群聊目录能力未接入') : errorOf(directoryQuery.error);
+
+  if (isConversationArchiveUnavailable(directoryQuery.error)) return <ConversationArchiveUnavailableState />;
 
   function openProfile() { setProfileClosed(false); setProfileOpen(true); }
   function closeProfile() { setProfileOpen(false); setProfileClosed(true); }

@@ -31,14 +31,37 @@ test('acceptance migrations install tenant AI providers before the integration s
   assert.ok(aiProviders < integrations, '0164 must run before 0166');
 });
 
-test('acceptance seed exercises durable replay, formal integration transitions and activation services', async () => {
+test('acceptance database records only successful migrations and applies capability ledger compatibility', async () => {
+  const init = await readFile('deploy/local-acceptance/init/099-apply-migrations.sh', 'utf8');
+  assert.match(init, /CREATE TABLE IF NOT EXISTS mochat_go_schema_migrations/);
+  assert.match(init, /sha256sum/);
+  assert.match(init, /apply_migration/);
+  assert.ok(init.includes('0139_wecom_capability_ledger.up.sql'));
+  assert.ok(init.includes('/local-acceptance-init/0139-parent-compat.sql'));
+  assert.match(init, /INSERT INTO mochat_go_schema_migrations/);
+});
+
+test('acceptance database installs the complete non-controlled Dashboard schema', async () => {
+  const init = await readFile('deploy/local-acceptance/init/099-apply-migrations.sh', 'utf8');
+  for (const migration of [
+    '0106_scrm_lead_parity.up.sql',
+    '0119_phase35_orders_settings.up.sql',
+    '0148_ai_conversation_insights.up.sql',
+    '0167_tenant_wecom_mode.up.sql',
+  ]) {
+    assert.ok(init.includes(migration), `acceptance init is missing ${migration}`);
+  }
+  assert.doesNotMatch(init, /\b0130_identity_realms_single_corp_backfill\.up\.sql\b/);
+  assert.doesNotMatch(init, /\b0131_identity_realms_single_corp_cutover\.up\.sql\b/);
+});
+
+test('acceptance seed exercises durable replay, immutable integration rejection and activation services', async () => {
   const source = await readFile('cmd/mochat-archive-acceptance/main.go', 'utf8');
   assert.doesNotMatch(source, /if\s+!found\s*\{[\s\S]*?NewSyncService/, 'seed must not bypass Sync for an existing succeeded run');
   for (const contract of [
-    'SaveCandidate',
-    'VerifyCandidate',
-    'Switch(ctx',
-    'Rollback(ctx',
+	'ErrWeComModeImmutable',
+	'acceptance immutable current integration contract failed',
+	'acceptance retired integration lifecycle did not fail closed',
     'ProvisionDashboardTenant',
     'DashboardActivationStatus',
     'syncIdempotent',
@@ -47,14 +70,15 @@ test('acceptance seed exercises durable replay, formal integration transitions a
   }
 });
 
-test('acceptance runtime secures Windows secrets, rebuilds the CLI and runs a durable worker', async () => {
+test('acceptance runtime secures Windows secrets, rebuilds the CLI and runs a durable all-in-one app', async () => {
   const script = await readFile('scripts/run_wecom_archive_saas_activation_acceptance.ps1', 'utf8');
-  for (const contract of ['/inheritance:r', '*S-1-5-11', '*S-1-5-32-545', "@('build', 'acceptance')", "'worker'"]) {
+  for (const contract of ['/inheritance:r', '*S-1-5-11', '*S-1-5-32-545', "@('build', 'acceptance')", "'app'"]) {
     assert.ok(script.includes(contract), `acceptance PowerShell missing ${contract}`);
   }
   const compose = await readFile('deploy/local-acceptance/docker-compose.yml', 'utf8');
-  assert.match(compose, /\n  worker:\n[\s\S]*MOCHAT_GO_RUNTIME_ROLE:\s*scheduler[\s\S]*MOCHAT_GO_ENABLE_DURABLE_WORK_MESSAGE_ARCHIVE:\s*"1"/);
-  assert.match(compose, /worker:[\s\S]*restart:\s*unless-stopped/);
+  assert.match(compose, /\n  app:\n[\s\S]*MOCHAT_GO_RUNTIME_ROLE:\s*all[\s\S]*MOCHAT_GO_ENABLE_DURABLE_WORK_MESSAGE_ARCHIVE:\s*"1"/);
+  assert.match(compose, /app:[\s\S]*restart:\s*unless-stopped/);
+  assert.doesNotMatch(compose, /\n  worker:\n/);
 });
 
 test('every data action refreshes the acceptance image and proves an interrupted checkpoint takeover', async () => {

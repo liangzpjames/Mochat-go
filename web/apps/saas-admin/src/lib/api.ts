@@ -236,20 +236,8 @@ export function fetchWeComIntegration(tenantId: number) {
   return apiRequest<WeComIntegrationView>(weComIntegrationPath(tenantId))
 }
 
-export function saveWeComIntegrationCandidate(tenantId: number, input: WeComIntegrationCandidateInput) {
-  return apiRequest<WeComIntegrationRecord>(weComIntegrationPath(tenantId, '/candidate'), jsonRequest('PUT', input))
-}
-
-export function verifyWeComIntegrationCandidate(tenantId: number, version: number) {
-  return apiRequest<WeComIntegrationRecord>(weComIntegrationPath(tenantId, '/candidate/verify'), jsonRequest('POST', { version }))
-}
-
-export function switchWeComIntegration(tenantId: number, version: number) {
-  return apiRequest<WeComIntegrationView>(weComIntegrationPath(tenantId, '/switch'), jsonRequest('POST', { version }))
-}
-
-export function rollbackWeComIntegration(tenantId: number, version: number) {
-  return apiRequest<WeComIntegrationView>(weComIntegrationPath(tenantId, '/rollback'), jsonRequest('POST', { version }))
+export function saveDelegatedWeComIntegration(tenantId: number, input: WeComIntegrationCandidateInput) {
+  return apiRequest<WeComIntegrationRecord>(weComIntegrationPath(tenantId), jsonRequest('PUT', input))
 }
 
 export function fetchWeComIntegrationAudits(tenantId: number) {

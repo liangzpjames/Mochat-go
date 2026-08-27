@@ -369,7 +369,7 @@ func prepareInfrastructure(ctx context.Context, db *sql.DB, dashboardPasswordHas
 		{`INSERT INTO mochat_go_dashboard_identities (user_id,login_identifier,password_hash,status,must_rotate_password,auth_version,mfa_required,activated_at) VALUES (?,?,?,1,0,1,0,NOW()) ON DUPLICATE KEY UPDATE password_hash=VALUES(password_hash),status=1,must_rotate_password=0,mfa_required=0,activated_at=COALESCE(activated_at,NOW())`, []any{acceptanceUser, "19008208270", dashboardPasswordHash}},
 		{`INSERT INTO mc_work_employee (id,wx_user_id,corp_id,name,status,audit_status,created_at) VALUES (?,?,?,?,1,1,NOW()) ON DUPLICATE KEY UPDATE deleted_at=NULL,status=1,audit_status=1`, []any{acceptanceStaff, datasetID + "-STAFF-01", acceptanceCorp, datasetID + " 本地验收员工"}},
 		{`INSERT INTO mc_work_contact (id,corp_id,wx_external_userid,name,created_at) VALUES (?,?,?,?,NOW()) ON DUPLICATE KEY UPDATE deleted_at=NULL`, []any{acceptanceContact, acceptanceCorp, datasetID + "-EXTERNAL-01", datasetID + " 本地验收客户"}},
-		{`INSERT INTO mochat_go_tenant_corp_bindings (tenant_id,corp_id,status,version,verified_wx_corpid,verified_corp_name,verified_at) VALUES (?,?,2,1,?,?,NOW()) ON DUPLICATE KEY UPDATE status=2,verified_wx_corpid=VALUES(verified_wx_corpid),verified_corp_name=VALUES(verified_corp_name),verified_at=COALESCE(verified_at,NOW())`, []any{acceptanceTenant, acceptanceCorp, acceptanceWXCorp, datasetID + " 本地验收企业（非生产）"}},
+		{`INSERT INTO mochat_go_tenant_corp_bindings (tenant_id,corp_id,wecom_integration_mode,status,version,verified_wx_corpid,verified_corp_name,verified_at) VALUES (?,?,'self_built',2,1,?,?,NOW()) ON DUPLICATE KEY UPDATE wecom_integration_mode='self_built',status=2,verified_wx_corpid=VALUES(verified_wx_corpid),verified_corp_name=VALUES(verified_corp_name),verified_at=COALESCE(verified_at,NOW())`, []any{acceptanceTenant, acceptanceCorp, acceptanceWXCorp, datasetID + " 本地验收企业（非生产）"}},
 	}
 	for _, statement := range statements {
 		if _, err := tx.ExecContext(ctx, statement.query, statement.args...); err != nil {
@@ -388,13 +388,7 @@ func prepareWeComIntegrationFixtures(ctx context.Context, db *sql.DB, archiveSto
 	if err := bootstrapEncryptedCurrentIntegration(ctx, db, credentialManager, actorID); err != nil {
 		return err
 	}
-	verifier := dashboardadmin.WeComIntegrationVerifierFunc(func(_ context.Context, request dashboardadmin.WeComVerificationRequest) (dashboardadmin.WeComVerificationResult, error) {
-		if request.TenantID != acceptanceTenant || request.CorpID != acceptanceCorp || request.AuthoritativeWXCorpID != acceptanceWXCorp || request.Mode != "third_party_delegated" || request.ProviderAppID != datasetID+"-PROVIDER-APP" || request.Credentials.PermanentCode == "" || request.Credentials.EmployeeSecret != "" || request.Credentials.ChatSecret != "" {
-			return dashboardadmin.WeComVerificationResult{}, errors.New("acceptance delegated integration verification contract mismatch")
-		}
-		return dashboardadmin.WeComVerificationResult{VerifiedWXCorpID: acceptanceWXCorp, Scope: []string{"archive.read"}, VerificationLevel: dashboardadmin.WeComVerificationLocalContract}, nil
-	})
-	service := dashboardadmin.NewWeComIntegrationService(archiveStore, verifier)
+	service := dashboardadmin.NewWeComIntegrationService(archiveStore, nil)
 	view, err := service.Get(ctx, actor, acceptanceTenant)
 	if err != nil {
 		return err
@@ -402,34 +396,27 @@ func prepareWeComIntegrationFixtures(ctx context.Context, db *sql.DB, archiveSto
 	if view.Current == nil || !view.Current.CredentialConfigured {
 		return errors.New("acceptance current WeCom integration credential is not configured")
 	}
-	if view.Candidate == nil {
-		candidate, err := service.SaveCandidate(ctx, actor, acceptanceTenant, dashboardadmin.WeComIntegrationCandidateInput{
-			Mode: "third_party_delegated", ProviderAppID: datasetID + "-PROVIDER-APP", PermanentCode: datasetID + "-PERMANENT-CODE-LOCAL-ONLY", Scope: []string{"archive.read"}, Version: view.Current.Version,
-		})
-		if err != nil {
-			return err
-		}
-		candidate, err = service.VerifyCandidate(ctx, actor, acceptanceTenant, candidate.Version)
-		if err != nil {
-			return err
-		}
-		switched, err := service.Switch(ctx, actor, acceptanceTenant, candidate.Version)
-		if err != nil {
-			return err
-		}
-		if switched.Candidate == nil {
-			return errors.New("acceptance integration switch did not preserve rollback candidate")
-		}
-		view, err = service.Rollback(ctx, actor, acceptanceTenant, switched.Candidate.Version)
-		if err != nil {
-			return err
-		}
+	if view.Current == nil || view.Candidate != nil || view.Current.Mode != "self_built" || !view.Current.CredentialConfigured {
+		return errors.New("acceptance immutable current integration contract failed")
 	}
-	if view.Current == nil || view.Candidate == nil || view.Current.Mode != "self_built" || view.Candidate.Mode != "third_party_delegated" || !view.Current.CredentialConfigured || !view.Candidate.CredentialConfigured {
-		return errors.New("acceptance integration current/candidate rollback contract failed")
-	}
-	if _, err := archiveStore.WeComIntegrationVerificationCandidate(ctx, actor, acceptanceTenant, view.Candidate.Version); err != nil {
-		return fmt.Errorf("decrypt acceptance candidate integration: %w", err)
+	for _, call := range []func() error{
+		func() error {
+			_, err := service.SaveCandidate(ctx, actor, acceptanceTenant, dashboardadmin.WeComIntegrationCandidateInput{})
+			return err
+		},
+		func() error {
+			_, err := service.VerifyCandidate(ctx, actor, acceptanceTenant, view.Current.Version)
+			return err
+		},
+		func() error { _, err := service.Switch(ctx, actor, acceptanceTenant, view.Current.Version); return err },
+		func() error {
+			_, err := service.Rollback(ctx, actor, acceptanceTenant, view.Current.Version)
+			return err
+		},
+	} {
+		if err := call(); !errors.Is(err, dashboardadmin.ErrWeComModeImmutable) {
+			return errors.New("acceptance retired integration lifecycle did not fail closed")
+		}
 	}
 	return nil
 }
@@ -448,7 +435,8 @@ func bootstrapEncryptedCurrentIntegration(ctx context.Context, db *sql.DB, manag
 		if _, err := manager.DecryptAuthorization(acceptanceTenant, integrationID, keyID, ciphertext); err != nil {
 			return fmt.Errorf("decrypt acceptance current integration: %w", err)
 		}
-		return nil
+		_, err := db.ExecContext(ctx, `DELETE FROM mochat_go_wecom_integrations WHERE tenant_id=? AND corp_id=? AND slot='candidate'`, acceptanceTenant, acceptanceCorp)
+		return err
 	}
 	credential := wecomcredentials.AuthorizationCredential{
 		Mode: "self_built", EmployeeSecret: datasetID + "-EMPLOYEE-SECRET", ContactSecret: datasetID + "-CONTACT-SECRET", AgentSecret: datasetID + "-AGENT-SECRET", ChatSecret: datasetID + "-CHAT-SECRET",
@@ -462,6 +450,9 @@ func bootstrapEncryptedCurrentIntegration(ctx context.Context, db *sql.DB, manag
 		return err
 	}
 	defer tx.Rollback()
+	if _, err = tx.ExecContext(ctx, `DELETE FROM mochat_go_wecom_integrations WHERE tenant_id=? AND corp_id=? AND slot='candidate'`, acceptanceTenant, acceptanceCorp); err != nil {
+		return err
+	}
 	if !currentExists {
 		_, err = tx.ExecContext(ctx, `INSERT INTO mochat_go_wecom_integrations (id,tenant_id,corp_id,mode,slot,status,verified_wx_corpid,agent_id,credential_ciphertext,credential_key_id,credential_hint,scope_json,scope_digest,missing_capabilities_json,generation,version,verification_level,verified_at,activated_at,last_audit_at) VALUES (?,?,?,'self_built','current','active',?,1000002,?,?,?,JSON_ARRAY('archive.read'),?,JSON_ARRAY(),1,1,?,NOW(6),NOW(6),NOW(6))`, integrationID, acceptanceTenant, acceptanceCorp, acceptanceWXCorp, ciphertext, keyID, "agent,chat,contact,employee", dashboardadmin.WeComScopeDigest([]string{"archive.read"}), dashboardadmin.WeComVerificationLocalContract)
 	} else {
@@ -492,8 +483,13 @@ func prepareActivationFixtures(ctx context.Context, db *sql.DB, archiveStore *st
 	const fixtureExpiresAt = "2027-08-27T00:00:00Z"
 	for index, state := range []string{"valid", "expired", "activated", "revoked"} {
 		key := datasetID + "-ACTIVATION-" + strings.ToUpper(state)
+		integrationMode := dashboardadmin.WeComIntegrationModeSelfBuilt
+		if state == "revoked" {
+			integrationMode = dashboardadmin.WeComIntegrationModeThirdPartyDelegated
+		}
 		result, err := provisioning.ProvisionDashboardTenant(ctx, actor, dashboardadmin.ProvisionDashboardTenant{
-			TenantName: datasetID + " 激活状态 " + state + "（非生产）", PackageID: acceptancePackageID, Limits: acceptanceActivationLimits(),
+			TenantName: datasetID + " 激活状态 " + state + "（非生产）", WeComIntegrationMode: integrationMode,
+			PackageID: acceptancePackageID, Limits: acceptanceActivationLimits(),
 			Subscription:         dashboardadmin.SubscriptionInput{PackageCode: acceptancePackageCode, Status: "trialing", BillingCycle: "custom", StartsAt: fixtureStartsAt, ExpiresAt: fixtureExpiresAt},
 			AdminLoginIdentifier: fmt.Sprintf("1900820827%d", index+1), AdminName: datasetID + " 激活管理员 " + state,
 			IdempotencyKey: key, ExpectedVersion: 1, RequestID: key,
@@ -765,13 +761,13 @@ func verify(ctx context.Context, output io.Writer, values options) error {
 	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM mochat_go_archive_sync_audits WHERE tenant_id=? AND corp_id=? AND source_id=?`, acceptanceTenant, acceptanceCorp, acceptanceSource).Scan(&syncAuditCount); err != nil {
 		return err
 	}
-	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM mochat_go_wecom_integrations WHERE tenant_id=? AND corp_id=? AND status='active' AND credential_ciphertext<>'' AND credential_key_id='acceptance-v1' AND verification_level=? AND JSON_CONTAINS(scope_json, JSON_QUOTE('archive.read')) AND ((mode='self_built' AND slot='current') OR (mode='third_party_delegated' AND slot='candidate'))`, acceptanceTenant, acceptanceCorp, dashboardadmin.WeComVerificationLocalContract).Scan(&integrationCount); err != nil {
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM mochat_go_wecom_integrations WHERE tenant_id=? AND corp_id=? AND status='active' AND credential_ciphertext<>'' AND credential_key_id='acceptance-v1' AND verification_level=? AND JSON_CONTAINS(scope_json, JSON_QUOTE('archive.read')) AND mode='self_built' AND slot='current'`, acceptanceTenant, acceptanceCorp, dashboardadmin.WeComVerificationLocalContract).Scan(&integrationCount); err != nil {
 		return err
 	}
-	if err := db.QueryRowContext(ctx, `SELECT COUNT(DISTINCT action) FROM mochat_go_saas_admin_operation_logs WHERE tenant_id=? AND target_type='wecom_integration' AND action IN ('wecom.integration.acceptance.bootstrap','wecom.integration.candidate.save','wecom.integration.candidate.verify','wecom.integration.switch','wecom.integration.rollback')`, acceptanceTenant).Scan(&integrationAuditCount); err != nil {
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(DISTINCT action) FROM mochat_go_saas_admin_operation_logs WHERE tenant_id=? AND target_type='wecom_integration' AND action='wecom.integration.acceptance.bootstrap'`, acceptanceTenant).Scan(&integrationAuditCount); err != nil {
 		return err
 	}
-	if syncAuditCount == 0 || integrationCount != 2 || integrationAuditCount != 5 {
+	if syncAuditCount == 0 || integrationCount != 1 || integrationAuditCount != 1 {
 		return errors.New("archive audit or active integration contract failed")
 	}
 	activationStates, err := verifyActivationFixtures(ctx, db, values.ActivationFixtureDir)
@@ -1119,10 +1115,6 @@ func cleanupStatements() []string {
 		`DELETE FROM mc_user WHERE id=? AND tenant_id=? AND name=?`,
 		`DELETE FROM mc_corp WHERE id=? AND tenant_id=? AND name=?`,
 		`DELETE FROM mc_tenant WHERE id=? AND name=?`,
-		`DELETE FROM mochat_go_saas_admin_sessions WHERE user_id IN (SELECT id FROM mochat_go_saas_admin_users WHERE login_name=? AND bootstrap_request_key=?)`,
-		`DELETE FROM mochat_go_saas_admin_mfa_challenges WHERE user_id IN (SELECT id FROM mochat_go_saas_admin_users WHERE login_name=? AND bootstrap_request_key=?)`,
-		`DELETE FROM mochat_go_saas_admin_mfa_credentials WHERE user_id IN (SELECT id FROM mochat_go_saas_admin_users WHERE login_name=? AND bootstrap_request_key=?)`,
-		`DELETE FROM mochat_go_saas_admin_users WHERE login_name=? AND bootstrap_request_key=?`,
 	}
 }
 
@@ -1171,10 +1163,6 @@ func cleanup(ctx context.Context, output io.Writer, values options) error {
 		{acceptanceCorp, datasetID + "-MSG-%"}, {acceptanceContact, acceptanceCorp, datasetID + "-EXTERNAL-01"},
 		{acceptanceStaff, acceptanceCorp, datasetID + "-STAFF-01"}, {acceptanceUser, acceptanceTenant, datasetID + " 本地验收管理员"},
 		{acceptanceCorp, acceptanceTenant, datasetID + " 本地验收企业（非生产）"}, {acceptanceTenant, datasetID + " 本地验收租户（非生产）"},
-		{"mochat-local-acceptance-admin", datasetID + "-SAAS-ADMIN"},
-		{"mochat-local-acceptance-admin", datasetID + "-SAAS-ADMIN"},
-		{"mochat-local-acceptance-admin", datasetID + "-SAAS-ADMIN"},
-		{"mochat-local-acceptance-admin", datasetID + "-SAAS-ADMIN"},
 	}
 	for index, statement := range statements {
 		if _, err := tx.ExecContext(ctx, statement, arguments[index]...); err != nil {
@@ -1259,6 +1247,7 @@ func cleanupActivationFixturesTx(ctx context.Context, tx *sql.Tx) error {
 			{`DELETE FROM mochat_go_dashboard_permission_audits WHERE tenant_id=?`, []any{tenantID}},
 			{`DELETE FROM mochat_go_saas_idempotency_receipts WHERE tenant_id=?`, []any{tenantID}},
 			{`DELETE FROM mochat_go_saas_admin_operation_logs WHERE tenant_id=?`, []any{tenantID}},
+			{`DELETE FROM mochat_go_wecom_integrations WHERE tenant_id=? AND corp_id=?`, []any{tenantID, corpID}},
 			{`DELETE FROM mochat_go_saas_subscription_events WHERE tenant_id=?`, []any{tenantID}},
 			{`DELETE FROM mochat_go_saas_subscriptions WHERE tenant_id=?`, []any{tenantID}},
 			{`DELETE FROM mochat_go_saas_tenant_packages WHERE tenant_id=?`, []any{tenantID}},

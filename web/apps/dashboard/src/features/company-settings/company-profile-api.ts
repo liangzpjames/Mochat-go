@@ -24,6 +24,7 @@ export type CompanyProfile = {
   authoritativeCorpName?: string;
   wxCorpId?: string;
   applicationAgentId?: string;
+  wecomIntegrationMode?: 'self_built' | 'third_party_delegated';
   bindingStatus: BindingStatus;
   bindingVersion: number;
   verifiedAt?: string;
@@ -278,6 +279,7 @@ function normalizeProfile(value: unknown): CompanyProfile {
     tenantId: numberValue(source.tenantId),
     corpId: numberValue(source.corpId),
     displayName: typeof source.displayName === 'string' ? source.displayName : '',
+    wecomIntegrationMode: source.wecomIntegrationMode === 'third_party_delegated' ? 'third_party_delegated' : 'self_built',
     bindingStatus: status,
     bindingVersion: numberValue(source.bindingVersion),
     credentials: {

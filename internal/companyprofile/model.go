@@ -15,6 +15,7 @@ const (
 	CodeNotFound             = "NOT_FOUND"
 	CodeVersionConflict      = "VERSION_CONFLICT"
 	CodeCorpIDImmutable      = "CORP_ID_IMMUTABLE"
+	CodeIntegrationMode      = "WECOM_INTEGRATION_MODE_MISMATCH"
 	CodeWeComCredentialError = "WECOM_CREDENTIAL_INVALID"
 	CodeInternal             = "INTERNAL_ERROR"
 )
@@ -26,6 +27,7 @@ var (
 	ErrNotFound            = errors.New("company profile not found")
 	ErrVersionConflict     = errors.New("company profile version conflict")
 	ErrCorpIDImmutable     = errors.New("company profile CorpID is immutable")
+	ErrIntegrationMode     = errors.New("company profile is not managed by self-built WeCom mode")
 	ErrCredentialInvalid   = errors.New("company profile WeCom credential invalid")
 	ErrStoreUnavailable    = errors.New("company profile store unavailable")
 	ErrVerifierUnavailable = errors.New("company profile verifier unavailable")
@@ -38,6 +40,7 @@ type Profile struct {
 	AuthoritativeCorpName string                  `json:"authoritativeCorpName,omitempty"`
 	WXCorpID              string                  `json:"wxCorpId,omitempty"`
 	ApplicationAgentID    string                  `json:"applicationAgentId,omitempty"`
+	WeComIntegrationMode  string                  `json:"wecomIntegrationMode"`
 	BindingStatus         string                  `json:"bindingStatus"`
 	BindingVersion        uint64                  `json:"bindingVersion"`
 	CredentialGenerations CredentialGenerationSet `json:"-"`

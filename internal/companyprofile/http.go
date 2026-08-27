@@ -165,6 +165,8 @@ func errorResponse(err error) (int, string, string) {
 		return http.StatusConflict, CodeVersionConflict, "version conflict"
 	case errors.Is(err, ErrCorpIDImmutable):
 		return http.StatusConflict, CodeCorpIDImmutable, "company CorpID is immutable"
+	case errors.Is(err, ErrIntegrationMode):
+		return http.StatusConflict, CodeIntegrationMode, "WeCom integration is managed by SaaS"
 	case errors.Is(err, ErrCredentialInvalid):
 		return http.StatusUnprocessableEntity, CodeWeComCredentialError, "WeCom credential invalid"
 	default:

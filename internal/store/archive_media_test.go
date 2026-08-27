@@ -29,7 +29,7 @@ func TestArchiveMediaClaimDecryptsLocatorAndFencesStaleWorker(t *testing.T) {
 	}
 	now := time.Date(2026, 8, 27, 3, 0, 0, 0, time.UTC)
 	mock.ExpectBegin()
-	mock.ExpectQuery("SELECT media\\.id,media\\.tenant_id").WithArgs(now).WillReturnRows(sqlmock.NewRows([]string{
+	mock.ExpectQuery("(?s)SELECT media\\.id,media\\.tenant_id.*INNER JOIN mc_tenant tenant.*tenant\\.status=1.*INNER JOIN mochat_go_wecom_integrations integration.*integration\\.status='active'.*integration\\.mode=binding\\.wecom_integration_mode.*binding\\.status=2 AND binding\\.verified_at IS NOT NULL.*binding\\.verified_wx_corpid=integration\\.verified_wx_corpid.*JSON_CONTAINS\\(integration\\.scope_json, JSON_QUOTE\\('archive\\.read'\\)\\)=1.*JSON_LENGTH\\(integration\\.missing_capabilities_json\\) = 0").WithArgs(now).WillReturnRows(sqlmock.NewRows([]string{
 		"id", "tenant_id", "corp_id", "wx_corpid", "msgid", "source_identity", "ciphertext", "key_id",
 		"media_type", "media_name", "mime_type", "expected_size_bytes", "expected_md5", "status", "index_buf", "bytes_received",
 		"checkpoint_attempt", "download_finished", "download_sha256", "attempt",
@@ -148,7 +148,7 @@ func TestDurableArchiveBindingsAndCursorStayTenantScoped(t *testing.T) {
 	}
 	defer db.Close()
 	store := NewMySQLStore(db)
-	mock.ExpectQuery("(?s)SELECT integration\\.tenant_id,integration\\.corp_id,integration\\.verified_wx_corpid.*integration\\.status='active'.*integration\\.verified_at IS NOT NULL.*binding\\.status=2 AND binding\\.verified_at IS NOT NULL.*JSON_CONTAINS\\(integration\\.scope_json, JSON_QUOTE\\('archive\\.read'\\)\\).*JSON_LENGTH\\(integration\\.missing_capabilities_json\\) = 0").
+	mock.ExpectQuery("(?s)SELECT integration\\.tenant_id,integration\\.corp_id,integration\\.verified_wx_corpid.*INNER JOIN mc_tenant tenant.*tenant\\.status=1.*integration\\.status='active'.*integration\\.mode=binding\\.wecom_integration_mode.*integration\\.verified_at IS NOT NULL.*binding\\.status=2 AND binding\\.verified_at IS NOT NULL.*JSON_CONTAINS\\(integration\\.scope_json, JSON_QUOTE\\('archive\\.read'\\)\\).*JSON_LENGTH\\(integration\\.missing_capabilities_json\\) = 0").
 		WillReturnRows(sqlmock.NewRows([]string{"tenant_id", "corp_id", "verified_wx_corpid"}).AddRow(11, 27, "ww-local"))
 	bindings, err := store.DurableArchiveBindings(context.Background())
 	if err != nil || len(bindings) != 1 || bindings[0].Scope.TenantID != 11 || bindings[0].Scope.CorpID != 27 || bindings[0].WXCorpID != "ww-local" {

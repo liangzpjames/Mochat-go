@@ -121,7 +121,7 @@ func dashboardAdminWeComIntegrationPath(path string) (int, string, bool) {
 	if err != nil || tenantID <= 0 || strconv.Itoa(tenantID) != idText {
 		return 0, "", false
 	}
-	if suffix == "wecom-integration" || suffix == "wecom-integration/candidate" || suffix == "wecom-integration/candidate/verify" || suffix == "wecom-integration/switch" || suffix == "wecom-integration/rollback" || suffix == "wecom-integration/audits" {
+	if suffix == "wecom-integration" || suffix == "wecom-integration/audits" {
 		return tenantID, suffix, true
 	}
 	return 0, "", false
@@ -142,13 +142,13 @@ func (handler *HTTPHandler) weComIntegrationHTTP(w http.ResponseWriter, r *http.
 			return
 		}
 		writeDashboardAdminJSON(w, http.StatusOK, result)
-	case action == "wecom-integration/candidate" && r.Method == http.MethodPut:
+	case action == "wecom-integration" && r.Method == http.MethodPut:
 		var input WeComIntegrationCandidateInput
 		if decodeDashboardAdminJSON(r, &input) != nil {
 			writeDashboardAdminError(w, http.StatusBadRequest, codeInvalidRequest)
 			return
 		}
-		result, err := handler.weComIntegration.SaveCandidate(r.Context(), actor, tenantID, input)
+		result, err := handler.weComIntegration.SaveCurrent(r.Context(), actor, tenantID, input)
 		if err != nil {
 			writeDashboardAdminServiceError(w, err)
 			return
@@ -156,32 +156,6 @@ func (handler *HTTPHandler) weComIntegrationHTTP(w http.ResponseWriter, r *http.
 		writeDashboardAdminJSON(w, http.StatusOK, result)
 	case action == "wecom-integration/audits" && r.Method == http.MethodGet:
 		result, err := handler.weComIntegration.Audits(r.Context(), actor, tenantID)
-		if err != nil {
-			writeDashboardAdminServiceError(w, err)
-			return
-		}
-		writeDashboardAdminJSON(w, http.StatusOK, result)
-	case r.Method == http.MethodPost && (action == "wecom-integration/candidate/verify" || action == "wecom-integration/switch" || action == "wecom-integration/rollback"):
-		var input WeComIntegrationVersionInput
-		if decodeDashboardAdminJSON(r, &input) != nil {
-			writeDashboardAdminError(w, http.StatusBadRequest, codeInvalidRequest)
-			return
-		}
-		if action == "wecom-integration/candidate/verify" {
-			result, err := handler.weComIntegration.VerifyCandidate(r.Context(), actor, tenantID, input.Version)
-			if err != nil {
-				writeDashboardAdminServiceError(w, err)
-				return
-			}
-			writeDashboardAdminJSON(w, http.StatusOK, result)
-			return
-		}
-		var result WeComIntegrationView
-		if action == "wecom-integration/switch" {
-			result, err = handler.weComIntegration.Switch(r.Context(), actor, tenantID, input.Version)
-		} else {
-			result, err = handler.weComIntegration.Rollback(r.Context(), actor, tenantID, input.Version)
-		}
 		if err != nil {
 			writeDashboardAdminServiceError(w, err)
 			return
@@ -209,6 +183,7 @@ func (handler *HTTPHandler) dashboardAdminGovernance(w http.ResponseWriter, r *h
 			"id": identity.ID, "name": identity.Name, "loginIdentifier": identity.LoginIdentifier,
 			"userStatus": identity.UserStatus, "identityStatus": identity.IdentityStatus,
 			"activatedAt": identity.ActivatedAt, "isSuperAdmin": identity.IsSuperAdmin,
+			"availableActions": identity.AvailableActions, "blockedReasons": identity.BlockedReasons,
 		})
 	}
 	writeDashboardAdminJSON(w, http.StatusOK, map[string]any{
@@ -451,6 +426,8 @@ func writeDashboardAdminServiceError(w http.ResponseWriter, err error) {
 		status, code = http.StatusConflict, "WECOM_ACTIVE_MEDIA_LEASE"
 	case errors.Is(err, ErrWeComCandidateNotVerified):
 		status, code = http.StatusConflict, "WECOM_CANDIDATE_NOT_VERIFIED"
+	case errors.Is(err, ErrWeComModeImmutable):
+		status, code = http.StatusConflict, "WECOM_MODE_IMMUTABLE"
 	}
 	writeDashboardAdminError(w, status, code)
 }
