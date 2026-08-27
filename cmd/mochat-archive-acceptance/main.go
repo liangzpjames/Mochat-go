@@ -1143,6 +1143,10 @@ func cleanup(ctx context.Context, output io.Writer, values options) error {
 	if err != nil {
 		return err
 	}
+	targets, err := validateDatasetStoragePaths(values.StorageRoot, paths)
+	if err != nil {
+		return err
+	}
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -1178,13 +1182,11 @@ func cleanup(ctx context.Context, output io.Writer, values options) error {
 		}
 	}
 	removed := 0
-	for _, path := range paths {
-		if target, ok := datasetObjectPath(values.StorageRoot, path); ok {
-			if err := os.Remove(target); err == nil {
-				removed++
-			} else if !errors.Is(err, os.ErrNotExist) {
-				return err
-			}
+	for _, target := range targets {
+		if err := os.Remove(target); err == nil {
+			removed++
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return err
 		}
 	}
 	for _, name := range []string{"valid.token", "expired.token", "activated.token", "revoked.token", "revoked-replacement.token", "invalid.token"} {
@@ -1343,6 +1345,18 @@ func datasetStoragePaths(ctx context.Context, db *sql.DB) ([]string, error) {
 		result = append(result, path)
 	}
 	return result, rows.Err()
+}
+
+func validateDatasetStoragePaths(storageRoot string, paths []string) ([]string, error) {
+	targets := make([]string, 0, len(paths))
+	for _, storedPath := range paths {
+		target, ok := datasetObjectPath(storageRoot, storedPath)
+		if !ok {
+			return nil, errors.New("cleanup storage path escaped acceptance root")
+		}
+		targets = append(targets, target)
+	}
+	return targets, nil
 }
 
 func readAcceptancePassword(path string) (string, error) {

@@ -123,6 +123,19 @@ func TestDatasetObjectPathAcceptsStoredAbsolutePathWithinArchiveMediaRoot(t *tes
 	}
 }
 
+func TestValidateDatasetStoragePathsRejectsEntireBatchBeforeCleanup(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "upload", "static")
+	inside := filepath.Join(root, "archive-media", "object-id")
+	outside := filepath.Join(filepath.Dir(root), "outside")
+	targets, err := validateDatasetStoragePaths(root, []string{inside, outside})
+	if err == nil || !strings.Contains(err.Error(), "escaped acceptance root") {
+		t.Fatalf("targets=%v err=%v", targets, err)
+	}
+	if targets != nil {
+		t.Fatalf("invalid batch returned partial cleanup targets: %v", targets)
+	}
+}
+
 func TestVerifyDashboardMediaHTTPUsesRealLoginAndProjectsGlobalArchiveMedia(t *testing.T) {
 	payload := []byte("fixture-media")
 	digest := sha256.Sum256(payload)
