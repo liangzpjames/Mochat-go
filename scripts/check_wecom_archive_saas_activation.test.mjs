@@ -77,9 +77,9 @@ test('acceptance runtime secures Windows secrets, rebuilds the CLI and runs a du
     assert.ok(script.includes(contract), `acceptance PowerShell missing ${contract}`);
   }
   const compose = await readFile('deploy/local-acceptance/docker-compose.yml', 'utf8');
-  assert.match(compose, /\n  app:\n[\s\S]*MOCHAT_GO_RUNTIME_ROLE:\s*all[\s\S]*MOCHAT_GO_ENABLE_DURABLE_WORK_MESSAGE_ARCHIVE:\s*"1"/);
+  assert.match(compose, /\r?\n  app:\r?\n[\s\S]*MOCHAT_GO_RUNTIME_ROLE:\s*all[\s\S]*MOCHAT_GO_ENABLE_DURABLE_WORK_MESSAGE_ARCHIVE:\s*"1"/);
   assert.match(compose, /app:[\s\S]*restart:\s*unless-stopped/);
-  assert.doesNotMatch(compose, /\n  worker:\n/);
+  assert.doesNotMatch(compose, /\r?\n  worker:\r?\n/);
 });
 
 test('every data action refreshes the acceptance image and proves an interrupted checkpoint takeover', async () => {
