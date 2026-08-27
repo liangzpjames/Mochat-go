@@ -25,6 +25,7 @@
 | Compose 配置渲染 | PASS | 固定 project，独立端口和命名卷，敏感项来自 ignored env/file |
 | 验收库增量迁移顺序 | PASS | 静态合同要求 `0133 < 0138`、`0164 < 0166`；现有隔离库原位应用 0164 后，租户 AI Provider 正式 API 返回 HTTP/envelope 200 |
 | MariaDB `0166 down → up` | PASS | down 后 integration/media 两表均不存在，up 后两表恢复 |
+| Provider completion real | PASS | 使用本专项独立 MariaDB root DSN 创建并清理临时 schema；归档 source/sync、迁移、模拟器和 CLI 集成测试无 SKIP |
 | `seed -defer-media` / 重放 | PASS | runId=8、cursor=10、10 messages、7 pending；再次调用正式 Sync 返回同一 runId 且 `syncIdempotent=true` |
 | worker checkpoint/restart | PASS | 捕获 fetching `bytesReceived=154`、attempt/checkpointAttempt=1；SIGKILL 后精确过期 lease，scheduler-backed worker takeover；recoveredObjects=1、workerRuns=1 |
 | 最终 `seed` 重放 | PASS | 10 messages；7 media；5 ready、1 missing、1 corrupt；同一 runId=8、`syncIdempotent=true`、`mediaProcessed=0` |
