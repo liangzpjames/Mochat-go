@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 )
@@ -15,6 +16,7 @@ type DurableArchiveBinding struct {
 }
 
 type DurableArchivePendingRun struct {
+	RunID          string
 	Binding        DurableArchiveBinding
 	Cursor         Cursor
 	IdempotencyKey string
@@ -36,18 +38,26 @@ type DurableBridgeRunner struct {
 	client *BridgeArchiveClient
 	limit  int
 	now    func() time.Time
+	logger *log.Logger
 }
 
 func NewDurableBridgeRunner(store DurableBridgeStore, client *BridgeArchiveClient, limit int) *DurableBridgeRunner {
 	if limit <= 0 {
 		limit = DefaultFetchLimit
 	}
-	return &DurableBridgeRunner{store: store, client: client, limit: limit, now: time.Now}
+	return &DurableBridgeRunner{store: store, client: client, limit: limit, now: time.Now, logger: log.Default()}
 }
 
 func (r *DurableBridgeRunner) WithClock(now func() time.Time) *DurableBridgeRunner {
 	if r != nil && now != nil {
 		r.now = now
+	}
+	return r
+}
+
+func (r *DurableBridgeRunner) WithLogger(logger *log.Logger) *DurableBridgeRunner {
+	if r != nil && logger != nil {
+		r.logger = logger
 	}
 	return r
 }
@@ -70,10 +80,14 @@ func (r *DurableBridgeRunner) Enqueue(ctx context.Context, binding DurableArchiv
 	if err != nil {
 		return SyncRun{}, err
 	}
-	return NewSyncService(r.store).Enqueue(ctx, source, SyncRequest{
+	run, err := NewSyncService(r.store).Enqueue(ctx, source, SyncRequest{
 		Scope: binding.Scope, StartCursor: cursor, Limit: r.limit, RetryFailed: true,
 		IdempotencyKey: "archive:manual:" + requestID,
 	})
+	if err == nil {
+		r.logger.Printf("INFO durable archive manual sync enqueued: tenant=%d corp=%d run=%s status=%s", binding.Scope.TenantID, binding.Scope.CorpID, run.ID, run.Status)
+	}
+	return run, err
 }
 
 func (r *DurableBridgeRunner) EnqueueScope(ctx context.Context, scope Scope, requestID string) (SyncRun, error) {
@@ -107,9 +121,20 @@ func (r *DurableBridgeRunner) RunPendingOnce(ctx context.Context) error {
 	}
 	var firstErr error
 	for _, item := range pending {
-		if err := r.syncBinding(ctx, item.Binding, item.Cursor, item.IdempotencyKey); err != nil && firstErr == nil {
-			firstErr = err
+		r.logger.Printf("INFO durable archive run started: tenant=%d corp=%d run=%s", item.Binding.Scope.TenantID, item.Binding.Scope.CorpID, item.RunID)
+		run, syncErr := r.syncBinding(ctx, item.Binding, item.Cursor, item.IdempotencyKey)
+		if syncErr != nil {
+			code := ErrorCode(syncErr)
+			if code == "" {
+				code = "archive.sync_failed"
+			}
+			r.logger.Printf("ERROR durable archive run failed: tenant=%d corp=%d run=%s code=%s", item.Binding.Scope.TenantID, item.Binding.Scope.CorpID, item.RunID, code)
+			if firstErr == nil {
+				firstErr = syncErr
+			}
+			continue
 		}
+		r.logger.Printf("INFO durable archive run completed: tenant=%d corp=%d run=%s fetched=%d processed=%d skipped=%d failed=%d", item.Binding.Scope.TenantID, item.Binding.Scope.CorpID, run.ID, run.Counts.Fetched, run.Counts.Processed, run.Counts.Skipped, run.Counts.Failed)
 	}
 	return firstErr
 }
@@ -182,26 +207,29 @@ func (r *DurableBridgeRunner) EnqueueScheduledOnce(ctx context.Context) error {
 			}
 			continue
 		}
-		_, err = NewSyncService(r.store).Enqueue(ctx, source, SyncRequest{
+		run, err := NewSyncService(r.store).Enqueue(ctx, source, SyncRequest{
 			Scope: binding.Scope, StartCursor: cursor, Limit: r.limit, RetryFailed: true,
 			IdempotencyKey: DurableArchivePollIdempotencyKey(binding.Scope, source.SourceID(), cursor, r.now()),
 		})
-		if err != nil && firstErr == nil {
-			firstErr = err
+		if err != nil {
+			if firstErr == nil {
+				firstErr = err
+			}
+			continue
 		}
+		r.logger.Printf("INFO durable archive scheduled sync enqueued: tenant=%d corp=%d run=%s status=%s", binding.Scope.TenantID, binding.Scope.CorpID, run.ID, run.Status)
 	}
 	return firstErr
 }
 
-func (r *DurableBridgeRunner) syncBinding(ctx context.Context, binding DurableArchiveBinding, cursor Cursor, key string) error {
+func (r *DurableBridgeRunner) syncBinding(ctx context.Context, binding DurableArchiveBinding, cursor Cursor, key string) (SyncRun, error) {
 	source, err := NewBridgeSource(r.client, binding.Scope, binding.WXCorpID, binding.IntegrationMode)
 	if err != nil {
-		return err
+		return SyncRun{}, err
 	}
-	_, err = NewSyncService(r.store).Sync(ctx, source, SyncRequest{
+	return NewSyncService(r.store).Sync(ctx, source, SyncRequest{
 		Scope: binding.Scope, StartCursor: cursor, Limit: r.limit, RetryFailed: true, IdempotencyKey: key,
 	})
-	return err
 }
 
 func DurableArchiveIdempotencyKey(scope Scope, sourceID string, cursor Cursor) string {

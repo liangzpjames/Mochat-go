@@ -202,7 +202,7 @@ func (s *MySQLStore) PendingDurableArchiveRuns(ctx context.Context, limit int) (
 		limit = 100
 	}
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT run.tenant_id,run.corp_id,integration.verified_wx_corpid,binding.wecom_integration_mode,
+		SELECT run.id,run.tenant_id,run.corp_id,integration.verified_wx_corpid,binding.wecom_integration_mode,
 		       run.cursor_sequence,run.cursor_token,run.idempotency_key
 		FROM mochat_go_archive_sync_runs run
 		INNER JOIN mochat_go_wecom_integrations integration
@@ -226,7 +226,7 @@ func (s *MySQLStore) PendingDurableArchiveRuns(ctx context.Context, limit int) (
 	for rows.Next() {
 		var item archiveprovider.DurableArchivePendingRun
 		if err := rows.Scan(
-			&item.Binding.Scope.TenantID, &item.Binding.Scope.CorpID, &item.Binding.WXCorpID, &item.Binding.IntegrationMode,
+			&item.RunID, &item.Binding.Scope.TenantID, &item.Binding.Scope.CorpID, &item.Binding.WXCorpID, &item.Binding.IntegrationMode,
 			&item.Cursor.Sequence, &item.Cursor.Token, &item.IdempotencyKey,
 		); err != nil {
 			return nil, err

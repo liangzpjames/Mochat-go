@@ -1,10 +1,13 @@
 package archive
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"log"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -61,7 +64,8 @@ func TestDurableBridgeRunnerPendingWorkerDoesNotPollBindingsAcrossCycles(t *test
 			Scope: Scope{TenantID: 11, CorpID: 27}, WXCorpID: "ww-local", IntegrationMode: IntegrationModeSelfBuilt,
 		}},
 	}
-	runner := NewDurableBridgeRunner(store, client, 10)
+	var logs bytes.Buffer
+	runner := NewDurableBridgeRunner(store, client, 10).WithLogger(log.New(&logs, "", 0))
 	if err := runner.RunPendingOnce(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -70,6 +74,9 @@ func TestDurableBridgeRunnerPendingWorkerDoesNotPollBindingsAcrossCycles(t *test
 	}
 	if store.bindingCalls != 0 || store.busyCalls != 0 || serverCalls != 0 || len(store.runs) != 0 {
 		t.Fatalf("empty pending worker mutated state: binding_calls=%d busy_calls=%d bridge_calls=%d runs=%d", store.bindingCalls, store.busyCalls, serverCalls, len(store.runs))
+	}
+	if logs.Len() != 0 {
+		t.Fatalf("empty pending worker emitted noisy logs: %q", logs.String())
 	}
 }
 
@@ -93,11 +100,15 @@ func TestDurableBridgeRunnerScheduledProbeSkipsEmptyAndBusyScopes(t *testing.T) 
 		syncTestStore: newSyncTestStore(), bindings: bindings,
 		busy: []Scope{bindings[1].Scope},
 	}
-	if err := NewDurableBridgeRunner(store, client, 10).EnqueueScheduledOnce(context.Background()); err != nil {
+	var logs bytes.Buffer
+	if err := NewDurableBridgeRunner(store, client, 10).WithLogger(log.New(&logs, "", 0)).EnqueueScheduledOnce(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	if serverCalls != 1 || len(store.runs) != 0 || store.bindingCalls != 1 || store.busyCalls != 1 {
 		t.Fatalf("scheduled empty probe calls=%d runs=%d binding_calls=%d busy_calls=%d", serverCalls, len(store.runs), store.bindingCalls, store.busyCalls)
+	}
+	if logs.Len() != 0 {
+		t.Fatalf("empty scheduled probe emitted noisy logs: %q", logs.String())
 	}
 }
 
@@ -139,6 +150,7 @@ func TestDurableBridgeRunnerProcessesPendingManualRunWithoutPolling(t *testing.T
 		syncTestStore: newSyncTestStore(), cursor: Cursor{Sequence: 41},
 		bindings: []DurableArchiveBinding{{Scope: Scope{TenantID: 11, CorpID: 27}, WXCorpID: "ww-local", IntegrationMode: IntegrationModeSelfBuilt}},
 		pending: []DurableArchivePendingRun{{
+			RunID:   "run-1",
 			Binding: DurableArchiveBinding{Scope: Scope{TenantID: 11, CorpID: 27}, WXCorpID: "ww-local", IntegrationMode: IntegrationModeSelfBuilt},
 			Cursor:  Cursor{Sequence: 41}, IdempotencyKey: "archive:manual:manual-abc-123",
 		}},
@@ -148,6 +160,84 @@ func TestDurableBridgeRunnerProcessesPendingManualRunWithoutPolling(t *testing.T
 	}
 	if store.lastTemplate.IdempotencyKey != "archive:manual:manual-abc-123" || len(store.upserts) != 1 || store.bindingCalls != 0 {
 		t.Fatalf("template=%#v upserts=%#v binding_calls=%d", store.lastTemplate, store.upserts, store.bindingCalls)
+	}
+}
+
+func TestDurableBridgeRunnerLogsManualLifecycleWithoutSensitiveData(t *testing.T) {
+	const sensitiveRequestID = "DO-NOT-LOG-REQUEST-ID"
+	const sensitiveContent = "DO-NOT-LOG-MESSAGE-CONTENT"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"errcode":0,"messages":[{"source_mode":"self_built","seq":42,"msgid":"manual-log-42","action":"send","from":"employee","tolist":["contact"],"msgtype":"text","text":{"content":"` + sensitiveContent + `"}}]}`))
+	}))
+	defer server.Close()
+	client, err := NewBridgeArchiveClient(server.URL, "DO-NOT-LOG-BEARER-0123456789012345678901234567890123456789", server.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := &durableBridgeTestStore{
+		syncTestStore: newSyncTestStore(), cursor: Cursor{Sequence: 41},
+		bindings: []DurableArchiveBinding{{Scope: Scope{TenantID: 11, CorpID: 27}, WXCorpID: "ww-local", IntegrationMode: IntegrationModeSelfBuilt}},
+	}
+	var logs bytes.Buffer
+	runner := NewDurableBridgeRunner(store, client, 10).WithLogger(log.New(&logs, "", 0))
+	run, err := runner.Enqueue(context.Background(), store.bindings[0], sensitiveRequestID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.pending = []DurableArchivePendingRun{{
+		RunID: run.ID, Binding: store.bindings[0], Cursor: Cursor{Sequence: 41}, IdempotencyKey: run.IdempotencyKey,
+	}}
+	if err := runner.RunPendingOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	got := logs.String()
+	for _, want := range []string{
+		"INFO durable archive manual sync enqueued: tenant=11 corp=27 run=" + run.ID + " status=queued",
+		"INFO durable archive run started: tenant=11 corp=27 run=" + run.ID,
+		"INFO durable archive run completed: tenant=11 corp=27 run=" + run.ID + " fetched=1 processed=1 skipped=0 failed=0",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("logs missing %q: %q", want, got)
+		}
+	}
+	for _, secret := range []string{sensitiveRequestID, sensitiveContent, "DO-NOT-LOG-BEARER"} {
+		if strings.Contains(got, secret) {
+			t.Fatalf("logs leaked sensitive value %q: %q", secret, got)
+		}
+	}
+}
+
+func TestDurableBridgeRunnerLogsFailureCodeWithoutProviderBody(t *testing.T) {
+	const sensitiveBody = "DO-NOT-LOG-PROVIDER-BODY"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, sensitiveBody, http.StatusBadGateway)
+	}))
+	defer server.Close()
+	client, err := NewBridgeArchiveClient(server.URL, "MOCHAT-LOCAL-ACCEPTANCE-BEARER-0123456789", server.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := &durableBridgeTestStore{
+		syncTestStore: newSyncTestStore(), cursor: Cursor{Sequence: 41},
+		bindings: []DurableArchiveBinding{{Scope: Scope{TenantID: 11, CorpID: 27}, WXCorpID: "ww-local", IntegrationMode: IntegrationModeSelfBuilt}},
+	}
+	var logs bytes.Buffer
+	runner := NewDurableBridgeRunner(store, client, 10).WithLogger(log.New(&logs, "", 0))
+	run, err := runner.Enqueue(context.Background(), store.bindings[0], "failure-log-request")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.pending = []DurableArchivePendingRun{{RunID: run.ID, Binding: store.bindings[0], Cursor: Cursor{Sequence: 41}, IdempotencyKey: run.IdempotencyKey}}
+	if err := runner.RunPendingOnce(context.Background()); err == nil {
+		t.Fatal("expected provider failure")
+	}
+	got := logs.String()
+	if !strings.Contains(got, "ERROR durable archive run failed: tenant=11 corp=27 run="+run.ID+" code=archive.sync_failed") {
+		t.Fatalf("failure log=%q", got)
+	}
+	if strings.Contains(got, sensitiveBody) {
+		t.Fatalf("failure log leaked provider response: %q", got)
 	}
 }
 
