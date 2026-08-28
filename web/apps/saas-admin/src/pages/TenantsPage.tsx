@@ -314,7 +314,12 @@ function errorMessage(error: unknown, fallback: string) {
 }
 
 function aiProviderErrorMessage(error: unknown) {
-  return errorMessage(error, 'AI 模型配置保存失败，API Key 已从页面清除')
+  if (error instanceof ApiError) {
+    if (error.status === 409) return 'AI 模型配置版本已变化，请确认最新配置后重试。'
+    if (error.status >= 400 && error.status < 500) return 'AI 模型配置未保存，请检查填写内容后重试。'
+    if (error.status >= 500) return 'AI 模型配置保存失败，请稍后重试。'
+  }
+  return error instanceof Error ? error.message : 'AI 模型配置保存失败，请稍后重试。'
 }
 
 function aiProviderConflictMessage(refreshed: boolean) {
@@ -455,12 +460,14 @@ export default function TenantsPage({ profile, approvalMode, activationMutationO
       toast.success('租户 AI 模型配置已保存；保存动作不会触发模型调用')
     },
     onError: async (error) => {
-      setAIProviderForm((form) => ({ ...form, apiKey: '' }))
       setAIProviderSaveError('')
       if (error instanceof ApiError && error.status === 409) {
         const refreshed = await aiProviderQuery.refetch()
         const refreshSucceeded = !refreshed.isError && Boolean(refreshed.data?.configured)
-        if (refreshSucceeded && refreshed.data?.provider) setAIProviderForm(providerFormFromData(refreshed.data.provider))
+        if (refreshSucceeded && refreshed.data?.provider) setAIProviderForm((form) => ({
+          ...providerFormFromData(refreshed.data!.provider),
+          apiKey: form.apiKey,
+        }))
         const message = aiProviderConflictMessage(refreshSucceeded)
         setAIProviderSaveError(message)
         toast.error(message)
@@ -972,7 +979,7 @@ export default function TenantsPage({ profile, approvalMode, activationMutationO
           <Field label="运行状态"><Select value={aiProviderForm.status} onChange={(event) => setAIProviderForm((form) => ({ ...form, status: event.target.value as TenantAIProviderForm['status'] }))}><option value="active">启用</option><option value="disabled">停用</option></Select></Field>
           <Field label="接口地址" hint="必须为可公开访问的 HTTPS 地址；服务端仍会执行 SSRF 防护。" className="sm:col-span-2"><Input type="url" value={aiProviderForm.baseUrl} onChange={(event) => setAIProviderForm((form) => ({ ...form, baseUrl: event.target.value }))} placeholder="https://api.example.com/v1" /></Field>
           <Field label="模型名称"><Input value={aiProviderForm.model} onChange={(event) => setAIProviderForm((form) => ({ ...form, model: event.target.value }))} placeholder="模型标识" /></Field>
-          <Field label="API Key" hint={aiProviderQuery.data?.configured ? `留空保留现有密钥（${aiProviderQuery.data.provider.apiKeyHint || '已配置'}）` : '首次配置必须填写；保存失败或关闭窗口后立即清空。'}><div className="relative"><KeyRound className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-zinc-400" /><Input type="password" autoComplete="new-password" value={aiProviderForm.apiKey} onChange={(event) => setAIProviderForm((form) => ({ ...form, apiKey: event.target.value }))} className="pl-9" placeholder="留空则保留现有密钥" /></div></Field>
+          <Field label="API Key" hint={aiProviderQuery.data?.configured ? `留空保留现有密钥（${aiProviderQuery.data.provider.apiKeyHint || '已配置'}）` : '首次配置必须填写；关闭窗口后立即清空。'}><div className="relative"><KeyRound className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-zinc-400" /><Input type="password" autoComplete="new-password" value={aiProviderForm.apiKey} onChange={(event) => setAIProviderForm((form) => ({ ...form, apiKey: event.target.value }))} className="pl-9" placeholder="留空则保留现有密钥" /></div></Field>
           <Field label="生效时间"><Input type="datetime-local" value={aiProviderForm.effectiveAt} onChange={(event) => setAIProviderForm((form) => ({ ...form, effectiveAt: event.target.value }))} /></Field>
           <Field label="失效时间"><Input type="datetime-local" value={aiProviderForm.expiresAt} onChange={(event) => setAIProviderForm((form) => ({ ...form, expiresAt: event.target.value }))} /></Field>
           {aiProviderSaveError && <p role="alert" className="sm:col-span-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{aiProviderSaveError}</p>}

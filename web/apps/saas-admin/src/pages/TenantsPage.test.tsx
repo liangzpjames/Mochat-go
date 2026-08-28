@@ -394,7 +394,7 @@ describe('SaaS 客户租户治理页面', () => {
     expect((document.querySelector('input[placeholder="留空则保留现有密钥"]') as HTMLInputElement | null)?.value || '').toBe('')
   })
 
-  it('API Key 在失败和 Escape 关闭后清空，并支持 390px 响应式表单', async () => {
+  it('API Key 保存失败后保留并支持重试，Escape 和关闭后清空，并支持 390px 响应式表单', async () => {
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: 390 })
     Object.defineProperty(window, 'innerHeight', { configurable: true, value: 520 })
     await settle()
@@ -409,14 +409,21 @@ describe('SaaS 客户租户治理页面', () => {
     expect(document.querySelector('[aria-label="租户 AI Provider 表单"]')?.className).toContain('grid-cols-1')
     expect(document.querySelector('[role="dialog"]')?.className).toContain('max-h-[calc(100vh-2rem)]')
 
-    setValue('API Key', 'fixture-discard-on-failure')
-    mocks.apiRequest.mockImplementationOnce(async () => { throw new mocks.ApiError('version conflict', 409, 'VERSION_CONFLICT') })
+    setValue('API Key', 'fixture-retry-secret')
+    mocks.apiRequest.mockImplementationOnce(async () => { throw new mocks.ApiError('配置暂时不可用', 500, 'API_REQUEST_FAILED') })
     clickButton('保存 AI 配置')
     await settle()
-    expect((document.querySelector('input[placeholder="留空则保留现有密钥"]') as HTMLInputElement).value).toBe('')
-    expect(document.body.textContent).toContain('页面已载入最新版本')
-    expect(document.body.textContent).not.toContain('VERSION_CONFLICT')
+    expect((document.querySelector('input[placeholder="留空则保留现有密钥"]') as HTMLInputElement).value).toBe('fixture-retry-secret')
+    expect(document.body.textContent).toContain('AI 模型配置保存失败')
+    expect(document.body.textContent).not.toContain('API_REQUEST_FAILED')
 
+    clickButton('保存 AI 配置')
+    await settle()
+    const retry = mocks.apiRequest.mock.calls.filter(([path, init]) => path === '/dashboard/saasAdmin/tenantAIProvider' && init?.method === 'PUT').at(-1)
+    expect(JSON.parse(String(retry?.[1]?.body)).apiKey).toBe('fixture-retry-secret')
+    expect(document.querySelector('input[placeholder="留空则保留现有密钥"]')).toBeNull()
+
+    clickButton('配置 AI 模型')
     setValue('API Key', 'fixture-discard-on-close')
     const closeButtons = [...document.querySelectorAll('button[aria-label="关闭"]')]
     act(() => closeButtons.at(-1)?.dispatchEvent(new MouseEvent('click', { bubbles: true })))
@@ -430,7 +437,9 @@ describe('SaaS 客户租户治理页面', () => {
     await settle()
     await settle()
     clickButton('配置 AI 模型')
+    setValue('API Key', 'fixture-cleared-on-provider-switch')
     setValue('Provider 厂商', 'openai')
+    expect((document.querySelector('input[placeholder="留空则保留现有密钥"]') as HTMLInputElement).value).toBe('')
     expect((document.querySelector('input[placeholder="https://api.example.com/v1"]') as HTMLInputElement).value).toBe('https://api.openai.com/v1')
     expect((document.querySelector('input[placeholder="模型标识"]') as HTMLInputElement).value).toBe('')
     setValue('模型名称', 'tenant-selected-model')
@@ -443,7 +452,7 @@ describe('SaaS 客户租户治理页面', () => {
     const after = mocks.apiRequest.mock.calls.filter(([path]) => path === '/dashboard/saasAdmin/tenantAIProvider').length
     expect(after).toBe(before)
     expect(document.body.textContent).toContain('有效结束时间必须晚于生效时间')
-    expect((document.querySelector('input[placeholder="留空则保留现有密钥"]') as HTMLInputElement).value).toBe('')
+    expect((document.querySelector('input[placeholder="留空则保留现有密钥"]') as HTMLInputElement).value).toBe('fixture-invalid-window')
   })
 
   it('409 后立即刷新服务端版本并允许在同一弹窗恢复', async () => {
@@ -485,7 +494,7 @@ describe('SaaS 客户租户治理页面', () => {
     await settle()
     expect(document.body.textContent).toContain('最新版本刷新失败')
     expect(document.body.textContent).not.toContain('页面已载入最新版本')
-    expect((document.querySelector('input[placeholder="留空则保留现有密钥"]') as HTMLInputElement).value).toBe('')
+    expect((document.querySelector('input[placeholder="留空则保留现有密钥"]') as HTMLInputElement).value).toBe('fixture-version-conflict-refresh-failure')
   })
 
 	it('治理幂等键按租户、对象、动作和版本隔离，成功后再次操作生成新键', async () => {
