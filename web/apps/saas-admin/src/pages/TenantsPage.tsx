@@ -103,6 +103,11 @@ interface WeComOperationContext {
   operationEpoch: number
 }
 
+interface AIProviderOperationContext {
+  tenantId: number
+  operationEpoch: number
+}
+
 interface WeComSaveOperation extends WeComOperationContext {
   payload: Omit<Parameters<typeof saveDelegatedWeComIntegration>[1], 'permanentCode'>
 }
@@ -324,6 +329,10 @@ function aiProviderErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : 'AI 模型配置保存失败，请稍后重试。'
 }
 
+function isAIProviderConflict(error: unknown) {
+  return error instanceof ApiError && (error.status === 409 || error.httpCode === 409)
+}
+
 function aiProviderConflictMessage(refreshed: boolean) {
   return refreshed
     ? '配置已由其他管理员更新；页面已载入最新版本，请重新确认后保存。'
@@ -362,6 +371,7 @@ export default function TenantsPage({ profile, approvalMode, activationMutationO
 	}
   const selectedTenantIDRef = useRef(0)
   const activationOperationEpochRef = useRef(0)
+  const aiProviderOperationEpochRef = useRef(0)
   const weComOperationEpochRef = useRef(0)
   const weComPermanentCodesRef = useRef(new Map<number, string>())
   const createMutationResetRef = useRef<() => void>(() => undefined)
@@ -421,11 +431,13 @@ export default function TenantsPage({ profile, approvalMode, activationMutationO
   })
 
   const closeAIProvider = () => {
+    aiProviderOperationEpochRef.current += 1
     setAIProviderOpen(false)
     setAIProviderForm((form) => ({ ...form, apiKey: '' }))
   }
 
   const openAIProvider = () => {
+    aiProviderOperationEpochRef.current += 1
     setAIProviderSaveError('')
     const current = aiProviderQuery.data?.provider
     if (current && aiProviderQuery.data?.configured) {
@@ -436,15 +448,18 @@ export default function TenantsPage({ profile, approvalMode, activationMutationO
     setAIProviderOpen(true)
   }
 
-  const aiProviderMutation = useMutation<TenantAIProviderSaveData, unknown>({
-    mutationFn: async () => {
+  const isCurrentAIProviderOperation = (operation: AIProviderOperationContext) => selectedTenantIDRef.current === operation.tenantId && aiProviderOperationEpochRef.current === operation.operationEpoch
+
+  const aiProviderMutation = useMutation<TenantAIProviderSaveData, unknown, AIProviderOperationContext>({
+    mutationFn: async (operation) => {
       const effectiveAt = new Date(aiProviderForm.effectiveAt)
       const expiresAt = new Date(aiProviderForm.expiresAt)
       if (!aiProviderForm.baseUrl.trim() || !aiProviderForm.model.trim()) throw new Error('请填写接口地址和模型名称')
       if (Number.isNaN(effectiveAt.getTime()) || Number.isNaN(expiresAt.getTime()) || expiresAt <= effectiveAt) throw new Error('有效结束时间必须晚于生效时间')
-      if (!aiProviderQuery.data?.configured && !aiProviderForm.apiKey.trim()) throw new Error('首次配置必须填写 API Key')
+      const current = queryClient.getQueryData<TenantAIProviderData>(['tenant-ai-provider', operation.tenantId])
+      if (!current?.configured && !aiProviderForm.apiKey.trim()) throw new Error('首次配置必须填写 API Key')
       return apiRequest<TenantAIProviderSaveData>('/dashboard/saasAdmin/tenantAIProvider', jsonRequest('PUT', {
-        tenantId: selectedTenantId,
+        tenantId: operation.tenantId,
         providerCode: aiProviderForm.providerCode,
         baseUrl: aiProviderForm.baseUrl.trim(),
         model: aiProviderForm.model.trim(),
@@ -455,19 +470,29 @@ export default function TenantsPage({ profile, approvalMode, activationMutationO
         version: aiProviderForm.version,
       }))
     },
-    onSuccess: async (data) => {
+    onSuccess: async (data, operation) => {
+      queryClient.setQueryData<TenantAIProviderData>(['tenant-ai-provider', operation.tenantId], { configured: true, provider: data.provider })
+      if (!isCurrentAIProviderOperation(operation)) return
       setAIProviderSaveError('')
-      queryClient.setQueryData<TenantAIProviderData>(['tenant-ai-provider', selectedTenantId], { configured: true, provider: data.provider })
       closeAIProvider()
       toast.success('租户 AI 模型配置已保存；保存动作不会触发模型调用')
     },
-    onError: async (error) => {
-      setAIProviderSaveError('')
-      if (error instanceof ApiError && error.status === 409) {
-        const refreshed = await aiProviderQuery.refetch()
-        const refreshSucceeded = !refreshed.isError && Boolean(refreshed.data?.configured)
-        if (refreshSucceeded && refreshed.data?.provider) setAIProviderForm((form) => ({
-          ...providerFormFromData(refreshed.data!.provider),
+    onError: async (error, operation) => {
+      if (isAIProviderConflict(error)) {
+        let refreshed: TenantAIProviderData | undefined
+        try {
+          refreshed = await queryClient.fetchQuery({
+            queryKey: ['tenant-ai-provider', operation.tenantId],
+            queryFn: () => apiRequest<TenantAIProviderData>(`/dashboard/saasAdmin/tenantAIProvider?tenantId=${operation.tenantId}`),
+          })
+        } catch {
+          refreshed = undefined
+        }
+        if (!isCurrentAIProviderOperation(operation)) return
+        setAIProviderSaveError('')
+        const refreshSucceeded = Boolean(refreshed?.configured && refreshed.provider)
+        if (refreshSucceeded && refreshed?.provider) setAIProviderForm((form) => ({
+          ...providerFormFromData(refreshed.provider),
           apiKey: form.apiKey,
         }))
         const message = aiProviderConflictMessage(refreshSucceeded)
@@ -475,6 +500,7 @@ export default function TenantsPage({ profile, approvalMode, activationMutationO
         toast.error(message)
         return
       }
+      if (!isCurrentAIProviderOperation(operation)) return
       const message = aiProviderErrorMessage(error)
       setAIProviderSaveError(message)
       toast.error(message)
@@ -972,11 +998,13 @@ export default function TenantsPage({ profile, approvalMode, activationMutationO
         </div>
       </Dialog>
 
-      <Dialog open={aiProviderOpen && selectedTenantId > 0} onOpenChange={(open) => { if (!open) closeAIProvider() }} title="配置租户 AI 模型" description={selectedTenant ? `${tenantCompanyName(selectedTenant)}（租户 ${selectedTenant.tenantId}）` : '租户配置'} size="lg" footer={<><Button type="button" variant="secondary" onClick={closeAIProvider}>取消</Button><Button type="button" loading={aiProviderMutation.isPending} onClick={() => aiProviderMutation.mutate()}>保存 AI 配置</Button></>}>
+      <Dialog open={aiProviderOpen && selectedTenantId > 0} onOpenChange={(open) => { if (!open) closeAIProvider() }} title="配置租户 AI 模型" description={selectedTenant ? `${tenantCompanyName(selectedTenant)}（租户 ${selectedTenant.tenantId}）` : '租户配置'} size="lg" footer={<><Button type="button" variant="secondary" onClick={closeAIProvider}>取消</Button><Button type="button" loading={aiProviderMutation.isPending} onClick={() => aiProviderMutation.mutate({ tenantId: selectedTenantIDRef.current, operationEpoch: aiProviderOperationEpochRef.current })}>保存 AI 配置</Button></>}>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2" aria-label="租户 AI Provider 表单">
           <Field label="Provider 厂商"><Select value={aiProviderForm.providerCode} onChange={(event) => {
             const providerCode = event.target.value as TenantAIProviderForm['providerCode']
             const preset = providerCode === 'custom' ? null : providerPresets[providerCode]
+            aiProviderOperationEpochRef.current += 1
+            setAIProviderSaveError('')
             setAIProviderForm((form) => ({ ...form, providerCode, apiKey: '', baseUrl: preset?.baseUrl || '', model: '' }))
           }}><option value="deepseek">DeepSeek</option><option value="openai">OpenAI</option><option value="dashscope">阿里云百炼 / DashScope</option><option value="custom">OpenAI 兼容服务</option></Select></Field>
           <Field label="运行状态"><Select value={aiProviderForm.status} onChange={(event) => setAIProviderForm((form) => ({ ...form, status: event.target.value as TenantAIProviderForm['status'] }))}><option value="active">启用</option><option value="disabled">停用</option></Select></Field>
