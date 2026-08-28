@@ -550,6 +550,7 @@ describe('SaaS 客户租户治理页面', () => {
   it('A 的迟到 409 刷新原租户缓存但不干扰已切换的 B 租户表单', async () => {
     const pending = deferred<never>()
     void pending.promise.catch(() => undefined)
+    client.setQueryDefaults(['tenant-ai-provider'], { staleTime: 30_000 })
     await settle()
     clickTenantDetails('MoChat Test Enterprise')
     await settle()

@@ -485,6 +485,7 @@ export default function TenantsPage({ profile, approvalMode, activationMutationO
           refreshed = await queryClient.fetchQuery({
             queryKey: ['tenant-ai-provider', operation.tenantId],
             queryFn: () => apiRequest<TenantAIProviderData>(`/dashboard/saasAdmin/tenantAIProvider?tenantId=${operation.tenantId}`),
+            staleTime: 0,
           })
         } catch {
           refreshed = undefined
