@@ -1230,6 +1230,7 @@ type SaaSAdminSummary struct {
 type SaaSAdminTenantOverview struct {
 	TenantID        int
 	TenantName      string
+	CompanyName     string
 	TenantStatus    int
 	PackageCode     string
 	PackageName     string
@@ -14772,6 +14773,7 @@ func saasAdminTenantPayload(tenant SaaSAdminTenantOverview) map[string]any {
 	return map[string]any{
 		"tenantId":        tenant.TenantID,
 		"tenantName":      tenant.TenantName,
+		"companyName":     tenant.CompanyName,
 		"tenantStatus":    tenant.TenantStatus,
 		"packageCode":     tenant.PackageCode,
 		"packageName":     tenant.PackageName,

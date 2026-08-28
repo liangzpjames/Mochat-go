@@ -121,8 +121,10 @@ interface ResendOperation {
   accountHint: string
   expectedVersion: number
   requestKeySlot: string
-  requestKey: string
+	requestKey: string
 }
+
+const tenantCompanyName = (tenant?: TenantSummary | null) => tenant?.companyName?.trim() || tenant?.tenantName?.trim() || ''
 
 interface ReplaceOperation {
   tenantId: number
@@ -789,7 +791,7 @@ export default function TenantsPage({ profile, approvalMode, activationMutationO
   const tenants = overviewQuery.data?.tenants || []
   const filteredTenants = useMemo(() => tenants.filter((tenant) => {
     const normalizedKeyword = keyword.trim().toLowerCase()
-    const matchesKeyword = !normalizedKeyword || tenant.tenantName.toLowerCase().includes(normalizedKeyword) || String(tenant.tenantId).includes(normalizedKeyword) || tenant.packageName.toLowerCase().includes(normalizedKeyword)
+    const matchesKeyword = !normalizedKeyword || tenantCompanyName(tenant).toLowerCase().includes(normalizedKeyword) || tenant.tenantName.toLowerCase().includes(normalizedKeyword) || String(tenant.tenantId).includes(normalizedKeyword) || tenant.packageName.toLowerCase().includes(normalizedKeyword)
     const matchesStatus = statusFilter === 'all' || String(tenant.tenantStatus) === statusFilter
     const matchesPackage = packageFilter === 'all' || tenant.packageCode === packageFilter
     return matchesKeyword && matchesStatus && matchesPackage
@@ -848,7 +850,7 @@ export default function TenantsPage({ profile, approvalMode, activationMutationO
 	const governanceCurrents = (governanceQuery.data?.identities || []).filter((identity) => governanceCan(identity, 'replace_current'))
 	const governanceCandidates = (governanceQuery.data?.identities || []).filter((identity) => governanceCan(identity, 'replacement_candidate'))
 	const hasLastSuperAdminBlock = (governanceQuery.data?.identities || []).some((identity) => identity.blockedReasons?.disable === 'LAST_SUPER_ADMIN')
-  const governanceSummary = selectedTenant ? `${selectedTenant.tenantName}（租户 ${selectedTenant.tenantId}），管理员 ${targetIdentity?.name || '未选择'}，绑定版本 ${governanceVersion || '加载中'}` : '请先打开一个客户租户详情。'
+  const governanceSummary = selectedTenant ? `${tenantCompanyName(selectedTenant)}（租户 ${selectedTenant.tenantId}），管理员 ${targetIdentity?.name || '未选择'}，绑定版本 ${governanceVersion || '加载中'}` : '请先打开一个客户租户详情。'
   const resendMutationError = resendMutation.error && resendMutation.variables && resendMutation.variables.tenantId === selectedTenantIDRef.current && resendMutation.variables.operationEpoch === activationOperationEpochRef.current ? resendMutation.error : null
   const governanceMutationError = resendMutationError || replaceMutation.error || statusMutation.error
   const aiProviderView = aiProviderQuery.data ? tenantAIProviderState(aiProviderQuery.data.configured, aiProviderQuery.data.provider) : null
@@ -885,7 +887,8 @@ export default function TenantsPage({ profile, approvalMode, activationMutationO
               {filteredTenants.map((tenant) => {
                 const status = tenantStatusView(tenant.tenantStatus)
                 const ratio = Math.round((tenant.maxUsageRatio || 0) * 100)
-                return <tr key={tenant.tenantId}><td><strong className="font-medium text-zinc-950">{tenant.tenantName}</strong><div className="mt-1 text-xs text-zinc-500">租户 ID {tenant.tenantId}</div></td><td><div>{tenant.packageName || '未配置'}</div><div className="mt-1 text-xs text-zinc-500">{tenant.expiresAt || '长期有效'}</div></td><td><Badge tone={status.tone}>{status.label}</Badge></td><td><div className="flex min-w-40 items-center justify-between gap-3 text-xs"><span>{tenant.maxUsageLabel || '-'}</span><span>{ratio}%</span></div><div className="mt-2"><ProgressBar value={ratio} tone={usageTone(tenant.maxUsageRatio || 0)} /></div></td><td>{tenant.openAlertCount > 0 ? <Badge tone="danger">{tenant.openAlertCount} 条</Badge> : <Badge tone="success">正常</Badge>}</td><td><Button type="button" variant="ghost" onClick={() => openTenant(tenant)}><Eye className="h-4 w-4" />详情</Button></td></tr>
+                const companyName = tenantCompanyName(tenant)
+                return <tr key={tenant.tenantId}><td><strong className="font-medium text-zinc-950">{companyName}</strong><div className="mt-1 text-xs text-zinc-500">{companyName !== tenant.tenantName ? `SaaS 租户：${tenant.tenantName} · 租户 ID ${tenant.tenantId}` : `租户 ID ${tenant.tenantId}`}</div></td><td><div>{tenant.packageName || '未配置'}</div><div className="mt-1 text-xs text-zinc-500">{tenant.expiresAt || '长期有效'}</div></td><td><Badge tone={status.tone}>{status.label}</Badge></td><td><div className="flex min-w-40 items-center justify-between gap-3 text-xs"><span>{tenant.maxUsageLabel || '-'}</span><span>{ratio}%</span></div><div className="mt-2"><ProgressBar value={ratio} tone={usageTone(tenant.maxUsageRatio || 0)} /></div></td><td>{tenant.openAlertCount > 0 ? <Badge tone="danger">{tenant.openAlertCount} 条</Badge> : <Badge tone="success">正常</Badge>}</td><td><Button type="button" variant="ghost" onClick={() => openTenant(tenant)}><Eye className="h-4 w-4" />详情</Button></td></tr>
               })}
             </tbody></table>
           )}
@@ -910,7 +913,7 @@ export default function TenantsPage({ profile, approvalMode, activationMutationO
         <div className="space-y-3"><p className="text-sm text-amber-800">请由平台管理员通过安全的受控渠道交付；系统没有邮件、短信或企微自动发送能力。</p>{activationURL ? <><div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950"><p>接收租户：{activationDelivery?.tenantName}（租户 {activationDelivery?.tenantId}）</p><p className="mt-1">接收账号：{activationDelivery?.accountName}（{activationDelivery?.accountHint}，用户 {activationDelivery?.dashboardUserId}）</p></div><code className="block break-all rounded-md bg-zinc-950 px-3 py-3 text-xs text-emerald-300">{activationURL}</code><p className="text-xs text-zinc-500">有效期至：{activationDelivery?.expiresAt ? formatDate(activationDelivery.expiresAt) : '服务端未返回'}</p><div className="activation-delivery-actions flex flex-wrap gap-2"><Button type="button" onClick={async () => { try { await navigator.clipboard.writeText(activationURL); toast.success('激活入口已复制，请安全交付') } catch { toast.error('复制失败，请使用受控设备手动复制') } }}>复制激活入口</Button><Button type="button" variant="secondary" onClick={clearActivationDelivery}>我已记录并关闭</Button></div></> : <p role="alert" className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">服务端返回的激活入口不符合 fragment 安全合同，页面已拒绝展示。</p>}</div>
       </Dialog>
 
-      <Dialog open={selectedTenantId > 0} onOpenChange={(open) => { if (!open) { selectedTenantIDRef.current = 0; activationOperationEpochRef.current += 1; weComOperationEpochRef.current += 1; closeAIProvider(); closeWeComEditor(); setWeComForm(emptyWeComIntegrationForm()); setWeComError(''); setSelectedTenantId(0) } }} title={selectedTenant?.tenantName || '客户详情'} description={selectedTenant ? `租户 ID ${selectedTenant.tenantId}` : '正在加载'} size="lg">
+      <Dialog open={selectedTenantId > 0} onOpenChange={(open) => { if (!open) { selectedTenantIDRef.current = 0; activationOperationEpochRef.current += 1; weComOperationEpochRef.current += 1; closeAIProvider(); closeWeComEditor(); setWeComForm(emptyWeComIntegrationForm()); setWeComError(''); setSelectedTenantId(0) } }} title={tenantCompanyName(selectedTenant) || '客户详情'} description={selectedTenant ? `租户 ID ${selectedTenant.tenantId}` : '正在加载'} size="lg">
         {detailQuery.isLoading && <LoadingState label="正在加载客户详情" />}
         {detailQuery.isError && <ErrorState message={errorMessage(detailQuery.error, '无法加载客户详情')} onRetry={() => detailQuery.refetch()} />}
         {selectedTenant && <div className="space-y-6">
@@ -957,7 +960,7 @@ export default function TenantsPage({ profile, approvalMode, activationMutationO
         </div>}
       </Dialog>
 
-      <Dialog open={weComEditorOpen && selectedTenantId > 0} onOpenChange={(open) => { if (!open) closeWeComEditor() }} title="配置第三方代开发应用" description={selectedTenant ? `${selectedTenant.tenantName}（租户 ${selectedTenant.tenantId}），企微模式不可切换` : '租户配置'} size="lg" footer={<div className="integration-actions flex flex-wrap gap-2"><Button type="button" variant="secondary" onClick={closeWeComEditor}>取消</Button><Button type="button" loading={saveWeComMutation.isPending} onClick={submitWeComCandidate}>安全保存</Button></div>}>
+      <Dialog open={weComEditorOpen && selectedTenantId > 0} onOpenChange={(open) => { if (!open) closeWeComEditor() }} title="配置第三方代开发应用" description={selectedTenant ? `${tenantCompanyName(selectedTenant)}（租户 ${selectedTenant.tenantId}），企微模式不可切换` : '租户配置'} size="lg" footer={<div className="integration-actions flex flex-wrap gap-2"><Button type="button" variant="secondary" onClick={closeWeComEditor}>取消</Button><Button type="button" loading={saveWeComMutation.isPending} onClick={submitWeComCandidate}>安全保存</Button></div>}>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2" aria-label="第三方应用配置表单">
           <Field label="对接模式"><div className="flex h-9 items-center rounded-md border border-zinc-200 bg-zinc-50 px-3 text-sm text-zinc-700">第三方代开发应用（不可切换）</div></Field>
           <Field label="配置版本"><div className="flex h-9 items-center rounded-md border border-zinc-200 bg-zinc-50 px-3 text-sm text-zinc-700">v{weComForm.version}</div></Field>
@@ -969,7 +972,7 @@ export default function TenantsPage({ profile, approvalMode, activationMutationO
         </div>
       </Dialog>
 
-      <Dialog open={aiProviderOpen && selectedTenantId > 0} onOpenChange={(open) => { if (!open) closeAIProvider() }} title="配置租户 AI 模型" description={selectedTenant ? `${selectedTenant.tenantName}（租户 ${selectedTenant.tenantId}）` : '租户配置'} size="lg" footer={<><Button type="button" variant="secondary" onClick={closeAIProvider}>取消</Button><Button type="button" loading={aiProviderMutation.isPending} onClick={() => aiProviderMutation.mutate()}>保存 AI 配置</Button></>}>
+      <Dialog open={aiProviderOpen && selectedTenantId > 0} onOpenChange={(open) => { if (!open) closeAIProvider() }} title="配置租户 AI 模型" description={selectedTenant ? `${tenantCompanyName(selectedTenant)}（租户 ${selectedTenant.tenantId}）` : '租户配置'} size="lg" footer={<><Button type="button" variant="secondary" onClick={closeAIProvider}>取消</Button><Button type="button" loading={aiProviderMutation.isPending} onClick={() => aiProviderMutation.mutate()}>保存 AI 配置</Button></>}>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2" aria-label="租户 AI Provider 表单">
           <Field label="Provider 厂商"><Select value={aiProviderForm.providerCode} onChange={(event) => {
             const providerCode = event.target.value as TenantAIProviderForm['providerCode']

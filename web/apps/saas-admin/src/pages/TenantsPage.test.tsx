@@ -73,7 +73,8 @@ const plan = {
 
 const tenant = {
   tenantId: 41,
-  tenantName: '测试客户',
+  tenantName: 'MoChat Test Enterprise',
+  companyName: '蓝鲸数字科技（上海）有限公司',
   tenantStatus: 1,
   packageCode: 'pro',
   packageName: '专业版',
@@ -101,6 +102,7 @@ const tenantB = {
   ...tenant,
   tenantId: 52,
   tenantName: '第二测试客户',
+  companyName: '第二测试客户',
   packageCode: 'basic',
   packageName: '基础版',
 }
@@ -166,6 +168,22 @@ describe('SaaS 客户租户治理页面', () => {
     act(() => root.unmount())
   })
 
+  it('列表、详情和租户治理展示 Dashboard 权威公司名，同时保留 SaaS 租户别名', async () => {
+    await settle()
+
+    expect(document.querySelector('tbody strong')?.textContent).toBe('蓝鲸数字科技（上海）有限公司')
+    expect(document.body.textContent).toContain('SaaS 租户：MoChat Test Enterprise · 租户 ID 41')
+
+    clickButton('详情')
+    await settle()
+    await settle()
+
+    expect(getByRole(document.body, 'dialog', { name: '蓝鲸数字科技（上海）有限公司' })).toBeTruthy()
+
+    clickButton('重发激活')
+    expect(document.body.textContent).toContain('蓝鲸数字科技（上海）有限公司（租户 41）')
+  })
+
   it('开户使用套餐 id、版本和完整额度快照，不接收密码，并只交付完整 fragment 激活入口', async () => {
     await settle()
     clickButton('开通客户')
@@ -209,7 +227,7 @@ describe('SaaS 客户租户治理页面', () => {
   it('A 租户迟到的重发激活结果在切换 B 后不会打开错误租户交付弹窗', async () => {
     const pending = deferred<{ tenantId: number; dashboardUserId: number; version: number; activationPath: string; activationExpiresAt: string; idempotent: boolean }>()
     await settle()
-    clickTenantDetails('测试客户')
+    clickTenantDetails('MoChat Test Enterprise')
     await settle()
     await settle()
     const api = mocks.apiRequest.getMockImplementation()
@@ -235,7 +253,7 @@ describe('SaaS 客户租户治理页面', () => {
     ['租户不匹配', { tenantId: 52, dashboardUserId: 900, version: 2, activationToken: 'mismatch-token', activationPath: '/activate#token=mismatch-token', activationExpiresAt: '2026-08-28T01:00:00Z', idempotent: false }],
   ])('%s 的重发响应不会留在 observer 或 mutation cache', async (_caseName, result) => {
     await settle()
-    clickTenantDetails('测试客户')
+    clickTenantDetails('MoChat Test Enterprise')
     await settle()
     await settle()
     const api = mocks.apiRequest.getMockImplementation()

@@ -10771,7 +10771,7 @@ func (s *MySQLStore) ProvisionSaaSAdminTenant(ctx context.Context, provision das
 }
 
 func saasTenantDefaultCorpValues(tenantID int, tenantName string) (string, string) {
-	return strings.TrimSpace(tenantName) + "演示企业", fmt.Sprintf("fake_tenant_%d", tenantID)
+	return strings.TrimSpace(tenantName), fmt.Sprintf("fake_tenant_%d", tenantID)
 }
 
 func ensureSaaSAdminTenantDefaultCorpTx(ctx context.Context, tx *sql.Tx, tenantID int, tenantName string) error {
@@ -11212,8 +11212,8 @@ func (s *MySQLStore) saasAdminTenants(ctx context.Context, options dashboard.Saa
 	keyword := strings.TrimSpace(options.Keyword)
 	if keyword != "" {
 		like := "%" + keyword + "%"
-		where += " AND (t.name LIKE ? OR CAST(t.id AS CHAR) LIKE ? OR tp.package_code LIKE ? OR tp.package_name LIKE ?)"
-		queryArgs = append(queryArgs, like, like, like, like)
+		where += " AND (t.name LIKE ? OR c.name LIKE ? OR CAST(t.id AS CHAR) LIKE ? OR tp.package_code LIKE ? OR tp.package_name LIKE ?)"
+		queryArgs = append(queryArgs, like, like, like, like, like)
 	}
 	if options.TenantStatus == 1 || options.TenantStatus == 2 {
 		where += " AND t.status = ?"
@@ -11241,6 +11241,7 @@ func (s *MySQLStore) saasAdminTenants(ctx context.Context, options dashboard.Saa
 		SELECT
 			t.id,
 			COALESCE(t.name, ''),
+			COALESCE(c.name, ''),
 			COALESCE(t.status, 0),
 			COALESCE(tp.package_code, ''),
 			COALESCE(tp.package_name, ''),
@@ -11252,6 +11253,8 @@ func (s *MySQLStore) saasAdminTenants(ctx context.Context, options dashboard.Saa
 			CASE WHEN tp.expires_at IS NOT NULL AND tp.expires_at >= NOW() AND tp.expires_at < DATE_ADD(NOW(), INTERVAL ? DAY) THEN 1 ELSE 0 END AS expiring_soon,
 			COALESCE(alerts.open_count, 0)
 		FROM mc_tenant t
+		LEFT JOIN mochat_go_tenant_corp_bindings tcb ON tcb.tenant_id = t.id
+		LEFT JOIN mc_corp c ON c.tenant_id = t.id AND c.id = tcb.corp_id AND c.deleted_at IS NULL
 		LEFT JOIN mochat_go_saas_tenant_packages tp ON tp.tenant_id = t.id AND tp.deleted_at IS NULL
 		LEFT JOIN (
 			SELECT tenant_id, COUNT(*) AS open_count
@@ -11279,6 +11282,7 @@ func (s *MySQLStore) saasAdminTenants(ctx context.Context, options dashboard.Saa
 		if err := rows.Scan(
 			&item.TenantID,
 			&item.TenantName,
+			&item.CompanyName,
 			&item.TenantStatus,
 			&item.PackageCode,
 			&item.PackageName,
@@ -11294,6 +11298,9 @@ func (s *MySQLStore) saasAdminTenants(ctx context.Context, options dashboard.Saa
 		}
 		if err := json.Unmarshal([]byte(limitsJSON), &item.PackageLimits); err != nil {
 			return nil, err
+		}
+		if strings.TrimSpace(item.CompanyName) == "" {
+			item.CompanyName = item.TenantName
 		}
 		item.Expired = expired == 1
 		item.ExpiringSoon = expiringSoon == 1
