@@ -2036,9 +2036,6 @@ func FromEnv() (Config, error) {
 	if cfg.EnableDurableWorkMessageArchive && len(strings.TrimSpace(cfg.WorkMessageArchiveBridgeToken)) < 40 {
 		return Config{}, fmt.Errorf("MOCHAT_GO_WORK_MESSAGE_ARCHIVE_BRIDGE_TOKEN must contain at least 40 characters when durable work message archive is enabled")
 	}
-	if cfg.EnableDurableWorkMessageArchive && cfg.EnableWorkMessageArchiveSyncCron {
-		return Config{}, fmt.Errorf("legacy and durable work message archive pipelines are mutually exclusive")
-	}
 	if cfg.EnableWeComSuiteCallback {
 		if strings.TrimSpace(cfg.MySQLDSN) == "" || strings.TrimSpace(cfg.WeComSuiteID) == "" || strings.TrimSpace(cfg.WeComSuiteSecret) == "" || strings.TrimSpace(cfg.WeComSuiteCallbackToken) == "" || len(strings.TrimSpace(cfg.WeComSuiteEncodingAESKey)) != 43 {
 			return Config{}, fmt.Errorf("WeCom suite callback requires MySQL, suite identity, secret, callback token, and a 43-character encoding AES key")

@@ -189,13 +189,7 @@ func (s *durableBridgeTestStore) EnqueueArchiveSync(ctx context.Context, templat
 	return s.syncTestStore.EnqueueArchiveSync(ctx, template, retry)
 }
 
-func TestArchivePipelineFlagsAllowDurableScheduledMode(t *testing.T) {
-	if err := ValidateArchivePipelineFlags(true, true); err != nil {
-		t.Fatalf("durable scheduled mode rejected: %v", err)
-	}
-	if err := ValidateArchivePipelineFlags(false, false); err != nil {
-		t.Fatal(err)
-	}
+func TestDurableArchiveIdempotencyKeysRemainScopeAndWindowStable(t *testing.T) {
 	if got := DurableArchiveIdempotencyKey(Scope{TenantID: 11, CorpID: 27}, "wecom:ww-local", Cursor{Sequence: 41}); got != fmt.Sprintf("archive:%d:%d:%s:%d", 11, 27, "wecom:ww-local", 41) {
 		t.Fatalf("idempotency key=%q", got)
 	}

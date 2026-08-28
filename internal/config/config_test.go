@@ -3185,7 +3185,7 @@ func TestWorkMessageArchiveSyncCronRequiresMySQLBridgeAndReadsConfig(t *testing.
 	}
 }
 
-func TestDurableWorkMessageArchiveIsDefaultOffAndMutuallyExclusiveWithLegacy(t *testing.T) {
+func TestDurableWorkMessageArchiveIsDefaultOffAndCanEnableAutomaticScheduling(t *testing.T) {
 	cfg, err := FromEnv()
 	if err != nil {
 		t.Fatal(err)
@@ -3204,8 +3204,9 @@ func TestDurableWorkMessageArchiveIsDefaultOffAndMutuallyExclusiveWithLegacy(t *
 	}
 
 	t.Setenv("MOCHAT_GO_ENABLE_WORK_MESSAGE_ARCHIVE_SYNC_CRON", "1")
-	if _, err := FromEnv(); err == nil || !strings.Contains(err.Error(), "mutually exclusive") {
-		t.Fatalf("legacy/durable conflict error=%v", err)
+	cfg, err = FromEnv()
+	if err != nil || !cfg.EnableDurableWorkMessageArchive || !cfg.EnableWorkMessageArchiveSyncCron {
+		t.Fatalf("durable scheduled config=%#v err=%v", cfg, err)
 	}
 }
 

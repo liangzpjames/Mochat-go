@@ -3063,7 +3063,8 @@ func main() {
 		}, cron.RunOnce))
 		log.Printf("go cron enabled: RoomTagPull 标签建群结果同步 interval=%s run_on_start=%v", cfg.RoomTagPullCronInterval, cfg.RoomTagPullCronRunOnStart)
 	}
-	if cfg.EnableDurableWorkMessageArchive {
+	archivePlan := archiveRuntimePlanFor(cfg)
+	if archivePlan.durableWorker {
 		bridgeClient, err := archiveprovider.NewBridgeArchiveClient(
 			cfg.WorkMessageArchiveBridgeBaseURL,
 			cfg.WorkMessageArchiveBridgeToken,
@@ -3074,25 +3075,33 @@ func main() {
 		}
 		durableRunner := archiveprovider.NewDurableBridgeRunner(getMySQLStore(), bridgeClient, cfg.WorkMessageArchiveSyncLimit)
 		mediaRunner := archiveprovider.NewMediaSyncService(getMySQLStore(), bridgeClient, cfg.FileStorageRoot)
-		workerGroup.Add("cron-durable-work-message-archive-sync", taskrunner.Periodic(taskrunner.PeriodicConfig{
-			Name:       "cron-durable-work-message-archive-sync",
+		workerGroup.Add("worker-durable-work-message-archive-sync", taskrunner.Periodic(taskrunner.PeriodicConfig{
+			Name:       "worker-durable-work-message-archive-sync",
 			Interval:   cfg.WorkMessageArchiveSyncCronInterval,
-			RunOnStart: cfg.WorkMessageArchiveSyncCronRunOnStart,
+			RunOnStart: true,
 			Logger:     log.Default(),
-		}, durableRunner.RunOnce))
-		workerGroup.Add("cron-durable-work-message-archive-media", taskrunner.Periodic(taskrunner.PeriodicConfig{
-			Name:       "cron-durable-work-message-archive-media",
+		}, durableRunner.RunPendingOnce))
+		workerGroup.Add("worker-durable-work-message-archive-media", taskrunner.Periodic(taskrunner.PeriodicConfig{
+			Name:       "worker-durable-work-message-archive-media",
 			Interval:   cfg.WorkMessageArchiveSyncCronInterval,
-			RunOnStart: cfg.WorkMessageArchiveSyncCronRunOnStart,
+			RunOnStart: true,
 			Logger:     log.Default(),
 		}, func(ctx context.Context) error {
 			return runDurableArchiveMediaBatch(ctx, mediaRunner, cfg.WorkMessageArchiveSyncLimit, log.Default())
 		}))
-		log.Printf("go durable work message archive enabled: interval=%s run_on_start=%v limit=%d storage_root=%s",
-			cfg.WorkMessageArchiveSyncCronInterval, cfg.WorkMessageArchiveSyncCronRunOnStart, cfg.WorkMessageArchiveSyncLimit, cfg.FileStorageRoot)
+		if archivePlan.durableScheduler {
+			workerGroup.Add("cron-durable-work-message-archive-enqueue", taskrunner.Periodic(taskrunner.PeriodicConfig{
+				Name:       "cron-durable-work-message-archive-enqueue",
+				Interval:   cfg.WorkMessageArchiveSyncCronInterval,
+				RunOnStart: cfg.WorkMessageArchiveSyncCronRunOnStart,
+				Logger:     log.Default(),
+			}, durableRunner.EnqueueScheduledOnce))
+		}
+		log.Printf("INFO durable archive workers enabled: automatic_schedule=%t interval=%s schedule_run_on_start=%v limit=%d storage_root=%s",
+			archivePlan.durableScheduler, cfg.WorkMessageArchiveSyncCronInterval, cfg.WorkMessageArchiveSyncCronRunOnStart, cfg.WorkMessageArchiveSyncLimit, cfg.FileStorageRoot)
 	}
 	var workMessageArchiveCron *dashboard.WorkMessageArchiveSyncCron
-	if cfg.EnableWorkMessageArchiveSyncCron {
+	if archivePlan.legacyScheduler {
 		workMessageArchiveCron = dashboard.NewWorkMessageArchiveSyncCron(
 			getMySQLStore(),
 			dashboard.NewWorkMessageArchiveBridgeClient(cfg.WorkMessageArchiveBridgeBaseURL, cfg.WorkMessageArchiveBridgeToken),

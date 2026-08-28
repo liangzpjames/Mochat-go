@@ -211,7 +211,3 @@ func DurableArchiveIdempotencyKey(scope Scope, sourceID string, cursor Cursor) s
 func DurableArchivePollIdempotencyKey(scope Scope, sourceID string, cursor Cursor, at time.Time) string {
 	return fmt.Sprintf("archive:poll:%d:%d:%s:%d:%s", scope.TenantID, scope.CorpID, strings.TrimSpace(sourceID), cursor.Sequence, at.UTC().Format("200601021504"))
 }
-
-func ValidateArchivePipelineFlags(legacyEnabled, durableEnabled bool) error {
-	return nil
-}
