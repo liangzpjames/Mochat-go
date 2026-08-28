@@ -164,3 +164,25 @@ func TestDurableArchiveBindingsAndCursorStayTenantScoped(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestBusyDurableArchiveScopesReturnOnlyEligibleQueuedOrRunningScopes(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	store := NewMySQLStore(db)
+	mock.ExpectQuery("(?s)SELECT DISTINCT run\\.tenant_id,run\\.corp_id.*INNER JOIN mochat_go_wecom_integrations integration.*INNER JOIN mc_tenant tenant.*INNER JOIN mc_corp corp.*INNER JOIN mochat_go_tenant_corp_bindings binding.*integration\\.status='active'.*run\\.status IN \\('queued','running'\\)").
+		WillReturnRows(sqlmock.NewRows([]string{"tenant_id", "corp_id"}).AddRow(11, 27).AddRow(22, 38))
+
+	scopes, err := store.BusyDurableArchiveScopes(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(scopes) != 2 || scopes[0] != (archiveprovider.Scope{TenantID: 11, CorpID: 27}) || scopes[1] != (archiveprovider.Scope{TenantID: 22, CorpID: 38}) {
+		t.Fatalf("busy scopes=%#v", scopes)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}

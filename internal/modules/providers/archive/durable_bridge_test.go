@@ -9,8 +9,10 @@ import (
 	"time"
 )
 
-func TestDurableBridgeRunnerUsesAuthoritativeCursorAndStableIdempotency(t *testing.T) {
+func TestDurableBridgeRunnerScheduledEnqueueUsesAuthoritativeCursorAndStableIdempotency(t *testing.T) {
+	serverCalls := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		serverCalls++
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"errcode":0,"messages":[{"source_mode":"self_built","seq":42,"msgid":"durable-42","action":"send","from":"employee","tolist":["contact"],"msgtype":"text","text":{"content":"durable"}}]}`))
 	}))
@@ -23,15 +25,79 @@ func TestDurableBridgeRunnerUsesAuthoritativeCursorAndStableIdempotency(t *testi
 	runner := NewDurableBridgeRunner(store, client, 10).WithClock(func() time.Time {
 		return time.Date(2026, 8, 27, 12, 34, 10, 0, time.UTC)
 	})
-	if err := runner.RunOnce(context.Background()); err != nil {
+	if err := runner.EnqueueScheduledOnce(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if len(store.upserts) != 1 || store.upserts[0].Seq != 42 {
-		t.Fatalf("upserts=%#v", store.upserts)
+	if len(store.upserts) != 0 || serverCalls != 1 {
+		t.Fatalf("scheduled enqueue performed worker writes: upserts=%#v bridge_calls=%d", store.upserts, serverCalls)
 	}
 	wantKey := "archive:poll:11:27:wecom:self_built:ww-local:41:202608271234"
 	if store.lastTemplate.IdempotencyKey != wantKey || store.lastTemplate.Cursor.Sequence != 41 {
 		t.Fatalf("template=%#v want key=%q", store.lastTemplate, wantKey)
+	}
+	if err := runner.EnqueueScheduledOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(store.runs) != 1 || len(store.lifecycle) != 1 {
+		t.Fatalf("same-window enqueue runs=%d lifecycle=%v", len(store.runs), store.lifecycle)
+	}
+}
+
+func TestDurableBridgeRunnerPendingWorkerDoesNotPollBindingsAcrossCycles(t *testing.T) {
+	serverCalls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		serverCalls++
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"errcode":0,"messages":[]}`))
+	}))
+	defer server.Close()
+	client, err := NewBridgeArchiveClient(server.URL, "MOCHAT-LOCAL-ACCEPTANCE-BEARER-0123456789", server.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := &durableBridgeTestStore{
+		syncTestStore: newSyncTestStore(),
+		bindings: []DurableArchiveBinding{{
+			Scope: Scope{TenantID: 11, CorpID: 27}, WXCorpID: "ww-local", IntegrationMode: IntegrationModeSelfBuilt,
+		}},
+	}
+	runner := NewDurableBridgeRunner(store, client, 10)
+	if err := runner.RunPendingOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := runner.RunPendingOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if store.bindingCalls != 0 || store.busyCalls != 0 || serverCalls != 0 || len(store.runs) != 0 {
+		t.Fatalf("empty pending worker mutated state: binding_calls=%d busy_calls=%d bridge_calls=%d runs=%d", store.bindingCalls, store.busyCalls, serverCalls, len(store.runs))
+	}
+}
+
+func TestDurableBridgeRunnerScheduledProbeSkipsEmptyAndBusyScopes(t *testing.T) {
+	serverCalls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		serverCalls++
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"errcode":0,"messages":[]}`))
+	}))
+	defer server.Close()
+	client, err := NewBridgeArchiveClient(server.URL, "MOCHAT-LOCAL-ACCEPTANCE-BEARER-0123456789", server.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	bindings := []DurableArchiveBinding{
+		{Scope: Scope{TenantID: 11, CorpID: 27}, WXCorpID: "ww-empty", IntegrationMode: IntegrationModeSelfBuilt},
+		{Scope: Scope{TenantID: 22, CorpID: 38}, WXCorpID: "ww-busy", IntegrationMode: IntegrationModeSelfBuilt},
+	}
+	store := &durableBridgeTestStore{
+		syncTestStore: newSyncTestStore(), bindings: bindings,
+		busy: []Scope{bindings[1].Scope},
+	}
+	if err := NewDurableBridgeRunner(store, client, 10).EnqueueScheduledOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if serverCalls != 1 || len(store.runs) != 0 || store.bindingCalls != 1 || store.busyCalls != 1 {
+		t.Fatalf("scheduled empty probe calls=%d runs=%d binding_calls=%d busy_calls=%d", serverCalls, len(store.runs), store.bindingCalls, store.busyCalls)
 	}
 }
 
@@ -59,7 +125,7 @@ func TestDurableBridgeRunnerEnqueuesManualRunWithoutCallingBridge(t *testing.T) 
 	}
 }
 
-func TestDurableBridgeRunnerProcessesPendingManualRunBeforePolling(t *testing.T) {
+func TestDurableBridgeRunnerProcessesPendingManualRunWithoutPolling(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"errcode":0,"messages":[{"source_mode":"self_built","seq":42,"msgid":"manual-42","action":"send","from":"employee","tolist":["contact"],"msgtype":"text","text":{"content":"manual"}}]}`))
@@ -77,11 +143,11 @@ func TestDurableBridgeRunnerProcessesPendingManualRunBeforePolling(t *testing.T)
 			Cursor:  Cursor{Sequence: 41}, IdempotencyKey: "archive:manual:manual-abc-123",
 		}},
 	}
-	if err := NewDurableBridgeRunner(store, client, 10).RunOnce(context.Background()); err != nil {
+	if err := NewDurableBridgeRunner(store, client, 10).RunPendingOnce(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if store.lastTemplate.IdempotencyKey != "archive:manual:manual-abc-123" || len(store.upserts) != 1 {
-		t.Fatalf("template=%#v upserts=%#v", store.lastTemplate, store.upserts)
+	if store.lastTemplate.IdempotencyKey != "archive:manual:manual-abc-123" || len(store.upserts) != 1 || store.bindingCalls != 0 {
+		t.Fatalf("template=%#v upserts=%#v binding_calls=%d", store.lastTemplate, store.upserts, store.bindingCalls)
 	}
 }
 
@@ -91,9 +157,13 @@ type durableBridgeTestStore struct {
 	bindings     []DurableArchiveBinding
 	lastTemplate SyncRun
 	pending      []DurableArchivePendingRun
+	busy         []Scope
+	bindingCalls int
+	busyCalls    int
 }
 
 func (s *durableBridgeTestStore) DurableArchiveBindings(context.Context) ([]DurableArchiveBinding, error) {
+	s.bindingCalls++
 	return s.bindings, nil
 }
 func (s *durableBridgeTestStore) DurableArchiveBindingForScope(_ context.Context, scope Scope) (DurableArchiveBinding, bool, error) {
@@ -110,14 +180,18 @@ func (s *durableBridgeTestStore) LatestArchiveSyncCursor(context.Context, Scope,
 func (s *durableBridgeTestStore) PendingDurableArchiveRuns(context.Context, int) ([]DurableArchivePendingRun, error) {
 	return s.pending, nil
 }
+func (s *durableBridgeTestStore) BusyDurableArchiveScopes(context.Context) ([]Scope, error) {
+	s.busyCalls++
+	return s.busy, nil
+}
 func (s *durableBridgeTestStore) EnqueueArchiveSync(ctx context.Context, template SyncRun, retry bool) (SyncRun, error) {
 	s.lastTemplate = template
 	return s.syncTestStore.EnqueueArchiveSync(ctx, template, retry)
 }
 
-func TestArchivePipelineFlagsRejectLegacyAndDurableTogether(t *testing.T) {
-	if err := ValidateArchivePipelineFlags(true, true); err == nil {
-		t.Fatal("legacy and durable archive pipelines unexpectedly enabled together")
+func TestArchivePipelineFlagsAllowDurableScheduledMode(t *testing.T) {
+	if err := ValidateArchivePipelineFlags(true, true); err != nil {
+		t.Fatalf("durable scheduled mode rejected: %v", err)
 	}
 	if err := ValidateArchivePipelineFlags(false, false); err != nil {
 		t.Fatal(err)

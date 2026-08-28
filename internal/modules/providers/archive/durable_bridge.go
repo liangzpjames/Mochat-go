@@ -25,6 +25,7 @@ type DurableBridgeStore interface {
 	DurableArchiveBindings(context.Context) ([]DurableArchiveBinding, error)
 	DurableArchiveBindingForScope(context.Context, Scope) (DurableArchiveBinding, bool, error)
 	PendingDurableArchiveRuns(context.Context, int) ([]DurableArchivePendingRun, error)
+	BusyDurableArchiveScopes(context.Context) ([]Scope, error)
 	LatestArchiveSyncCursor(context.Context, Scope, string) (Cursor, error)
 }
 
@@ -90,6 +91,13 @@ func (r *DurableBridgeRunner) EnqueueScope(ctx context.Context, scope Scope, req
 }
 
 func (r *DurableBridgeRunner) RunOnce(ctx context.Context) error {
+	return r.RunPendingOnce(ctx)
+}
+
+// RunPendingOnce processes only runs already persisted in the durable ledger.
+// An empty queue does not discover bindings, call the bridge, or write archive
+// lifecycle records.
+func (r *DurableBridgeRunner) RunPendingOnce(ctx context.Context) error {
 	if r == nil || r.store == nil || r.client == nil {
 		return errors.New("durable archive bridge runner is not configured")
 	}
@@ -98,22 +106,36 @@ func (r *DurableBridgeRunner) RunOnce(ctx context.Context) error {
 		return err
 	}
 	var firstErr error
-	processedScopes := make(map[Scope]struct{}, len(pending))
 	for _, item := range pending {
-		processedScopes[item.Binding.Scope] = struct{}{}
 		if err := r.syncBinding(ctx, item.Binding, item.Cursor, item.IdempotencyKey); err != nil && firstErr == nil {
 			firstErr = err
 		}
 	}
-	bindings, err := r.store.DurableArchiveBindings(ctx)
+	return firstErr
+}
+
+// EnqueueScheduledOnce probes eligible bindings and enqueues only scopes that
+// have at least one new, valid message. Provider probes do not advance the
+// authoritative cursor; the queued worker performs the durable synchronization.
+func (r *DurableBridgeRunner) EnqueueScheduledOnce(ctx context.Context) error {
+	if r == nil || r.store == nil || r.client == nil {
+		return errors.New("durable archive bridge runner is not configured")
+	}
+	busy, err := r.store.BusyDurableArchiveScopes(ctx)
 	if err != nil {
-		if firstErr != nil {
-			return firstErr
-		}
 		return err
 	}
+	busyScopes := make(map[Scope]struct{}, len(busy))
+	for _, scope := range busy {
+		busyScopes[scope] = struct{}{}
+	}
+	bindings, err := r.store.DurableArchiveBindings(ctx)
+	if err != nil {
+		return err
+	}
+	var firstErr error
 	for _, binding := range bindings {
-		if _, pendingForScope := processedScopes[binding.Scope]; pendingForScope {
+		if _, isBusy := busyScopes[binding.Scope]; isBusy {
 			continue
 		}
 		source, err := NewBridgeSource(r.client, binding.Scope, binding.WXCorpID, binding.IntegrationMode)
@@ -130,7 +152,40 @@ func (r *DurableBridgeRunner) RunOnce(ctx context.Context) error {
 			}
 			continue
 		}
-		err = r.syncBinding(ctx, binding, cursor, DurableArchivePollIdempotencyKey(binding.Scope, source.SourceID(), cursor, r.now()))
+		page, err := source.Fetch(ctx, binding.Scope, cursor, r.limit)
+		if err != nil {
+			if firstErr == nil {
+				firstErr = newSyncError(sourceErrorCode(source, err), err)
+			}
+			continue
+		}
+		hasNewMessage := false
+		invalidPage := false
+		for _, message := range page.Messages {
+			if !messageIdentityMatches(message, source) || message.Seq <= 0 || strings.TrimSpace(message.MsgID) == "" {
+				invalidPage = true
+				break
+			}
+			if message.Seq > cursor.Sequence {
+				hasNewMessage = true
+			}
+		}
+		if invalidPage {
+			if firstErr == nil {
+				firstErr = newSyncError("archive.source_identity_mismatch", nil)
+			}
+			continue
+		}
+		if !hasNewMessage {
+			if page.HasMore && firstErr == nil {
+				firstErr = newSyncError("archive.cursor_stalled", nil)
+			}
+			continue
+		}
+		_, err = NewSyncService(r.store).Enqueue(ctx, source, SyncRequest{
+			Scope: binding.Scope, StartCursor: cursor, Limit: r.limit, RetryFailed: true,
+			IdempotencyKey: DurableArchivePollIdempotencyKey(binding.Scope, source.SourceID(), cursor, r.now()),
+		})
 		if err != nil && firstErr == nil {
 			firstErr = err
 		}
@@ -158,8 +213,5 @@ func DurableArchivePollIdempotencyKey(scope Scope, sourceID string, cursor Curso
 }
 
 func ValidateArchivePipelineFlags(legacyEnabled, durableEnabled bool) error {
-	if legacyEnabled && durableEnabled {
-		return errors.New("legacy and durable work message archive pipelines are mutually exclusive")
-	}
 	return nil
 }
