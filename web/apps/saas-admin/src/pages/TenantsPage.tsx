@@ -459,17 +459,24 @@ export default function TenantsPage({ profile, approvalMode, activationMutationO
       if (Number.isNaN(effectiveAt.getTime()) || Number.isNaN(expiresAt.getTime()) || expiresAt <= effectiveAt) throw new Error('有效结束时间必须晚于生效时间')
       const current = queryClient.getQueryData<TenantAIProviderData>(['tenant-ai-provider', operation.tenantId])
       if (!current?.configured && !aiProviderForm.apiKey.trim()) throw new Error('首次配置必须填写 API Key')
-      return apiRequest<TenantAIProviderSaveData>('/dashboard/saasAdmin/tenantAIProvider', jsonRequest('PUT', {
-        tenantId: operation.tenantId,
-        providerCode: aiProviderForm.providerCode,
-        baseUrl: aiProviderForm.baseUrl.trim(),
-        model: aiProviderForm.model.trim(),
-        apiKey: aiProviderForm.apiKey.trim(),
-        effectiveAt: effectiveAt.toISOString(),
-        expiresAt: expiresAt.toISOString(),
-        status: aiProviderForm.status,
-        version: aiProviderForm.version,
-      }))
+      try {
+        return await apiRequest<TenantAIProviderSaveData>('/dashboard/saasAdmin/tenantAIProvider', jsonRequest('PUT', {
+          tenantId: operation.tenantId,
+          providerCode: aiProviderForm.providerCode,
+          baseUrl: aiProviderForm.baseUrl.trim(),
+          model: aiProviderForm.model.trim(),
+          apiKey: aiProviderForm.apiKey.trim(),
+          effectiveAt: effectiveAt.toISOString(),
+          expiresAt: expiresAt.toISOString(),
+          status: aiProviderForm.status,
+          version: aiProviderForm.version,
+        }))
+      } catch (error) {
+        if (error instanceof ApiError && (error.httpCode || error.status) >= 500) {
+          throw new ApiError('AI 模型配置保存失败，请稍后重试。', error.status, 'AI_PROVIDER_SAVE_FAILED', error.httpCode)
+        }
+        throw error
+      }
     },
     onSuccess: async (data, operation) => {
       queryClient.setQueryData<TenantAIProviderData>(['tenant-ai-provider', operation.tenantId], { configured: true, provider: data.provider })

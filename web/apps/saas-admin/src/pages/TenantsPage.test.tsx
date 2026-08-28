@@ -604,6 +604,20 @@ describe('SaaS 客户租户治理页面', () => {
     expect(document.body.textContent).toContain('AI 模型配置保存失败，请稍后重试。')
     expect(document.body.textContent).not.toContain('internal stack')
     expect(document.body.textContent).not.toContain('INTERNAL_ERROR')
+    clickButton('取消')
+    await settle()
+
+    const mutationCacheState = client.getMutationCache().getAll().map((mutation) => ({
+      error: mutation.state.error instanceof Error
+        ? { ...mutation.state.error, name: mutation.state.error.name, message: mutation.state.error.message }
+        : mutation.state.error,
+      data: mutation.state.data,
+      variables: mutation.state.variables,
+    }))
+    expect(document.querySelector('input[placeholder="留空则保留现有密钥"]')).toBeNull()
+    expect(JSON.stringify(mutationCacheState)).not.toContain('fixture-error-boundary-key')
+    expect(JSON.stringify(mutationCacheState)).not.toContain('internal stack')
+    expect(JSON.stringify(mutationCacheState)).not.toContain('INTERNAL_ERROR')
   })
 
 	it('治理幂等键按租户、对象、动作和版本隔离，成功后再次操作生成新键', async () => {
