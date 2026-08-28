@@ -583,6 +583,28 @@ describe('SaaS 客户租户治理页面', () => {
     expect(JSON.stringify(client.getMutationCache().getAll().map((mutation) => mutation.state.variables))).not.toContain('fixture-late-conflict-a')
   })
 
+  it('安全展示 400 的具体 ApiError 消息，但 5xx 始终使用通用提示', async () => {
+    await settle()
+    clickButton('详情')
+    await settle()
+    await settle()
+    clickButton('配置 AI 模型')
+    setValue('API Key', 'fixture-error-boundary-key')
+
+    mocks.apiRequest.mockImplementationOnce(async () => { throw new mocks.ApiError('接口地址仅允许 HTTPS', 400, 'INVALID_BASE_URL') })
+    clickButton('保存 AI 配置')
+    await settle()
+    expect(document.body.textContent).toContain('接口地址仅允许 HTTPS')
+    expect(document.body.textContent).not.toContain('请检查填写内容后重试')
+
+    mocks.apiRequest.mockImplementationOnce(async () => { throw new mocks.ApiError('internal stack: fixture-error-boundary-key', 500, 'INTERNAL_ERROR') })
+    clickButton('保存 AI 配置')
+    await settle()
+    expect(document.body.textContent).toContain('AI 模型配置保存失败，请稍后重试。')
+    expect(document.body.textContent).not.toContain('internal stack')
+    expect(document.body.textContent).not.toContain('INTERNAL_ERROR')
+  })
+
 	it('治理幂等键按租户、对象、动作和版本隔离，成功后再次操作生成新键', async () => {
 		await settle()
 		clickButton('详情')

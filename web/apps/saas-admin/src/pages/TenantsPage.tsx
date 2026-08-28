@@ -322,9 +322,10 @@ function errorMessage(error: unknown, fallback: string) {
 
 function aiProviderErrorMessage(error: unknown) {
   if (error instanceof ApiError) {
-    if (error.status === 409) return 'AI 模型配置版本已变化，请确认最新配置后重试。'
-    if (error.status >= 400 && error.status < 500) return 'AI 模型配置未保存，请检查填写内容后重试。'
-    if (error.status >= 500) return 'AI 模型配置保存失败，请稍后重试。'
+    const status = error.httpCode || error.status
+    if (status === 409) return 'AI 模型配置版本已变化，请确认最新配置后重试。'
+    if (status >= 400 && status < 500) return error.message || 'AI 模型配置未保存，请检查填写内容后重试。'
+    if (status >= 500) return 'AI 模型配置保存失败，请稍后重试。'
   }
   return error instanceof Error ? error.message : 'AI 模型配置保存失败，请稍后重试。'
 }
