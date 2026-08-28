@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"net/http"
 
 	appbootstrap "jiyi/mochat-go/internal/app/bootstrap"
@@ -26,11 +25,11 @@ func newUserResolverBuilder(
 ) func(string) (dashboard.UserIDResolver, dashboard.LoginCache) {
 	return func(routeName string) (dashboard.UserIDResolver, dashboard.LoginCache) {
 		if cfg.DevAuthHeader {
-			log.Printf("%s auth resolver: development header X-Mochat-Go-User-ID", routeName)
+			debugf("%s auth resolver: development header X-Mochat-Go-User-ID", routeName)
 			return dashboard.HeaderUserIDResolver{}, nil
 		}
 		if cfg.SkipJWTBlacklist {
-			log.Printf("%s auth resolver: PHP simple-jwt compatible parser without Redis blacklist checks", routeName)
+			debugf("%s auth resolver: PHP simple-jwt compatible parser without Redis blacklist checks", routeName)
 			return authjwt.Parser{
 				Secret:        cfg.SimpleJWTSecret,
 				Prefix:        cfg.SimpleJWTPrefix,
@@ -39,7 +38,7 @@ func newUserResolverBuilder(
 			}, nil
 		}
 		redisStore := getRedisStore()
-		log.Printf("%s auth resolver: PHP simple-jwt compatible parser", routeName)
+		debugf("%s auth resolver: PHP simple-jwt compatible parser", routeName)
 		return authjwt.Parser{
 			Secret:        cfg.SimpleJWTSecret,
 			Prefix:        cfg.SimpleJWTPrefix,

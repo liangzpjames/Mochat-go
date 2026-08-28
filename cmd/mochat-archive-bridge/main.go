@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	"jiyi/mochat-go/internal/archivebridge"
+	"jiyi/mochat-go/internal/observability"
 )
 
 type commandConfig struct {
@@ -25,8 +27,17 @@ type commandConfig struct {
 }
 
 func main() {
+	logger, err := observability.ConfigureFromEnv("mochat-archive-bridge")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "日志配置无效；请检查 MOCHAT_LOG_LEVEL 和 MOCHAT_LOG_FORMAT")
+		os.Exit(1)
+	}
+	slog.SetDefault(logger)
+	observability.BridgeStandardLog(logger)
 	if err := run(os.Getenv); err != nil {
-		log.Printf("archive bridge stopped: %v", err)
+		logger.Error("会话存档 bridge 无法继续运行；请检查配置、监听端口和存储",
+			"event", "archive_bridge_failed", "component", "archive", "step", "serve", "result", "failed",
+			"error_code", "ARCHIVE_BRIDGE_FAILED", "error", observability.SanitizeText(err.Error()))
 		os.Exit(1)
 	}
 }

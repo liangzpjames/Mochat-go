@@ -8,6 +8,21 @@ standalone Compose 默认通过 `MOCHAT_TIMEZONE=Asia/Shanghai` 统一应用与 
 
 Docker 构建会用 `scripts/source_fingerprint.py` 计算源码与验收配置指纹，并通过 Go linker 写入四个交付二进制。SaaS 发布准备中心只接受当前运行二进制内置的权威指纹，前端自动回填且不可修改；未内置指纹时发布候选门禁保持禁用。本地直接 `go run` 可用 `MOCHAT_GO_RELEASE_SOURCE_FINGERPRINT` 注入当前指纹，正式镜像的内置值始终优先，环境变量不能覆盖。
 
+## 日志、采集与磁盘保护
+
+应用只向 stdout/stderr 输出，不创建或挂载应用日志文件。默认 `MOCHAT_LOG_FORMAT=json`、`MOCHAT_LOG_LEVEL=info`、`MOCHAT_LOG_SOURCE=0`；生产采集器直接采集容器 stdout/stderr。需要短时排障时可把 `MOCHAT_LOG_LEVEL` 调成 `debug`，完成后应恢复 `info`，避免路由注册和周期任务成功明细长期增长。
+
+- `DEBUG`：仅用于临时诊断，例如路由注册、重复回调和成功的周期 tick；生产默认不输出。
+- `INFO`：关键阶段完成或状态转换，例如服务监听、关键写操作、迁移完成、授权保存和非空同步完成。
+- `WARN`：请求被拒绝、配置缺失、可恢复的外部依赖失败或清理失败；不把正常空队列、空轮询记为警告。
+- `ERROR`：当前关键流程失败、服务无法继续、数据持久化异常或外部依赖 5xx/非法响应；普通业务状态不得记为错误。
+
+统一字段以实际链路可获得的信息为准：`event`、`component`、`request_id`、`tenant_id`、`corp_id`、`task_name`、`run_id`、`execution_id`、`object_type`、`object_id`、`step`、`result`、`error_code`、`status_code`、`duration_ms`。日志不得包含密码、Token、Secret、API Key、私钥、Cookie、Authorization、完整消息正文、原始回调正文或个人敏感信息。排障时先按 `event` 找到阶段，再用 `request_id` 关联 HTTP 请求，用 `task_name/run_id/execution_id` 关联后台任务，用租户或企业字段缩小业务范围；错误文本已经过脱敏，但仍不应把外部响应正文主动写入日志。
+
+Compose 对 app、archive bridge、archive simulator、MariaDB 和 Redis 统一使用 Docker `json-file` 轮转，默认 `max-size=20m`、`max-file=5`，即每个容器最多约 100 MiB（Docker 元数据开销不计）。可通过 `MOCHAT_DOCKER_LOG_MAX_SIZE` 和 `MOCHAT_DOCKER_LOG_MAX_FILES` 调整。应用、宿主机 logrotate 和采集平台不得再次同时轮转同一份容器日志；若平台改用其他 logging driver，应在平台侧承担保留和磁盘上限，并移除冲突的文件轮转。后台任务执行历史默认保留 14 天，每小时异步分批清理每张表最多 10,000 条过期记录；周期任务成功与连续失败分别覆盖稳定的 latest-success/latest-failure 行，避免多租户空 tick 或短周期故障导致无界增长。
+
+新栈默认关闭 `MOCHAT_GO_ENABLE_CONVERSATION_EXPORT_WORKER`。原因是该 worker 依赖 `0144_work_message_export_tasks` 迁移；若在 baseline/apply 完成前以 2 秒间隔启动，会持续产生同一“表不存在”失败。完成迁移并确认 `/readyz` 后再显式设置为 `1`，这不是功能降级，而是防止部署顺序错误制造无界重试日志和审计。
+
 发布证据状态为 `passed` 时，应用会下载 HTTPS 工件并比对实际 SHA-256 与字节数；创建发布候选时会再次下载六项工件，只有复核全部通过且源码指纹一致才生成 `ready`。准备状态还会把候选不可变快照与当前六项证据逐项比较；任何证据的状态、版本、URL、摘要、大小或复核信息变化，旧候选都会立即降为 `stale`，即使证据随后恢复也必须重新运行门禁生成新候选。下载默认超时 30 秒、单工件最大 64 MiB，并启用私网/云元数据阻断、DNS 绑定、禁用环境代理和同源重定向限制。内部证据库只能通过 `MOCHAT_GO_SAAS_RELEASE_EVIDENCE_ALLOWED_CIDRS` 放行最小网段；若使用自有 CA，将证书以只读方式挂载到 app 容器，再把容器内路径写入 `MOCHAT_GO_SAAS_RELEASE_EVIDENCE_CA_FILE`。
 
 ## 启动

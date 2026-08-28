@@ -1,9 +1,11 @@
 package taskrunner
 
 import (
+	"bytes"
 	"context"
 	"errors"
-	"log"
+	"io"
+	"log/slog"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -14,7 +16,7 @@ func TestGroupStartsAndStopsTask(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	started := make(chan struct{})
-	group := New(log.Default())
+	group := New(slog.Default())
 	group.Add("worker-a", func(ctx context.Context) error {
 		close(started)
 		<-ctx.Done()
@@ -35,7 +37,7 @@ func TestGroupStartsAndStopsTask(t *testing.T) {
 }
 
 func TestGroupMarksFailures(t *testing.T) {
-	group := New(log.Default())
+	group := New(slog.Default())
 	group.Add("broken-worker", func(context.Context) error {
 		return errors.New("boom")
 	})
@@ -51,7 +53,7 @@ func TestGroupMarksFailures(t *testing.T) {
 }
 
 func TestGroupRecoversPanics(t *testing.T) {
-	group := New(log.Default())
+	group := New(slog.Default())
 	group.Add("panic-worker", func(context.Context) error {
 		panic("bad task")
 	})
@@ -71,7 +73,7 @@ func TestGroupRecordsSnapshots(t *testing.T) {
 	defer cancel()
 	recorder := &memoryRecorder{snapshots: make(chan Snapshot, 4)}
 	started := make(chan struct{})
-	group := New(log.Default()).WithRecorder(recorder)
+	group := New(slog.Default()).WithRecorder(recorder)
 	group.Add("worker-a", func(ctx context.Context) error {
 		close(started)
 		<-ctx.Done()
@@ -94,7 +96,7 @@ func TestGroupRecordsSnapshots(t *testing.T) {
 }
 
 func TestGroupContinuesWhenRecorderFails(t *testing.T) {
-	group := New(log.Default()).WithRecorder(failingRecorder{})
+	group := New(slog.Default()).WithRecorder(failingRecorder{})
 	group.Add("worker-a", func(context.Context) error { return nil })
 
 	if err := group.Start(context.Background()); err != nil {
@@ -104,19 +106,19 @@ func TestGroupContinuesWhenRecorderFails(t *testing.T) {
 }
 
 func TestGroupValidatesTasks(t *testing.T) {
-	group := New(log.Default())
+	group := New(slog.Default())
 	group.Add("", func(context.Context) error { return nil })
 	if err := group.Start(context.Background()); err == nil || !strings.Contains(err.Error(), "task name is required") {
 		t.Fatalf("error = %v", err)
 	}
 
-	group = New(log.Default())
+	group = New(slog.Default())
 	group.Add("worker-a", nil)
 	if err := group.Start(context.Background()); err == nil || !strings.Contains(err.Error(), "run function is required") {
 		t.Fatalf("error = %v", err)
 	}
 
-	group = New(log.Default())
+	group = New(slog.Default())
 	group.Add("worker-a", func(context.Context) error { return nil })
 	group.Add("worker-a", func(context.Context) error { return nil })
 	if err := group.Start(context.Background()); err == nil || !strings.Contains(err.Error(), "duplicate task name") {
@@ -164,6 +166,116 @@ func TestPeriodicContinuesAfterRunError(t *testing.T) {
 	}
 }
 
+func TestPeriodicCompactsSuccessAndKeepsUniqueFailure(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	recorder := &memoryRecorder{executions: make(chan ExecutionSnapshot, 8)}
+	var calls atomic.Int32
+	run := Periodic(PeriodicConfig{Name: "cron-a", Interval: time.Millisecond, RunOnStart: true, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))}, func(context.Context) error {
+		call := calls.Add(1)
+		if call == 2 {
+			return errors.New("tick failed")
+		}
+		if call == 3 {
+			cancel()
+		}
+		return nil
+	})
+	done := make(chan error, 1)
+	go func() { done <- run(withTaskRuntime(ctx, "cron-a", "run-1", recorder)) }()
+	first := <-recorder.executions
+	second := <-recorder.executions
+	third := <-recorder.executions
+	if first.Status != StatusSucceeded || third.Status != StatusSucceeded || first.ExecutionID != third.ExecutionID {
+		t.Fatalf("success executions = %+v %+v", first, third)
+	}
+	if first.ExecutionID != latestPeriodicSuccessExecutionID("cron-a") {
+		t.Fatalf("success execution id = %q", first.ExecutionID)
+	}
+	if second.Status != StatusFailed || second.ExecutionID == first.ExecutionID {
+		t.Fatalf("failed execution = %+v", second)
+	}
+	if err := <-done; !errors.Is(err, context.Canceled) {
+		t.Fatalf("run error = %v", err)
+	}
+}
+
+func TestPeriodicDoesNotLogSuccessfulEmptyTick(t *testing.T) {
+	var output bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&output, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	ctx, cancel := context.WithCancel(context.Background())
+	run := Periodic(PeriodicConfig{Name: "cron-empty", Interval: time.Hour, RunOnStart: true, Logger: logger}, func(context.Context) error {
+		cancel()
+		return nil
+	})
+	if err := run(ctx); !errors.Is(err, context.Canceled) {
+		t.Fatalf("run error = %v", err)
+	}
+	if output.Len() != 0 {
+		t.Fatalf("successful empty tick logged at INFO: %s", output.String())
+	}
+}
+
+func TestPeriodicCompactsRepeatedFailuresAndThrottlesLogs(t *testing.T) {
+	var output bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&output, nil))
+	ctx, cancel := context.WithCancel(context.Background())
+	recorder := &memoryRecorder{executions: make(chan ExecutionSnapshot, 8)}
+	var calls atomic.Int32
+	run := Periodic(PeriodicConfig{Name: "cron-failing", Interval: time.Millisecond, RunOnStart: true, Logger: logger}, func(context.Context) error {
+		if calls.Add(1) == 3 {
+			cancel()
+		}
+		return errors.New("dependency unavailable")
+	})
+	done := make(chan error, 1)
+	go func() { done <- run(withTaskRuntime(ctx, "cron-failing", "run-1", recorder)) }()
+	for index := 0; index < 3; index++ {
+		snapshot := <-recorder.executions
+		if snapshot.Status != StatusFailed || snapshot.ExecutionID != latestPeriodicFailureExecutionID("cron-failing") {
+			t.Fatalf("failure snapshot = %+v", snapshot)
+		}
+	}
+	if err := <-done; !errors.Is(err, context.Canceled) {
+		t.Fatalf("run error = %v", err)
+	}
+	if count := strings.Count(output.String(), `"event":"periodic_task_failed"`); count != 1 {
+		t.Fatalf("failure log count = %d logs=%s", count, output.String())
+	}
+	if !strings.Contains(output.String(), `"execution_id":"cron-failing-periodic-latest-failure"`) {
+		t.Fatalf("failure log missing execution id: %s", output.String())
+	}
+}
+
+func TestPeriodicCanDelegateOutcomeLoggingToTaskBoundary(t *testing.T) {
+	var output bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&output, nil))
+	ctx, cancel := context.WithCancel(context.Background())
+	recorder := &memoryRecorder{executions: make(chan ExecutionSnapshot, 8)}
+	var calls atomic.Int32
+	run := Periodic(PeriodicConfig{
+		Name: "cron-domain-owned", Interval: time.Millisecond, RunOnStart: true, Logger: logger,
+		SuppressOutcomeLogs: true,
+	}, func(context.Context) error {
+		if calls.Add(1) == 3 {
+			cancel()
+		}
+		return errors.New("domain dependency unavailable")
+	})
+	done := make(chan error, 1)
+	go func() { done <- run(withTaskRuntime(ctx, "cron-domain-owned", "run-domain", recorder)) }()
+	for index := 0; index < 3; index++ {
+		if snapshot := <-recorder.executions; snapshot.Status != StatusFailed {
+			t.Fatalf("failure snapshot = %+v", snapshot)
+		}
+	}
+	if err := <-done; !errors.Is(err, context.Canceled) {
+		t.Fatalf("run error = %v", err)
+	}
+	if output.Len() != 0 {
+		t.Fatalf("periodic outcome duplicated domain logs: %s", output.String())
+	}
+}
+
 func TestPeriodicRecordsExecutions(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -182,12 +294,8 @@ func TestPeriodicRecordsExecutions(t *testing.T) {
 	go func() {
 		done <- run(withTaskRuntime(ctx, "cron-a", "run-1", recorder))
 	}()
-	running := waitForRecordedExecutionStatus(t, recorder, "cron-a", ExecutionKindPeriodicTick, StatusRunning)
-	if running.ExecutionID == "" || running.RunID != "run-1" || running.StartedAt == "" {
-		t.Fatalf("running execution = %+v", running)
-	}
 	succeeded := waitForRecordedExecutionStatus(t, recorder, "cron-a", ExecutionKindPeriodicTick, StatusSucceeded)
-	if succeeded.ExecutionID != running.ExecutionID || succeeded.RunID != "run-1" || succeeded.StoppedAt == "" || succeeded.Error != "" {
+	if succeeded.ExecutionID != latestPeriodicSuccessExecutionID("cron-a") || succeeded.RunID != "run-1" || succeeded.StoppedAt == "" || succeeded.Error != "" {
 		t.Fatalf("succeeded execution = %+v", succeeded)
 	}
 	if calls.Load() != 1 {
@@ -207,16 +315,15 @@ func TestPeriodicRecordsFailedExecutions(t *testing.T) {
 	}
 	run := Periodic(PeriodicConfig{Name: "cron-a", Interval: time.Hour, RunOnStart: true}, func(context.Context) error {
 		cancel()
-		return errors.New("tick failed")
+		return errors.New("tick failed token=hidden-task-token")
 	})
 
 	done := make(chan error, 1)
 	go func() {
 		done <- run(withTaskRuntime(ctx, "cron-a", "run-1", recorder))
 	}()
-	_ = waitForRecordedExecutionStatus(t, recorder, "cron-a", ExecutionKindPeriodicTick, StatusRunning)
 	failed := waitForRecordedExecutionStatus(t, recorder, "cron-a", ExecutionKindPeriodicTick, StatusFailed)
-	if failed.ExecutionID == "" || failed.Error != "tick failed" || failed.StoppedAt == "" {
+	if failed.ExecutionID == "" || !strings.Contains(failed.Error, "[REDACTED]") || strings.Contains(failed.Error, "hidden-task-token") || failed.StoppedAt == "" {
 		t.Fatalf("failed execution = %+v", failed)
 	}
 	if err := <-done; !errors.Is(err, context.Canceled) {

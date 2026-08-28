@@ -1,3 +1,9 @@
+x-mochat-logging: &mochat-logging
+  driver: json-file
+  options:
+    max-size: "${MOCHAT_DOCKER_LOG_MAX_SIZE:-20m}"
+    max-file: "${MOCHAT_DOCKER_LOG_MAX_FILES:-5}"
+
 secrets:
   saas_admin_mfa_encryption_key:
     file: "${MOCHAT_SAAS_ADMIN_MFA_ENCRYPTION_KEY_FILE:?MOCHAT_SAAS_ADMIN_MFA_ENCRYPTION_KEY_FILE must point to a protected file}"
@@ -6,6 +12,7 @@ secrets:
 
 services:
   app:
+    logging: *mochat-logging
     profiles:
       - app
     build:
@@ -23,6 +30,9 @@ services:
         mode: 0400
     environment:
       TZ: "${MOCHAT_TIMEZONE:-Asia/Shanghai}"
+      MOCHAT_LOG_LEVEL: "${MOCHAT_LOG_LEVEL:-info}"
+      MOCHAT_LOG_FORMAT: "${MOCHAT_LOG_FORMAT:-json}"
+      MOCHAT_LOG_SOURCE: "${MOCHAT_LOG_SOURCE:-0}"
       MOCHAT_GO_RUNTIME_ROLE: "${MOCHAT_GO_RUNTIME_ROLE:-all}"
       MOCHAT_GO_STANDALONE: "1"
       MOCHAT_GO_ENABLE_FRONTEND_SERVERS: "1"
@@ -54,7 +64,7 @@ services:
       MOCHAT_SIDEBAR_JWT_PREFIX: "${MOCHAT_SIDEBAR_JWT_PREFIX:-default}"
       MOCHAT_FILE_STORAGE_ROOT: "/app/storage/upload/static"
       MOCHAT_GO_CONVERSATION_EXPORT_ROOT: "/app/storage/conversation-exports"
-      MOCHAT_GO_ENABLE_CONVERSATION_EXPORT_WORKER: "${MOCHAT_GO_ENABLE_CONVERSATION_EXPORT_WORKER:-1}"
+      MOCHAT_GO_ENABLE_CONVERSATION_EXPORT_WORKER: "${MOCHAT_GO_ENABLE_CONVERSATION_EXPORT_WORKER:-0}"
       MOCHAT_GO_CONVERSATION_EXPORT_WORKER_INTERVAL_SECONDS: "${MOCHAT_GO_CONVERSATION_EXPORT_WORKER_INTERVAL_SECONDS:-2}"
       MOCHAT_SAAS_ADMIN_DIST: "/app/web/apps/saas-admin/dist"
       MOCHAT_GO_ENABLE_SAAS_ADMIN_DASHBOARD: "${MOCHAT_GO_ENABLE_SAAS_ADMIN_DASHBOARD:-1}"
@@ -283,6 +293,7 @@ services:
       retries: 30
 
   archive-bridge:
+    logging: *mochat-logging
     profiles:
       - app
     build:
@@ -294,6 +305,9 @@ services:
     entrypoint: ["mochat-archive-bridge"]
     environment:
       TZ: "${MOCHAT_TIMEZONE:-Asia/Shanghai}"
+      MOCHAT_LOG_LEVEL: "${MOCHAT_LOG_LEVEL:-info}"
+      MOCHAT_LOG_FORMAT: "${MOCHAT_LOG_FORMAT:-json}"
+      MOCHAT_LOG_SOURCE: "${MOCHAT_LOG_SOURCE:-0}"
       MOCHAT_ARCHIVE_BRIDGE_ADDR: "0.0.0.0:8083"
       MOCHAT_ARCHIVE_BRIDGE_BEARER: "${MOCHAT_ARCHIVE_BRIDGE_BEARER:?MOCHAT_ARCHIVE_BRIDGE_BEARER must be set}"
       MOCHAT_ARCHIVE_SDK_ENABLED: "${MOCHAT_ARCHIVE_SDK_ENABLED:-false}"
@@ -309,6 +323,7 @@ services:
       retries: 30
 
   archive-simulator:
+    logging: *mochat-logging
     profiles:
       - archive-tools
     build:
@@ -320,6 +335,9 @@ services:
     entrypoint: ["mochat-archive-simulator"]
     environment:
       TZ: "${MOCHAT_TIMEZONE:-Asia/Shanghai}"
+      MOCHAT_LOG_LEVEL: "${MOCHAT_LOG_LEVEL:-info}"
+      MOCHAT_LOG_FORMAT: "${MOCHAT_LOG_FORMAT:-json}"
+      MOCHAT_LOG_SOURCE: "${MOCHAT_LOG_SOURCE:-0}"
       MOCHAT_MYSQL_DSN: "${MOCHAT_MYSQL_USER:-mochat}:${MOCHAT_MYSQL_PASSWORD:-mochat_pass}@tcp(mysql:3306)/${MOCHAT_MYSQL_DATABASE:-mochat}?parseTime=true&loc=Local"
       MOCHAT_ARCHIVE_FIXTURE_URL: "http://archive-bridge:8083"
       MOCHAT_ARCHIVE_FIXTURE_ADMIN_BEARER: "${MOCHAT_ARCHIVE_FIXTURE_ADMIN_BEARER:?MOCHAT_ARCHIVE_FIXTURE_ADMIN_BEARER must be set for archive-fixture profile}"
@@ -336,6 +354,7 @@ services:
         condition: service_healthy
 
   mysql:
+    logging: *mochat-logging
     image: mariadb:10.6
     environment:
       TZ: "${MOCHAT_TIMEZONE:-Asia/Shanghai}"
@@ -461,6 +480,7 @@ services:
       retries: 30
 
   redis:
+    logging: *mochat-logging
     image: redis:7-alpine
     ports:
       - "${MOCHAT_REDIS_PORT:-26389}:6379"

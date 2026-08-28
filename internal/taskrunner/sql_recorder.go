@@ -4,8 +4,9 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"log"
+	"log/slog"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -16,15 +17,49 @@ const (
 )
 
 type SQLRecorder struct {
-	db     *sql.DB
-	logger *log.Logger
+	db              *sql.DB
+	logger          *slog.Logger
+	retention       time.Duration
+	cleanupInterval time.Duration
+	cleanupBatch    int
+	cleanupMu       sync.Mutex
+	lastCleanup     time.Time
+	cleanupRunning  bool
 }
 
-func NewSQLRecorder(db *sql.DB, logger *log.Logger) *SQLRecorder {
-	if logger == nil {
-		logger = log.Default()
+type SQLRecorderOption func(*SQLRecorder)
+
+func WithHistoryRetention(retention time.Duration, cleanupInterval time.Duration, batchSize int) SQLRecorderOption {
+	return func(recorder *SQLRecorder) {
+		if retention > 0 {
+			recorder.retention = retention
+		}
+		if cleanupInterval > 0 {
+			recorder.cleanupInterval = cleanupInterval
+		}
+		if batchSize > 0 {
+			recorder.cleanupBatch = batchSize
+		}
 	}
-	return &SQLRecorder{db: db, logger: logger}
+}
+
+func NewSQLRecorder(db *sql.DB, logger *slog.Logger, options ...SQLRecorderOption) *SQLRecorder {
+	if logger == nil {
+		logger = slog.Default()
+	}
+	recorder := &SQLRecorder{
+		db:              db,
+		logger:          logger,
+		retention:       14 * 24 * time.Hour,
+		cleanupInterval: time.Hour,
+		cleanupBatch:    10000,
+	}
+	for _, option := range options {
+		if option != nil {
+			option(recorder)
+		}
+	}
+	return recorder
 }
 
 func (r *SQLRecorder) Ensure(ctx context.Context) error {
@@ -299,7 +334,60 @@ func (r *SQLRecorder) RecordTaskExecution(ctx context.Context, snapshot Executio
 	if err != nil {
 		return fmt.Errorf("record %s %s: %w", backgroundTaskExecutionTable, taskName, err)
 	}
+	// Persist the current outcome before best-effort maintenance. A slow or
+	// failed cleanup must never consume the record's context budget first.
+	r.maybeCleanupHistory()
 	return nil
+}
+
+func (r *SQLRecorder) maybeCleanupHistory() {
+	if r == nil || r.db == nil || r.retention <= 0 || r.cleanupInterval <= 0 || r.cleanupBatch <= 0 {
+		return
+	}
+	now := time.Now()
+	r.cleanupMu.Lock()
+	if r.cleanupRunning || (!r.lastCleanup.IsZero() && now.Sub(r.lastCleanup) < r.cleanupInterval) {
+		r.cleanupMu.Unlock()
+		return
+	}
+	r.lastCleanup = now
+	r.cleanupRunning = true
+	r.cleanupMu.Unlock()
+	go r.cleanupHistory(now)
+}
+
+func (r *SQLRecorder) cleanupHistory(now time.Time) {
+	defer func() {
+		r.cleanupMu.Lock()
+		r.cleanupRunning = false
+		r.cleanupMu.Unlock()
+	}()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	cutoff := now.Add(-r.retention)
+	deleted := int64(0)
+	for _, statement := range []string{
+		"DELETE FROM mochat_go_background_task_executions WHERE created_at < ? LIMIT ?",
+		"DELETE FROM mochat_go_background_task_runs WHERE created_at < ? LIMIT ?",
+	} {
+		result, err := r.db.ExecContext(ctx, statement, cutoff, r.cleanupBatch)
+		if err != nil {
+			r.logger.Warn("后台任务历史清理失败；当前执行记录仍会写入，请检查数据库权限和负载",
+				"event", "task_history_cleanup_failed", "component", "taskrunner", "step", "cleanup_history",
+				"result", "failed", "error_code", "TASK_HISTORY_CLEANUP_FAILED", "retention_days", int(r.retention.Hours()/24))
+			return
+		}
+		rows, err := result.RowsAffected()
+		if err == nil {
+			deleted += rows
+		}
+	}
+	if deleted > 0 {
+		r.logger.Info("后台任务过期历史已清理；如数量持续偏高请检查任务失败或调度频率",
+			"event", "task_history_cleaned", "component", "taskrunner", "step", "cleanup_history", "result", "success",
+			"deleted", deleted, "retention_days", int(r.retention.Hours()/24))
+	}
 }
 
 func nullableSnapshotTime(value string) (any, error) {

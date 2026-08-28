@@ -4,16 +4,36 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"log"
+	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"jiyi/mochat-go/internal/migration"
 	"jiyi/mochat-go/internal/mysqlconn"
+	"jiyi/mochat-go/internal/observability"
 )
 
+type migrationRunner interface {
+	Apply(context.Context) ([]migration.StatusItem, error)
+	BaselineComposeInit(context.Context) ([]migration.StatusItem, error)
+	Status(context.Context) ([]migration.StatusItem, error)
+	Baseline(context.Context) ([]migration.StatusItem, error)
+	RollbackLast(context.Context) (string, error)
+}
+
+type migrationCommandOptions struct {
+	Action string
+}
+
 func main() {
+	logger, err := observability.ConfigureFromEnv("mochat-migrate")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "日志配置无效；请检查 MOCHAT_LOG_LEVEL 和 MOCHAT_LOG_FORMAT")
+		os.Exit(1)
+	}
 	action := flag.String("action", "apply", "migration action: apply, status, baseline, baseline-compose-init, rollback")
 	dsn := flag.String("dsn", os.Getenv("MOCHAT_MYSQL_DSN"), "MySQL DSN; defaults to MOCHAT_MYSQL_DSN")
 	projectRoot := flag.String("project-root", ".", "project root used to resolve default migrations")
@@ -21,31 +41,56 @@ func main() {
 	flag.Parse()
 
 	if *dsn == "" {
-		log.Fatal("MOCHAT_MYSQL_DSN or -dsn is required")
+		logMigrationSetupFailure(logger, "MIGRATION_DSN_MISSING")
+		os.Exit(1)
 	}
 	root, err := filepath.Abs(*projectRoot)
 	if err != nil {
-		log.Fatalf("resolve project root: %v", err)
+		logMigrationSetupFailure(logger, "MIGRATION_PROJECT_ROOT_INVALID")
+		os.Exit(1)
 	}
 	db, err := mysqlconn.Open(*dsn)
 	if err != nil {
-		log.Fatalf("open mysql: %v", err)
+		logMigrationSetupFailure(logger, "MIGRATION_DATABASE_OPEN_FAILED")
+		os.Exit(1)
 	}
 	defer db.Close()
 	if err := db.Ping(); err != nil {
-		log.Fatalf("ping mysql: %v", err)
+		logMigrationSetupFailure(logger, "MIGRATION_DATABASE_UNAVAILABLE")
+		os.Exit(1)
 	}
 
 	runner, err := migration.NewRunner(db, migration.DefaultMigrations(root))
 	if err != nil {
-		log.Fatalf("build runner: %v", err)
+		logMigrationSetupFailure(logger, "MIGRATION_RUNNER_INVALID")
+		os.Exit(1)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
 	defer cancel()
+	if err := runMigrationCommand(ctx, migrationCommandOptions{Action: *action}, runner, logger, os.Stdout); err != nil {
+		os.Exit(1)
+	}
+}
 
+func runMigrationCommand(ctx context.Context, options migrationCommandOptions, runner migrationRunner, logger *slog.Logger, output io.Writer) error {
+	if logger == nil {
+		logger = slog.Default()
+	}
+	if output == nil {
+		output = io.Discard
+	}
+	action := strings.ToLower(strings.TrimSpace(options.Action))
+	startedAt := time.Now()
+	logger.Info("数据库迁移开始；失败时请检查数据库连通性和迁移版本",
+		"event", "migration_started",
+		"component", "migration",
+		"step", action,
+		"result", "started",
+	)
 	var status []migration.StatusItem
 	var rolledBack string
-	switch *action {
+	var err error
+	switch action {
 	case "apply", "up":
 		status, err = runner.Apply(ctx)
 	case "baseline-compose-init":
@@ -57,20 +102,52 @@ func main() {
 	case "rollback", "down":
 		rolledBack, err = runner.RollbackLast(ctx)
 	default:
-		err = fmt.Errorf("unknown action %q", *action)
+		err = fmt.Errorf("unknown migration action")
 	}
 	if err != nil {
-		log.Fatalf("migration %s failed: %v", *action, err)
+		logger.Error("数据库迁移失败；请检查数据库状态、迁移顺序和冲突记录",
+			"event", "migration_failed",
+			"component", "migration",
+			"step", action,
+			"result", "failed",
+			"error_code", migrationErrorCode(action),
+			"duration_ms", time.Since(startedAt).Milliseconds(),
+		)
+		return err
 	}
 	if rolledBack != "" {
-		fmt.Printf("%s\trolled_back\n", rolledBack)
-		return
+		fmt.Fprintf(output, "%s\trolled_back\n", rolledBack)
+		logger.Info("数据库迁移已回滚；请核对目标版本和业务兼容性",
+			"event", "migration_completed", "component", "migration", "step", action, "result", "success",
+			"rolled_back", rolledBack, "applied", 0, "total", 0, "duration_ms", time.Since(startedAt).Milliseconds())
+		return nil
 	}
+	applied := 0
 	for _, item := range status {
+		if item.State == "applied_now" {
+			applied++
+		}
 		appliedAt := ""
 		if item.Applied != nil && !item.Applied.AppliedAt.IsZero() {
 			appliedAt = item.Applied.AppliedAt.Format(time.RFC3339)
 		}
-		fmt.Printf("%s\t%s\t%s\t%s\t%s\n", item.Migration.Version, item.State, item.Checksum, appliedAt, item.Migration.Description)
+		fmt.Fprintf(output, "%s\t%s\t%s\t%s\t%s\n", item.Migration.Version, item.State, item.Checksum, appliedAt, item.Migration.Description)
 	}
+	logger.Info("数据库迁移完成；请核对本次应用数量和迁移状态",
+		"event", "migration_completed", "component", "migration", "step", action, "result", "success",
+		"applied", applied, "total", len(status), "duration_ms", time.Since(startedAt).Milliseconds())
+	return nil
+}
+
+func logMigrationSetupFailure(logger *slog.Logger, errorCode string) {
+	logger.Error("数据库迁移命令无法启动；请检查必需配置和数据库连通性",
+		"event", "migration_setup_failed", "component", "migration", "step", "setup", "result", "failed", "error_code", errorCode)
+}
+
+func migrationErrorCode(action string) string {
+	normalized := strings.ToUpper(strings.ReplaceAll(strings.TrimSpace(action), "-", "_"))
+	if normalized == "" {
+		normalized = "UNKNOWN"
+	}
+	return "MIGRATION_" + normalized + "_FAILED"
 }

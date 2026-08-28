@@ -11,6 +11,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -20,13 +21,22 @@ import (
 	"time"
 
 	"jiyi/mochat-go/internal/archivebridge"
+	"jiyi/mochat-go/internal/observability"
 
 	_ "github.com/go-sql-driver/mysql"
 )
 
 func main() {
+	logger, err := observability.ConfigureFromEnv("mochat-archive-simulator")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "日志配置无效；请检查 MOCHAT_LOG_LEVEL 和 MOCHAT_LOG_FORMAT")
+		os.Exit(1)
+	}
+	slog.SetDefault(logger)
 	if err := run(os.Args[1:]); err != nil {
-		fmt.Fprintln(os.Stderr, "archive simulator:", err)
+		logger.Error("会话存档模拟任务失败；请检查动作参数、fixture bridge 和数据库",
+			"event", "archive_simulation_failed", "component", "archive", "step", "simulate", "result", "failed",
+			"error_code", "ARCHIVE_SIMULATION_FAILED", "error", observability.SanitizeText(err.Error()))
 		os.Exit(1)
 	}
 }

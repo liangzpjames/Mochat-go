@@ -4,12 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"jiyi/mochat-go/internal/observability"
 )
 
 const (
@@ -29,10 +31,11 @@ type Task struct {
 }
 
 type PeriodicConfig struct {
-	Name       string
-	Interval   time.Duration
-	RunOnStart bool
-	Logger     *log.Logger
+	Name                string
+	Interval            time.Duration
+	RunOnStart          bool
+	Logger              *slog.Logger
+	SuppressOutcomeLogs bool
 }
 
 type Snapshot struct {
@@ -73,7 +76,7 @@ const (
 )
 
 type Group struct {
-	logger *log.Logger
+	logger *slog.Logger
 
 	mu       sync.Mutex
 	tasks    []Task
@@ -85,9 +88,9 @@ type Group struct {
 var runIDCounter atomic.Uint64
 var executionIDCounter atomic.Uint64
 
-func New(logger *log.Logger) *Group {
+func New(logger *slog.Logger) *Group {
 	if logger == nil {
-		logger = log.Default()
+		logger = slog.Default()
 	}
 	return &Group{logger: logger, snapshot: map[string]Snapshot{}}
 }
@@ -102,7 +105,7 @@ func (g *Group) WithRecorder(recorder Recorder) *Group {
 func Periodic(cfg PeriodicConfig, run func(context.Context) error) func(context.Context) error {
 	logger := cfg.Logger
 	if logger == nil {
-		logger = log.Default()
+		logger = slog.Default()
 	}
 	return func(ctx context.Context) error {
 		if ctx == nil {
@@ -114,33 +117,55 @@ func Periodic(cfg PeriodicConfig, run func(context.Context) error) func(context.
 		if cfg.Interval <= 0 {
 			return fmt.Errorf("periodic task %s interval must be positive", strings.TrimSpace(cfg.Name))
 		}
+		consecutiveFailures := 0
+		lastFailureLog := time.Time{}
 		runOnce := func() {
 			startedAt := time.Now()
 			taskName := periodicTaskName(ctx, cfg.Name)
+			err := run(ctx)
+			stoppedAt := time.Now()
+			if errors.Is(err, context.Canceled) {
+				return
+			}
 			execution := ExecutionSnapshot{
-				ExecutionID: newExecutionID(taskName, ExecutionKindPeriodicTick, startedAt),
+				ExecutionID: latestPeriodicSuccessExecutionID(taskName),
 				TaskName:    taskName,
 				RunID:       taskRunID(ctx),
 				Kind:        ExecutionKindPeriodicTick,
-				Status:      StatusRunning,
+				Status:      StatusSucceeded,
 				StartedAt:   startedAt.Format(time.RFC3339),
+				StoppedAt:   stoppedAt.Format(time.RFC3339),
 			}
-			recordTaskExecution(ctx, logger, execution)
-			err := run(ctx)
-			stoppedAt := time.Now()
-			execution.StoppedAt = stoppedAt.Format(time.RFC3339)
-			execution.Status = StatusSucceeded
 			if err != nil {
-				if errors.Is(err, context.Canceled) {
-					execution.Status = StatusStopped
-				} else {
-					execution.Status = StatusFailed
-					execution.Error = err.Error()
-				}
+				execution.ExecutionID = latestPeriodicFailureExecutionID(taskName)
+				execution.Status = StatusFailed
+				execution.Error = observability.SanitizeText(err.Error())
 			}
 			recordTaskExecution(ctx, logger, execution)
-			if err != nil && !errors.Is(err, context.Canceled) {
-				logger.Printf("periodic task failed: %s err=%v", strings.TrimSpace(cfg.Name), err)
+			if err != nil {
+				consecutiveFailures++
+				if !cfg.SuppressOutcomeLogs && (lastFailureLog.IsZero() || stoppedAt.Sub(lastFailureLog) >= time.Minute) {
+					logger.Error("周期任务持续失败并将自动重试；请按任务名和运行标识检查依赖，重复日志已限流",
+						"event", "periodic_task_failed", "component", "taskrunner", "task_name", taskName,
+						"run_id", taskRunID(ctx), "execution_id", execution.ExecutionID, "step", "tick", "result", "retrying", "error_code", "PERIODIC_TASK_FAILED",
+						"retry_count", consecutiveFailures, "duration_ms", stoppedAt.Sub(startedAt).Milliseconds())
+					lastFailureLog = stoppedAt
+				}
+				return
+			}
+			if consecutiveFailures > 0 {
+				if !cfg.SuppressOutcomeLogs {
+					logger.Info("周期任务已从连续失败中恢复",
+						"event", "periodic_task_recovered", "component", "taskrunner", "task_name", taskName,
+						"run_id", taskRunID(ctx), "execution_id", execution.ExecutionID, "step", "tick", "result", "success", "retry_count", consecutiveFailures,
+						"duration_ms", stoppedAt.Sub(startedAt).Milliseconds())
+				}
+				consecutiveFailures = 0
+				lastFailureLog = time.Time{}
+			}
+			if !cfg.SuppressOutcomeLogs {
+				logger.Debug("周期任务本次执行完成", "event", "periodic_task_completed", "component", "taskrunner", "task_name", taskName,
+					"run_id", taskRunID(ctx), "execution_id", execution.ExecutionID, "step", "tick", "result", "success", "duration_ms", stoppedAt.Sub(startedAt).Milliseconds())
 			}
 		}
 		if cfg.RunOnStart {
@@ -218,14 +243,14 @@ func (g *Group) run(ctx context.Context, task Task) {
 		snapshot.Error = ""
 		return snapshot
 	})
-	g.logger.Printf("background task started: %s", task.Name)
+	g.logger.Info("后台任务已启动", "event", "background_task_started", "component", "taskrunner", "task_name", task.Name, "run_id", runID, "step", "run", "result", "started")
 
 	status := StatusStopped
 	errText := ""
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			status = StatusFailed
-			errText = fmt.Sprintf("panic: %v", recovered)
+			errText = observability.SanitizeText(fmt.Sprintf("panic: %v", recovered))
 		}
 		stoppedAt := time.Now()
 		g.set(task.Name, func(snapshot Snapshot) Snapshot {
@@ -235,16 +260,19 @@ func (g *Group) run(ctx context.Context, task Task) {
 			return snapshot
 		})
 		if errText != "" {
-			g.logger.Printf("background task failed: %s err=%s", task.Name, errText)
+			g.logger.Error("后台任务异常停止；请按任务名和运行标识检查失败步骤",
+				"event", "background_task_failed", "component", "taskrunner", "task_name", task.Name, "run_id", runID,
+				"step", "run", "result", "failed", "error_code", "BACKGROUND_TASK_FAILED", "duration_ms", stoppedAt.Sub(startedAt).Milliseconds())
 			return
 		}
-		g.logger.Printf("background task stopped: %s", task.Name)
+		g.logger.Info("后台任务已停止", "event", "background_task_stopped", "component", "taskrunner", "task_name", task.Name, "run_id", runID,
+			"step", "run", "result", "stopped", "duration_ms", stoppedAt.Sub(startedAt).Milliseconds())
 	}()
 
 	taskCtx := WithTaskRuntime(ctx, task.Name, runID, g.runtimeRecorder())
 	if err := task.Run(taskCtx); err != nil && !errors.Is(err, context.Canceled) {
 		status = StatusFailed
-		errText = err.Error()
+		errText = observability.SanitizeText(err.Error())
 	}
 }
 
@@ -273,7 +301,9 @@ func (g *Group) set(name string, update func(Snapshot) Snapshot) {
 	recordCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	if err := recorder.RecordTaskSnapshot(recordCtx, snapshot); err != nil {
-		g.logger.Printf("record background task snapshot failed: %s status=%s err=%v", snapshot.Name, snapshot.Status, err)
+		g.logger.Warn("后台任务状态写入失败；任务仍继续运行，请检查数据库",
+			"event", "task_snapshot_record_failed", "component", "taskrunner", "task_name", snapshot.Name,
+			"run_id", snapshot.RunID, "step", "persist_snapshot", "result", "failed", "error_code", "TASK_SNAPSHOT_RECORD_FAILED")
 	}
 }
 
@@ -304,6 +334,24 @@ func newExecutionID(taskName string, kind string, startedAt time.Time) string {
 
 func NewExecutionID(taskName string, kind string, startedAt time.Time) string {
 	return newExecutionID(taskName, kind, startedAt)
+}
+
+func latestPeriodicSuccessExecutionID(taskName string) string {
+	taskName = strings.TrimSpace(taskName)
+	if taskName == "" {
+		taskName = "task"
+	}
+	replacer := strings.NewReplacer(" ", "-", "/", "-", "\\", "-", ":", "-", "\t", "-")
+	return replacer.Replace(strings.ToLower(taskName)) + "-periodic-latest-success"
+}
+
+func latestPeriodicFailureExecutionID(taskName string) string {
+	taskName = strings.TrimSpace(taskName)
+	if taskName == "" {
+		taskName = "task"
+	}
+	replacer := strings.NewReplacer(" ", "-", "/", "-", "\\", "-", ":", "-", "\t", "-")
+	return replacer.Replace(strings.ToLower(taskName)) + "-periodic-latest-failure"
 }
 
 func WithTaskRuntime(ctx context.Context, taskName string, runID string, recorder any) context.Context {
@@ -350,11 +398,11 @@ func RuntimeRunID(ctx context.Context) string {
 	return ""
 }
 
-func recordTaskExecution(ctx context.Context, logger *log.Logger, snapshot ExecutionSnapshot) {
+func recordTaskExecution(ctx context.Context, logger *slog.Logger, snapshot ExecutionSnapshot) {
 	RecordTaskExecution(ctx, logger, snapshot)
 }
 
-func RecordTaskExecution(ctx context.Context, logger *log.Logger, snapshot ExecutionSnapshot) {
+func RecordTaskExecution(ctx context.Context, logger any, snapshot ExecutionSnapshot) {
 	if ctx == nil {
 		return
 	}
@@ -365,9 +413,12 @@ func RecordTaskExecution(ctx context.Context, logger *log.Logger, snapshot Execu
 	recordCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	if err := recorder.RecordTaskExecution(recordCtx, snapshot); err != nil {
-		if logger == nil {
-			logger = log.Default()
+		structuredLogger, ok := logger.(*slog.Logger)
+		if !ok || structuredLogger == nil {
+			structuredLogger = slog.Default()
 		}
-		logger.Printf("record background task execution failed: %s kind=%s status=%s err=%v", snapshot.TaskName, snapshot.Kind, snapshot.Status, err)
+		structuredLogger.Warn("后台任务执行记录写入失败；任务仍继续运行，请检查数据库",
+			"event", "task_execution_record_failed", "component", "taskrunner", "task_name", snapshot.TaskName,
+			"run_id", snapshot.RunID, "step", "persist_execution", "result", "failed", "error_code", "TASK_EXECUTION_RECORD_FAILED")
 	}
 }

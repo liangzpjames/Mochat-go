@@ -5,8 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -55,6 +54,7 @@ type WorkMessageArchiveSyncResult struct {
 	ItemsSkipped     int
 	ItemsFailed      int
 	LastSeq          int64
+	FailedCorpID     int
 }
 
 type WorkMessageArchiveSyncStore interface {
@@ -69,16 +69,18 @@ type WorkMessageArchiveSyncClient interface {
 }
 
 type WorkMessageArchiveSyncCron struct {
-	mu     sync.Mutex
-	store  WorkMessageArchiveSyncStore
-	client WorkMessageArchiveSyncClient
-	logger *log.Logger
-	limit  int
+	mu                  sync.Mutex
+	store               WorkMessageArchiveSyncStore
+	client              WorkMessageArchiveSyncClient
+	logger              *slog.Logger
+	limit               int
+	consecutiveFailures int
+	lastFailureLog      time.Time
 }
 
-func NewWorkMessageArchiveSyncCron(store WorkMessageArchiveSyncStore, client WorkMessageArchiveSyncClient, logger *log.Logger) *WorkMessageArchiveSyncCron {
+func NewWorkMessageArchiveSyncCron(store WorkMessageArchiveSyncStore, client WorkMessageArchiveSyncClient, logger *slog.Logger) *WorkMessageArchiveSyncCron {
 	if logger == nil {
-		logger = log.Default()
+		logger = slog.Default()
 	}
 	return &WorkMessageArchiveSyncCron{
 		store:  store,
@@ -96,6 +98,7 @@ func (c *WorkMessageArchiveSyncCron) WithLimit(limit int) *WorkMessageArchiveSyn
 }
 
 func (c *WorkMessageArchiveSyncCron) RunOnce(ctx context.Context) error {
+	startedAt := time.Now()
 	if c.store == nil || c.client == nil {
 		return fmt.Errorf("workMessageArchive sync cron dependencies are not configured")
 	}
@@ -103,6 +106,7 @@ func (c *WorkMessageArchiveSyncCron) RunOnce(ctx context.Context) error {
 	defer c.mu.Unlock()
 	corps, err := c.store.WorkMessageArchiveEnabledCorps(ctx)
 	if err != nil {
+		c.logArchiveSyncResult(WorkMessageArchiveSyncResult{}, err, time.Since(startedAt), true)
 		return err
 	}
 	result := WorkMessageArchiveSyncResult{CorpsScanned: len(corps)}
@@ -118,7 +122,7 @@ func (c *WorkMessageArchiveSyncCron) RunOnce(ctx context.Context) error {
 			firstErr = err
 		}
 	}
-	c.logger.Printf("workMessageArchive sync cron finished: corps=%d fetched=%d inserted=%d skipped=%d failed=%d last_seq=%d", result.CorpsScanned, result.MessagesFetched, result.MessagesInserted, result.ItemsSkipped, result.ItemsFailed, result.LastSeq)
+	c.logArchiveSyncResult(result, firstErr, time.Since(startedAt), true)
 	return firstErr
 }
 
@@ -133,6 +137,7 @@ func (c *WorkMessageArchiveSyncCron) RunCorp(ctx context.Context, corpID int) er
 	defer c.mu.Unlock()
 	corps, err := c.store.WorkMessageArchiveEnabledCorps(ctx)
 	if err != nil {
+		c.logArchiveSyncResult(WorkMessageArchiveSyncResult{FailedCorpID: corpID}, err, 0, false)
 		return err
 	}
 	limit := c.limit
@@ -144,28 +149,70 @@ func (c *WorkMessageArchiveSyncCron) RunCorp(ctx context.Context, corpID int) er
 			continue
 		}
 		result, err := c.syncCorp(ctx, corp, limit)
-		c.logger.Printf("workMessageArchive event sync finished: corp=%d fetched=%d inserted=%d skipped=%d failed=%d last_seq=%d", corpID, result.MessagesFetched, result.MessagesInserted, result.ItemsSkipped, result.ItemsFailed, result.LastSeq)
+		c.logArchiveSyncResult(result, err, 0, false)
 		return err
 	}
-	c.logger.Printf("workMessageArchive event sync skipped: corp=%d archive is not enabled", corpID)
+	c.logger.Debug("企业未启用会话存档，本次主动同步跳过", "event", "archive_sync_skipped", "component", "archive", "corp_id", corpID,
+		"step", "select_corp", "result", "skipped", "error_code", "ARCHIVE_NOT_ENABLED")
 	return nil
+}
+
+func (c *WorkMessageArchiveSyncCron) logArchiveSyncResult(result WorkMessageArchiveSyncResult, runErr error, elapsed time.Duration, periodic bool) {
+	attrs := []any{
+		"component", "archive", "step", "sync", "corps_scanned", result.CorpsScanned,
+		"messages_fetched", result.MessagesFetched, "messages_inserted", result.MessagesInserted,
+		"items_skipped", result.ItemsSkipped, "items_failed", result.ItemsFailed, "last_seq", result.LastSeq,
+		"duration_ms", elapsed.Milliseconds(),
+	}
+	if result.FailedCorpID > 0 {
+		attrs = append(attrs, "corp_id", result.FailedCorpID)
+	}
+	if runErr != nil || result.ItemsFailed > 0 {
+		if !periodic {
+			c.logger.Error("会话存档主动同步失败；请检查 bridge、企业凭据、游标和数据库",
+				append([]any{"event", "archive_sync_failed", "result", "failed", "error_code", "ARCHIVE_SYNC_FAILED"}, attrs...)...)
+			return
+		}
+		c.consecutiveFailures++
+		now := time.Now()
+		if c.lastFailureLog.IsZero() || now.Sub(c.lastFailureLog) >= time.Minute {
+			c.logger.Error("会话存档同步持续失败并将自动重试；请检查 bridge、企业凭据、游标和数据库，重复日志已限流",
+				append([]any{"event", "archive_sync_failed", "result", "retrying", "error_code", "ARCHIVE_SYNC_FAILED", "retry_count", c.consecutiveFailures}, attrs...)...)
+			c.lastFailureLog = now
+		}
+		return
+	}
+	if periodic && c.consecutiveFailures > 0 {
+		c.logger.Info("会话存档同步已从连续失败中恢复",
+			append([]any{"event", "archive_sync_recovered", "result", "success", "retry_count", c.consecutiveFailures}, attrs...)...)
+		c.consecutiveFailures = 0
+		c.lastFailureLog = time.Time{}
+	}
+	if result.MessagesFetched == 0 && result.MessagesInserted == 0 {
+		return
+	}
+	c.logger.Info("会话存档同步完成；如写入数低于拉取数请检查跳过项和数据去重",
+		append([]any{"event", "archive_sync_completed", "result", "success"}, attrs...)...)
 }
 
 func (c *WorkMessageArchiveSyncCron) syncCorp(ctx context.Context, corp WorkMessageArchiveCorp, limit int) (WorkMessageArchiveSyncResult, error) {
 	result := WorkMessageArchiveSyncResult{}
 	if corp.CorpID <= 0 || strings.TrimSpace(corp.WXCorpID) == "" || strings.TrimSpace(corp.ChatSecret) == "" ||
 		strings.TrimSpace(corp.RSAPublicKey) == "" || strings.TrimSpace(corp.RSAPrivateKey) == "" {
-		result.ItemsSkipped++
-		return result, nil
+		result.ItemsFailed++
+		result.FailedCorpID = corp.CorpID
+		return result, fmt.Errorf("work message archive configuration is incomplete for corp %d", corp.CorpID)
 	}
 	cursor, err := c.store.WorkMessageArchiveCursor(ctx, corp.CorpID)
 	if err != nil {
 		result.ItemsFailed++
+		result.FailedCorpID = corp.CorpID
 		return result, fmt.Errorf("work message archive cursor corp=%d: %w", corp.CorpID, err)
 	}
 	messages, err := c.client.FetchWorkMessageArchive(ctx, corp, cursor, limit)
 	if err != nil {
 		result.ItemsFailed++
+		result.FailedCorpID = corp.CorpID
 		return result, fmt.Errorf("work message archive fetch corp=%d: %w", corp.CorpID, err)
 	}
 	if len(messages) == 0 {
@@ -183,6 +230,7 @@ func (c *WorkMessageArchiveSyncCron) syncCorp(ctx context.Context, corp WorkMess
 		upsert, err := c.store.UpsertWorkMessageArchive(ctx, corp.CorpID, message)
 		if err != nil {
 			result.ItemsFailed++
+			result.FailedCorpID = corp.CorpID
 			if firstErr == nil {
 				firstErr = fmt.Errorf("work message archive upsert corp=%d seq=%d msgid=%s: %w", corp.CorpID, message.Seq, message.MsgID, err)
 			}
@@ -201,6 +249,7 @@ func (c *WorkMessageArchiveSyncCron) syncCorp(ctx context.Context, corp WorkMess
 	if maxSeq > cursor {
 		if err := c.store.UpdateWorkMessageArchiveCursor(ctx, corp.CorpID, maxSeq); err != nil {
 			result.ItemsFailed++
+			result.FailedCorpID = corp.CorpID
 			if firstErr == nil {
 				firstErr = fmt.Errorf("work message archive cursor update corp=%d seq=%d: %w", corp.CorpID, maxSeq, err)
 			}
@@ -255,8 +304,7 @@ func (c *WorkMessageArchiveBridgeClient) FetchWorkMessageArchive(ctx context.Con
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		return nil, fmt.Errorf("会话存档 bridge HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+		return nil, fmt.Errorf("work message archive bridge returned HTTP %d", resp.StatusCode)
 	}
 	var response struct {
 		weComBaseResponse
@@ -306,7 +354,7 @@ func parseWorkMessageArchiveBridgeMessage(raw json.RawMessage) (WorkMessageArchi
 	message.ContentRaw = workMessageArchiveContentRaw(object)
 	message.ContentText = workMessageArchiveContentText(object, message.ContentRaw)
 	if message.MsgID == "" {
-		return WorkMessageArchiveMessage{}, fmt.Errorf("会话存档 bridge 消息缺少 msgid: %s", string(raw))
+		return WorkMessageArchiveMessage{}, fmt.Errorf("work message archive message is missing msgid")
 	}
 	return message, nil
 }
@@ -450,5 +498,8 @@ func mergeWorkMessageArchiveSyncResult(target *WorkMessageArchiveSyncResult, sou
 	target.ItemsFailed += source.ItemsFailed
 	if source.LastSeq > target.LastSeq {
 		target.LastSeq = source.LastSeq
+	}
+	if target.FailedCorpID == 0 && source.FailedCorpID > 0 {
+		target.FailedCorpID = source.FailedCorpID
 	}
 }

@@ -11,7 +11,7 @@
 ### 2.1 现有日志基础设施
 
 - Go 服务主要使用标准库 `log` 和 `*log.Logger`，仓库中没有统一等级、格式、上下文字段或脱敏 Handler；审计时 `cmd/` 与 `internal/` 中相关调用约 731 处。
-- `cmd/mochat-go/main.go` 在 INFO 级逐条输出约 405 条路由启用信息。它们只重复代码注册事实，启动时形成大段噪声，真正的配置错误和依赖失败容易被淹没。
+- `cmd/mochat-go/main.go` 在 INFO 级逐条输出约 565 条路由启用信息。它们只重复代码注册事实，启动时形成大段噪声，真正的配置错误和依赖失败容易被淹没。
 - `internal/taskrunner/taskrunner.go` 已有 `task_name`、`run_id`、`execution_id`、`kind`、`status` 等有价值的生命周期数据，但文本日志没有统一等级，成功 periodic tick 也会进入持久执行历史。
 - `internal/taskrunner/sql_recorder.go` 对每个 periodic tick 使用唯一 `execution_id` 写入 `mochat_go_background_task_executions`，也为每次进程启动写 `mochat_go_background_task_runs`；当前没有保留期或清理入口，长期运行会无界增长。
 - 多个 cron 在扫描结果全为零时仍输出“finished” INFO。`internal/dashboard/work_message_archive_sync_cron.go` 每轮都打印汇总；现有部署证据 `docs/deployment/2026-08-26-wecom-archive-live-deployment-acceptance.zh-CN.md` 明确记录过每 15 秒持续出现 `corps=0/fetched=0` 日志。这是已经发生的噪声根因。
@@ -77,10 +77,11 @@
 - `component`：`runtime`、`http`、`migration`、`taskrunner`、`wecom_sync`、`archive`、`ai_provider`、`callback` 等。
 - `tenant_id`、`corp_id`：只使用服务端已经解析/持久化的整数 ID；不从不可信 query/body 猜测。
 - `request_id`：沿用合法 `X-Request-ID`，否则生成 UUID，并写回响应头。
+- `listener`、`listen_addr`：监听成功后记录 `main`、`sidebar`、`operation` 及实际 bind 地址；bind 失败只记录启动 ERROR，不得预报 ready。
 - `task_name`、`run_id`、`execution_id`：来自现有 taskrunner runtime context。
 - `object_type`、`object_id`：只用于租户、企业、任务、媒体等非敏感业务对象；不使用手机号、外部联系人 ID、完整微信 ID 作为默认对象 ID。
 - `step`：`validate`、`connect_dependency`、`authorize`、`fetch`、`persist`、`retry`、`dead_letter`、`listen` 等。
-- `result`：`succeeded`、`rejected`、`failed`、`retried`、`abandoned`、`skipped`。
+- `result`：使用当前边界可直接理解的受控值，例如 `started`、`success`、`rejected`、`failed`、`retrying`、`stopped`、`skipped`；同一事件保持稳定，不写自由文本。
 - `error_code`：稳定机器码或受控 HTTP 状态码，不用完整第三方响应替代。
 - `duration_ms`：边界耗时，整数毫秒。
 - 计数：`scanned`、`fetched`、`inserted`、`updated`、`skipped`、`failed`，只写批次汇总。
@@ -93,18 +94,19 @@
 | --- | --- | --- | --- |
 | `runtime_starting` | INFO | 进程已完成基础日志初始化，开始加载业务配置 | 核对 `runtime_role`、版本和后续依赖事件 |
 | `runtime_config_invalid` | ERROR | 配置解析失败，进程不能启动 | 检查对应环境变量是否缺失或格式错误；不要在工单粘贴 Secret 值 |
-| `runtime_listening` | INFO | API 已完成构建并开始监听 | 若外部不可用，继续检查端口映射、反向代理和 `/readyz` |
+| `runtime_listening` | INFO | 对应 `listener` 已成功 bind 并开始监听 | 若外部不可用，按 `listener/listen_addr` 检查端口映射、反向代理和 `/readyz` |
 | `migration_started/completed/failed` | INFO/ERROR | 一次迁移动作开始、完成或中止 | 用 `action`、耗时和错误码核对 ledger、checksum、数据库权限 |
 | `critical_request_completed` | INFO | 一个关键写请求成功 | 用 `request_id` 关联前端/网关，按 `component/path` 检查业务审计 |
 | `request_rejected` | WARN | 认证或权限拒绝（401/403） | 检查 realm/session、用户状态、菜单/权限和租户范围，不检查密码正文 |
 | `critical_request_failed` | ERROR | 关键请求返回 5xx | 用 `request_id` 查同时间的依赖、任务或持久化错误 |
+| `critical_request_panicked` | ERROR | HTTP handler 发生未处理 panic，中间件已返回受控 500 | 用 `request_id/path` 检查对应 handler；日志不会写 panic 原值，避免敏感内容泄露 |
 | `readiness_failed` | ERROR | `/readyz` 返回非成功，容器可能被判为不就绪 | 检查 manifest、上游、数据库/依赖和启动错误 |
-| `task_started/stopped/failed` | INFO/ERROR | 长驻后台任务生命周期变化 | 检查 `task_name/run_id`、关闭信号或 panic/error |
-| `periodic_task_failed` | ERROR | 某个定时 tick 失败；成功空 tick 不写 INFO | 检查 `task_name/execution_id/error_code` 和对应外部依赖 |
+| `background_task_started/stopped/failed` | INFO/ERROR | 长驻后台任务生命周期变化 | 检查 `task_name/run_id`、关闭信号或 panic/error |
+| `periodic_task_failed` | ERROR | 某个定时 tick 失败；同一任务连续失败只在首次及每分钟一次输出，成功空 tick 不写 INFO | 检查 `task_name/execution_id/error_code` 和对应外部依赖；恢复后会看到 INFO 恢复事件 |
 | `task_history_cleanup_failed` | WARN | 历史保留清理失败但主任务仍运行 | 检查数据库权限、锁等待和表大小 |
 | `archive_sync_completed` | INFO | 会话存档本轮确实处理了企业或消息 | 检查 fetched/inserted/skipped/failed 与 cursor |
 | `archive_sync_failed` | ERROR | 拉取、落库或游标推进失败 | 按 `corp_id/step/error_code` 检查 bridge、凭据和数据库；日志不含正文 |
-| `archive_sync_not_enabled` | DEBUG | 主动事件命中了未启用存档的企业，属于可接受空态 | 若业务期望已启用，检查企业绑定和存档凭据状态 |
+| `archive_sync_skipped` | DEBUG | 主动事件命中了未启用存档的企业，属于可接受空态 | 若业务期望已启用，检查企业绑定和存档凭据状态 |
 | `ai_provider_call_completed` | INFO | 外部模型调用成功且已拿到有效内容 | 用 provider/model/duration 评估延迟；正文需到受控业务数据查看 |
 | `ai_provider_call_failed` | WARN/ERROR | Provider 未配置、网络失败、HTTP 拒绝或响应无效 | 检查租户 Provider 配置、出站网络、状态码和模型；不要打印 Key 或响应正文 |
 | `wecom_callback_rejected` | WARN | 回调时间窗、验签、解密或事件格式不合法 | 检查平台回调配置、时钟、suite ID 和网络重放；不要记录签名/密文 |
@@ -124,17 +126,21 @@
 
 ### 8.1 stdout 日志
 
-- 路由逐条启用日志降为 DEBUG；INFO 只保留运行角色、关键能力总览、任务总览和监听就绪。
+- 路由、resolver、能力开关和任务配置明细降为 DEBUG；INFO 只保留进程启动、实际后台任务生命周期和监听就绪。
 - 成功的 GET/HEAD/OPTIONS、`/healthz`、`/readyz` 静默；健康失败才输出。
 - periodic 空结果不输出 INFO。会话存档只有处理到消息、出现失败或明确主动同步有结果时才输出汇总。
 - 不在循环内记录逐条成功；失败只记录批次首个/汇总错误，已有 retry/dead-letter 生命周期保留。
 
 ### 8.2 后台任务数据库历史
 
-- periodic 成功记录改为每个 `task_name` 一条“最新成功”稳定记录，后续成功覆盖它；失败记录继续保留唯一 execution，便于排查。
-- `mochat_go_background_task_runs` 和 `mochat_go_background_task_executions` 默认保留 14 天；每小时最多删除 10,000 条过期数据，避免长事务和表锁。保留天数与批量大小可配置，必须为正数。
+- periodic 成功和连续失败分别改为每个 `task_name` 一条“最新成功/最新失败”稳定记录，后续同类结果覆盖它；失败日志首轮立即输出，连续失败最多每分钟输出一次，恢复时输出一次 INFO。手工 `RunCorp` 是用户触发的独立运行，失败每次记录，且不得消费、恢复或覆盖 periodic 的限流状态。这样既保留当前故障证据，也阻止短周期依赖故障同时放大 stdout 与执行账本。
+- `mochat_go_background_task_runs` 和 `mochat_go_background_task_executions` 默认保留 14 天；每小时异步清理，每张表单批最多删除 10,000 条过期数据，避免阻塞当前执行记录和形成长事务。代码构造参数可覆盖保留期、间隔和批量；standalone 当前使用固定默认值，没有暴露环境变量。
 - 当前状态表 `mochat_go_background_tasks` 不清理；它每任务固定一行。
-- 清理失败只记 WARN，不阻塞主任务；下一小时重试。
+- 清理使用独立 30 秒 context，失败只记 WARN，不阻塞主任务；下一小时重试。
+
+### 8.3 迁移前任务误启动根因
+
+Docker 实测发现全新数据库尚未应用 `0144` 会话导出任务表迁移时，standalone 默认每 2 秒启动 conversation export worker，持续产生“表不存在”错误和执行历史。这不是日志等级问题，不能靠降级或隐藏解决。Compose 和 `.env.example` 因此把 `MOCHAT_GO_ENABLE_CONVERSATION_EXPORT_WORKER` 默认值改为 `0`；部署人员必须先完成迁移并确认导出任务表存在，再显式设为 `1`。日志策略门禁会阻止该 worker 再次默认开启。
 
 ## 9. Docker、服务器采集和磁盘保护
 
@@ -148,12 +154,12 @@
 ### 10.1 自动化测试
 
 - observability：等级解析、JSON 字段、敏感 key/text/error 脱敏、legacy writer 分级。
-- HTTP：成功关键写、401/403、5xx、健康成功静默、健康失败、request ID 生成/沿用、正文和凭据不进入日志。
-- taskrunner：成功空 tick 不写 INFO、失败写 ERROR、periodic 最新成功使用稳定 execution ID、失败仍唯一。
-- SQL recorder：保留清理 SQL、每小时节流、清理失败不阻断记录。
-- archive：空轮询无日志、有数据有汇总、失败有错误码；bridge 非 2xx 和缺失 msgid 不泄露响应/消息正文。
+- HTTP：成功关键写、401/403、5xx、handler panic 受控恢复、健康成功静默、健康失败、request ID 生成/沿用、正文和凭据不进入日志。
+- taskrunner：成功空 tick 不写 INFO、失败写 ERROR、periodic 最新成功/最新失败均使用稳定 execution ID、连续失败限流且恢复只记一次。
+- SQL recorder：保留清理 SQL、每小时节流、独立 context 异步执行、清理失败不阻断记录。
+- archive：空轮询无日志、有数据有汇总、失败有错误码；手工失败不共享 periodic 限流/恢复状态；bridge 非 2xx 和缺失 msgid 不泄露响应/消息正文。
 - AI：成功、未配置、HTTP 失败、无内容等场景日志包含 provider/model/result/duration，不含 Key、prompt、response。
-- callback：验签失败、重复、授权交换失败、保存失败、成功；不含 Ticket/AuthCode/PermanentCode/密文。
+- callback：验签失败、重复、授权交换失败、保存失败、成功；业务对象统一为 `object_type/object_id`，且不含 Ticket/AuthCode/PermanentCode/密文。
 - migration：成功/失败生命周期不输出 DSN。
 
 ### 10.2 运行验证
@@ -171,3 +177,12 @@
 - 真实企业微信、真实 AI Provider 和真实生产采集平台需要外部凭据/环境，本地验证使用受控 fake Provider/回调/bridge；不得为“真实验证”把凭据写入命令、日志或仓库。
 - 业务审计表的合规保留政策不由本专项更改；本专项只治理应用 stdout 和后台任务运行历史，避免误删具有法规意义的操作审计。
 
+## 12. 设计文档自审
+
+- [x] 定义 DEBUG/INFO/WARN/ERROR 边界、示例和禁止项，没有把普通业务状态统一提升为错误。
+- [x] 第 6 节逐条说明新增事件的必要性、出现含义和下一检查方向，文本具备业务含义和稳定搜索键。
+- [x] 只覆盖关键阶段、状态转换、外部依赖结果、任务生命周期、重试/恢复、权限拒绝、配置缺失与一致性异常，并明确禁止循环、逐行与空轮询噪声。
+- [x] 字段来自当前 HTTP、taskrunner、租户/企业和业务对象架构；第 7 节列出敏感字段、正文、回调、Provider 与存档禁止项。
+- [x] 第 9 节覆盖 stdout/stderr、Docker driver、大小、文件数、平台采集、单层轮转和磁盘保护。
+- [x] 第 2.3 节先列代码证据，再决定启动/迁移、认证权限、SaaS、企微、自建/第三方、同步、存档、任务、Dashboard、AI、回调和健康流程是否纳入。
+- [x] 第 8 节分析空轮询、稳定执行记录、连续失败和迁移前 worker 根因；修复不靠降级隐藏，测试与 Docker 验证设计覆盖回归。
