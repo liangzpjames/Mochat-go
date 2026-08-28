@@ -73,7 +73,8 @@ const plan = {
 
 const tenant = {
   tenantId: 41,
-  tenantName: '测试客户',
+  tenantName: 'MoChat Test Enterprise',
+  companyName: '蓝鲸数字科技（上海）有限公司',
   tenantStatus: 1,
   packageCode: 'pro',
   packageName: '专业版',
@@ -101,6 +102,7 @@ const tenantB = {
   ...tenant,
   tenantId: 52,
   tenantName: '第二测试客户',
+  companyName: '第二测试客户',
   packageCode: 'basic',
   packageName: '基础版',
 }
@@ -166,6 +168,22 @@ describe('SaaS 客户租户治理页面', () => {
     act(() => root.unmount())
   })
 
+  it('列表、详情和租户治理展示 Dashboard 权威公司名，同时保留 SaaS 租户别名', async () => {
+    await settle()
+
+    expect(document.querySelector('tbody strong')?.textContent).toBe('蓝鲸数字科技（上海）有限公司')
+    expect(document.body.textContent).toContain('SaaS 租户：MoChat Test Enterprise · 租户 ID 41')
+
+    clickButton('详情')
+    await settle()
+    await settle()
+
+    expect(getByRole(document.body, 'dialog', { name: '蓝鲸数字科技（上海）有限公司' })).toBeTruthy()
+
+    clickButton('重发激活')
+    expect(document.body.textContent).toContain('蓝鲸数字科技（上海）有限公司（租户 41）')
+  })
+
   it('开户使用套餐 id、版本和完整额度快照，不接收密码，并只交付完整 fragment 激活入口', async () => {
     await settle()
     clickButton('开通客户')
@@ -209,7 +227,7 @@ describe('SaaS 客户租户治理页面', () => {
   it('A 租户迟到的重发激活结果在切换 B 后不会打开错误租户交付弹窗', async () => {
     const pending = deferred<{ tenantId: number; dashboardUserId: number; version: number; activationPath: string; activationExpiresAt: string; idempotent: boolean }>()
     await settle()
-    clickTenantDetails('测试客户')
+    clickTenantDetails('MoChat Test Enterprise')
     await settle()
     await settle()
     const api = mocks.apiRequest.getMockImplementation()
@@ -235,7 +253,7 @@ describe('SaaS 客户租户治理页面', () => {
     ['租户不匹配', { tenantId: 52, dashboardUserId: 900, version: 2, activationToken: 'mismatch-token', activationPath: '/activate#token=mismatch-token', activationExpiresAt: '2026-08-28T01:00:00Z', idempotent: false }],
   ])('%s 的重发响应不会留在 observer 或 mutation cache', async (_caseName, result) => {
     await settle()
-    clickTenantDetails('测试客户')
+    clickTenantDetails('MoChat Test Enterprise')
     await settle()
     await settle()
     const api = mocks.apiRequest.getMockImplementation()
@@ -394,7 +412,7 @@ describe('SaaS 客户租户治理页面', () => {
     expect((document.querySelector('input[placeholder="留空则保留现有密钥"]') as HTMLInputElement | null)?.value || '').toBe('')
   })
 
-  it('API Key 在失败和 Escape 关闭后清空，并支持 390px 响应式表单', async () => {
+  it('API Key 保存失败后保留并支持重试，Escape 和关闭后清空，并支持 390px 响应式表单', async () => {
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: 390 })
     Object.defineProperty(window, 'innerHeight', { configurable: true, value: 520 })
     await settle()
@@ -409,14 +427,21 @@ describe('SaaS 客户租户治理页面', () => {
     expect(document.querySelector('[aria-label="租户 AI Provider 表单"]')?.className).toContain('grid-cols-1')
     expect(document.querySelector('[role="dialog"]')?.className).toContain('max-h-[calc(100vh-2rem)]')
 
-    setValue('API Key', 'fixture-discard-on-failure')
-    mocks.apiRequest.mockImplementationOnce(async () => { throw new mocks.ApiError('version conflict', 409, 'VERSION_CONFLICT') })
+    setValue('API Key', 'fixture-retry-secret')
+    mocks.apiRequest.mockImplementationOnce(async () => { throw new mocks.ApiError('配置暂时不可用', 500, 'API_REQUEST_FAILED') })
     clickButton('保存 AI 配置')
     await settle()
-    expect((document.querySelector('input[placeholder="留空则保留现有密钥"]') as HTMLInputElement).value).toBe('')
-    expect(document.body.textContent).toContain('页面已载入最新版本')
-    expect(document.body.textContent).not.toContain('VERSION_CONFLICT')
+    expect((document.querySelector('input[placeholder="留空则保留现有密钥"]') as HTMLInputElement).value).toBe('fixture-retry-secret')
+    expect(document.body.textContent).toContain('AI 模型配置保存失败')
+    expect(document.body.textContent).not.toContain('API_REQUEST_FAILED')
 
+    clickButton('保存 AI 配置')
+    await settle()
+    const retry = mocks.apiRequest.mock.calls.filter(([path, init]) => path === '/dashboard/saasAdmin/tenantAIProvider' && init?.method === 'PUT').at(-1)
+    expect(JSON.parse(String(retry?.[1]?.body)).apiKey).toBe('fixture-retry-secret')
+    expect(document.querySelector('input[placeholder="留空则保留现有密钥"]')).toBeNull()
+
+    clickButton('配置 AI 模型')
     setValue('API Key', 'fixture-discard-on-close')
     const closeButtons = [...document.querySelectorAll('button[aria-label="关闭"]')]
     act(() => closeButtons.at(-1)?.dispatchEvent(new MouseEvent('click', { bubbles: true })))
@@ -430,7 +455,9 @@ describe('SaaS 客户租户治理页面', () => {
     await settle()
     await settle()
     clickButton('配置 AI 模型')
+    setValue('API Key', 'fixture-cleared-on-provider-switch')
     setValue('Provider 厂商', 'openai')
+    expect((document.querySelector('input[placeholder="留空则保留现有密钥"]') as HTMLInputElement).value).toBe('')
     expect((document.querySelector('input[placeholder="https://api.example.com/v1"]') as HTMLInputElement).value).toBe('https://api.openai.com/v1')
     expect((document.querySelector('input[placeholder="模型标识"]') as HTMLInputElement).value).toBe('')
     setValue('模型名称', 'tenant-selected-model')
@@ -443,7 +470,7 @@ describe('SaaS 客户租户治理页面', () => {
     const after = mocks.apiRequest.mock.calls.filter(([path]) => path === '/dashboard/saasAdmin/tenantAIProvider').length
     expect(after).toBe(before)
     expect(document.body.textContent).toContain('有效结束时间必须晚于生效时间')
-    expect((document.querySelector('input[placeholder="留空则保留现有密钥"]') as HTMLInputElement).value).toBe('')
+    expect((document.querySelector('input[placeholder="留空则保留现有密钥"]') as HTMLInputElement).value).toBe('fixture-invalid-window')
   })
 
   it('409 后立即刷新服务端版本并允许在同一弹窗恢复', async () => {
@@ -463,6 +490,7 @@ describe('SaaS 客户租户治理页面', () => {
     expect(getCalls.length).toBeGreaterThanOrEqual(2)
     expect(document.body.textContent).toContain('页面已载入最新版本')
     expect(document.body.textContent).not.toContain('刷新治理列表')
+    expect((document.querySelector('input[placeholder="留空则保留现有密钥"]') as HTMLInputElement).value).toBe('fixture-version-conflict')
     setValue('API Key', 'fixture-after-refresh')
     clickButton('保存 AI 配置')
     await settle()
@@ -485,7 +513,111 @@ describe('SaaS 客户租户治理页面', () => {
     await settle()
     expect(document.body.textContent).toContain('最新版本刷新失败')
     expect(document.body.textContent).not.toContain('页面已载入最新版本')
-    expect((document.querySelector('input[placeholder="留空则保留现有密钥"]') as HTMLInputElement).value).toBe('')
+    expect((document.querySelector('input[placeholder="留空则保留现有密钥"]') as HTMLInputElement).value).toBe('fixture-version-conflict-refresh-failure')
+  })
+
+  it('A 保存成功迟到时不会关闭或改写关闭重开后的新 Provider 会话', async () => {
+    const pending = deferred<{ provider: { tenantId: number; providerCode: 'deepseek'; baseUrl: string; model: string; apiKeyConfigured: boolean; apiKeyHint: string; credentialProtection: string; effectiveAt: string; expiresAt: string; status: 'active'; version: number; updatedAt: string } }>()
+    await settle()
+    clickButton('详情')
+    await settle()
+    await settle()
+    const api = mocks.apiRequest.getMockImplementation()
+    mocks.apiRequest.mockImplementation((path: string, init?: RequestInit) => path === '/dashboard/saasAdmin/tenantAIProvider' && init?.method === 'PUT' ? pending.promise : api?.(path, init))
+
+    clickButton('配置 AI 模型')
+    setValue('API Key', 'fixture-late-success-a')
+    clickButton('保存 AI 配置')
+    await settle()
+    const firstDialog = getByRole(document.body, 'dialog', { name: '配置租户 AI 模型' })
+    act(() => getByRole(firstDialog, 'button', { name: '关闭' }).dispatchEvent(new MouseEvent('click', { bubbles: true })))
+    clickButton('配置 AI 模型')
+    setValue('Provider 厂商', 'openai')
+    setValue('模型名称', 'new-session-model')
+    setValue('API Key', 'fixture-new-session-key')
+
+    pending.resolve({ provider: { tenantId: 41, providerCode: 'deepseek', baseUrl: 'https://api.deepseek.com', model: 'deepseek-chat', apiKeyConfigured: true, apiKeyHint: '••••late', credentialProtection: 'usable', effectiveAt: '2026-08-25T00:00:00Z', expiresAt: '2026-09-25T00:00:00Z', status: 'active', version: 4, updatedAt: '2026-08-25T03:00:00Z' } })
+    await settle()
+    await settle()
+
+    expect(getByRole(document.body, 'dialog', { name: '配置租户 AI 模型' })).toBeTruthy()
+    expect((document.querySelector('input[placeholder="https://api.example.com/v1"]') as HTMLInputElement).value).toBe('https://api.openai.com/v1')
+    expect((document.querySelector('input[placeholder="模型标识"]') as HTMLInputElement).value).toBe('new-session-model')
+    expect((document.querySelector('input[placeholder="留空则保留现有密钥"]') as HTMLInputElement).value).toBe('fixture-new-session-key')
+    expect(JSON.stringify(client.getMutationCache().getAll().map((mutation) => mutation.state.variables))).not.toContain('fixture-late-success-a')
+  })
+
+  it('A 的迟到 409 刷新原租户缓存但不干扰已切换的 B 租户表单', async () => {
+    const pending = deferred<never>()
+    void pending.promise.catch(() => undefined)
+    client.setQueryDefaults(['tenant-ai-provider'], { staleTime: 30_000 })
+    await settle()
+    clickTenantDetails('MoChat Test Enterprise')
+    await settle()
+    await settle()
+    const api = mocks.apiRequest.getMockImplementation()
+    mocks.apiRequest.mockImplementation((path: string, init?: RequestInit) => path === '/dashboard/saasAdmin/tenantAIProvider' && init?.method === 'PUT' ? pending.promise : api?.(path, init))
+
+    clickButton('配置 AI 模型')
+    setValue('API Key', 'fixture-late-conflict-a')
+    clickButton('保存 AI 配置')
+    await settle()
+    clickTenantDetails('第二测试客户')
+    await settle()
+    await settle()
+    clickButton('配置 AI 模型')
+    setValue('Provider 厂商', 'openai')
+    setValue('模型名称', 'tenant-b-model')
+    setValue('API Key', 'fixture-tenant-b-key')
+    tenantProviderVersion = 7
+    pending.reject(new mocks.ApiError('A 租户版本冲突', 409, 'VERSION_CONFLICT'))
+    await settle()
+    await settle()
+
+    const tenantARefreshes = mocks.apiRequest.mock.calls.filter(([path]) => path === '/dashboard/saasAdmin/tenantAIProvider?tenantId=41')
+    expect(tenantARefreshes.length).toBeGreaterThanOrEqual(2)
+    expect(document.body.textContent).toContain('第二测试客户')
+    expect(document.body.textContent).not.toContain('配置已由其他管理员更新')
+    expect((document.querySelector('input[placeholder="https://api.example.com/v1"]') as HTMLInputElement).value).toBe('https://api.openai.com/v1')
+    expect((document.querySelector('input[placeholder="模型标识"]') as HTMLInputElement).value).toBe('tenant-b-model')
+    expect((document.querySelector('input[placeholder="留空则保留现有密钥"]') as HTMLInputElement).value).toBe('fixture-tenant-b-key')
+    expect(JSON.stringify(client.getMutationCache().getAll().map((mutation) => mutation.state.variables))).not.toContain('fixture-late-conflict-a')
+  })
+
+  it('安全展示 400 的具体 ApiError 消息，但 5xx 始终使用通用提示', async () => {
+    await settle()
+    clickButton('详情')
+    await settle()
+    await settle()
+    clickButton('配置 AI 模型')
+    setValue('API Key', 'fixture-error-boundary-key')
+
+    mocks.apiRequest.mockImplementationOnce(async () => { throw new mocks.ApiError('接口地址仅允许 HTTPS', 400, 'INVALID_BASE_URL') })
+    clickButton('保存 AI 配置')
+    await settle()
+    expect(document.body.textContent).toContain('接口地址仅允许 HTTPS')
+    expect(document.body.textContent).not.toContain('请检查填写内容后重试')
+
+    mocks.apiRequest.mockImplementationOnce(async () => { throw new mocks.ApiError('internal stack: fixture-error-boundary-key', 500, 'INTERNAL_ERROR') })
+    clickButton('保存 AI 配置')
+    await settle()
+    expect(document.body.textContent).toContain('AI 模型配置保存失败，请稍后重试。')
+    expect(document.body.textContent).not.toContain('internal stack')
+    expect(document.body.textContent).not.toContain('INTERNAL_ERROR')
+    clickButton('取消')
+    await settle()
+
+    const mutationCacheState = client.getMutationCache().getAll().map((mutation) => ({
+      error: mutation.state.error instanceof Error
+        ? { ...mutation.state.error, name: mutation.state.error.name, message: mutation.state.error.message }
+        : mutation.state.error,
+      data: mutation.state.data,
+      variables: mutation.state.variables,
+    }))
+    expect(document.querySelector('input[placeholder="留空则保留现有密钥"]')).toBeNull()
+    expect(JSON.stringify(mutationCacheState)).not.toContain('fixture-error-boundary-key')
+    expect(JSON.stringify(mutationCacheState)).not.toContain('internal stack')
+    expect(JSON.stringify(mutationCacheState)).not.toContain('INTERNAL_ERROR')
   })
 
 	it('治理幂等键按租户、对象、动作和版本隔离，成功后再次操作生成新键', async () => {

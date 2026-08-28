@@ -23,7 +23,8 @@ func TestSaaSAdminOverviewReturnsTenantScope(t *testing.T) {
 			Summary: SaaSAdminSummary{TenantCount: 1, OpenAlertCount: 2},
 			Tenants: []SaaSAdminTenantOverview{{
 				TenantID:        10,
-				TenantName:      "租户A",
+				TenantName:      "MoChat Test Enterprise",
+				CompanyName:     "蓝鲸数字科技（上海）有限公司",
 				PackageCode:     "pro",
 				OpenAlertCount:  2,
 				MaxUsageMetric:  SaaSMetricContacts,
@@ -62,7 +63,7 @@ func TestSaaSAdminOverviewReturnsTenantScope(t *testing.T) {
 		t.Fatalf("summary = %+v", summary)
 	}
 	tenants := data["tenants"].([]any)
-	if len(tenants) != 1 || tenants[0].(map[string]any)["maxUsageLabel"] != "客户数" {
+	if len(tenants) != 1 || tenants[0].(map[string]any)["tenantName"] != "MoChat Test Enterprise" || tenants[0].(map[string]any)["companyName"] != "蓝鲸数字科技（上海）有限公司" || tenants[0].(map[string]any)["maxUsageLabel"] != "客户数" {
 		t.Fatalf("tenants = %+v", tenants)
 	}
 }
