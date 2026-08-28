@@ -11241,7 +11241,7 @@ func (s *MySQLStore) saasAdminTenants(ctx context.Context, options dashboard.Saa
 		SELECT
 			t.id,
 			COALESCE(t.name, ''),
-			COALESCE(c.name, ''),
+			COALESCE(NULLIF(TRIM(c.name), ''), NULLIF(TRIM(t.name), ''), ''),
 			COALESCE(t.status, 0),
 			COALESCE(tp.package_code, ''),
 			COALESCE(tp.package_name, ''),
