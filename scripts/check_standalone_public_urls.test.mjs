@@ -37,6 +37,9 @@ function renderCompose(overrides = {}) {
       MOCHAT_DASHBOARD_JWT_SECRET: 'test-dashboard-jwt-secret',
       MOCHAT_DASHBOARD_MFA_ENCRYPTION_KEY_FILE: dashboardMfaKeyFile,
       MOCHAT_DASHBOARD_MFA_ENCRYPTION_KEY_ID: 'test-dashboard-key',
+      MOCHAT_GO_WECOM_CREDENTIAL_ENCRYPTION_KEY: 'test-wecom-credential-encryption-key',
+      MOCHAT_ARCHIVE_BRIDGE_BEARER: 'test-archive-bridge-bearer-01234567890123456789',
+      MOCHAT_ARCHIVE_FIXTURE_ADMIN_BEARER: 'test-archive-fixture-admin-bearer-012345678901',
       ...overrides,
     };
     const composeArguments = ['compose', '-f', composeFile, '--profile', 'app', 'config'];

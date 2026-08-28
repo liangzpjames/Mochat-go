@@ -164,3 +164,50 @@ func TestDurableArchiveBindingsAndCursorStayTenantScoped(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestBusyDurableArchiveScopesReturnOnlyEligibleQueuedOrRunningScopes(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	store := NewMySQLStore(db)
+	mock.ExpectQuery("(?s)SELECT DISTINCT run\\.tenant_id,run\\.corp_id.*INNER JOIN mochat_go_wecom_integrations integration.*INNER JOIN mc_tenant tenant.*INNER JOIN mc_corp corp.*INNER JOIN mochat_go_tenant_corp_bindings binding.*integration\\.status='active'.*run\\.status IN \\('queued','running'\\)").
+		WillReturnRows(sqlmock.NewRows([]string{"tenant_id", "corp_id"}).AddRow(11, 27).AddRow(22, 38))
+
+	scopes, err := store.BusyDurableArchiveScopes(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(scopes) != 2 || scopes[0] != (archiveprovider.Scope{TenantID: 11, CorpID: 27}) || scopes[1] != (archiveprovider.Scope{TenantID: 22, CorpID: 38}) {
+		t.Fatalf("busy scopes=%#v", scopes)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestPendingDurableArchiveRunsCarryPersistedRunIdentity(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	store := NewMySQLStore(db)
+	mock.ExpectQuery("(?s)SELECT run\\.id,run\\.tenant_id,run\\.corp_id.*run\\.status='queued'.*run\\.lease_expires_at<=NOW\\(\\)").
+		WithArgs(25).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "tenant_id", "corp_id", "verified_wx_corpid", "wecom_integration_mode", "cursor_sequence", "cursor_token", "idempotency_key",
+		}).AddRow(901, 11, 27, "ww-local", archiveprovider.IntegrationModeSelfBuilt, 42, "opaque", "archive:manual:request-1"))
+
+	pending, err := store.PendingDurableArchiveRuns(context.Background(), 25)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pending) != 1 || pending[0].RunID != "901" || pending[0].Binding.Scope != (archiveprovider.Scope{TenantID: 11, CorpID: 27}) || pending[0].Cursor.Sequence != 42 || pending[0].IdempotencyKey != "archive:manual:request-1" {
+		t.Fatalf("pending=%#v", pending)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}

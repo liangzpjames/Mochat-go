@@ -202,7 +202,7 @@ func (s *MySQLStore) PendingDurableArchiveRuns(ctx context.Context, limit int) (
 		limit = 100
 	}
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT run.tenant_id,run.corp_id,integration.verified_wx_corpid,binding.wecom_integration_mode,
+		SELECT run.id,run.tenant_id,run.corp_id,integration.verified_wx_corpid,binding.wecom_integration_mode,
 		       run.cursor_sequence,run.cursor_token,run.idempotency_key
 		FROM mochat_go_archive_sync_runs run
 		INNER JOIN mochat_go_wecom_integrations integration
@@ -226,12 +226,50 @@ func (s *MySQLStore) PendingDurableArchiveRuns(ctx context.Context, limit int) (
 	for rows.Next() {
 		var item archiveprovider.DurableArchivePendingRun
 		if err := rows.Scan(
-			&item.Binding.Scope.TenantID, &item.Binding.Scope.CorpID, &item.Binding.WXCorpID, &item.Binding.IntegrationMode,
+			&item.RunID, &item.Binding.Scope.TenantID, &item.Binding.Scope.CorpID, &item.Binding.WXCorpID, &item.Binding.IntegrationMode,
 			&item.Cursor.Sequence, &item.Cursor.Token, &item.IdempotencyKey,
 		); err != nil {
 			return nil, err
 		}
 		result = append(result, item)
+	}
+	return result, rows.Err()
+}
+
+// BusyDurableArchiveScopes returns eligible scopes that already have queued or
+// running work. Unlike PendingDurableArchiveRuns, it intentionally includes
+// running work with an active lease so the scheduled enqueuer cannot stack a
+// second cursor window behind an in-flight run.
+func (s *MySQLStore) BusyDurableArchiveScopes(ctx context.Context) ([]archiveprovider.Scope, error) {
+	if s == nil || s.db == nil {
+		return nil, errors.New("archive sync store unavailable")
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT DISTINCT run.tenant_id,run.corp_id
+		FROM mochat_go_archive_sync_runs run
+		INNER JOIN mochat_go_wecom_integrations integration
+		  ON integration.tenant_id=run.tenant_id AND integration.corp_id=run.corp_id
+		INNER JOIN mc_tenant tenant ON tenant.id=integration.tenant_id AND tenant.status=1 AND tenant.deleted_at IS NULL
+		INNER JOIN mc_corp corp ON corp.tenant_id=integration.tenant_id AND corp.id=integration.corp_id AND corp.deleted_at IS NULL
+		INNER JOIN mochat_go_tenant_corp_bindings binding ON binding.tenant_id=integration.tenant_id AND binding.corp_id=integration.corp_id
+		WHERE `+durableArchiveEligibilityPredicate+`
+		  AND run.source_kind='external'
+		  AND run.source_id=CONCAT('wecom:',binding.wecom_integration_mode,':',integration.verified_wx_corpid)
+		  AND run.namespace=run.source_id
+		  AND run.status IN ('queued','running')
+		ORDER BY run.tenant_id,run.corp_id
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := make([]archiveprovider.Scope, 0)
+	for rows.Next() {
+		var scope archiveprovider.Scope
+		if err := rows.Scan(&scope.TenantID, &scope.CorpID); err != nil {
+			return nil, err
+		}
+		result = append(result, scope)
 	}
 	return result, rows.Err()
 }
