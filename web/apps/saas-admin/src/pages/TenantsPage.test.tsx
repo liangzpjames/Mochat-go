@@ -472,6 +472,7 @@ describe('SaaS 客户租户治理页面', () => {
     expect(getCalls.length).toBeGreaterThanOrEqual(2)
     expect(document.body.textContent).toContain('页面已载入最新版本')
     expect(document.body.textContent).not.toContain('刷新治理列表')
+    expect((document.querySelector('input[placeholder="留空则保留现有密钥"]') as HTMLInputElement).value).toBe('fixture-version-conflict')
     setValue('API Key', 'fixture-after-refresh')
     clickButton('保存 AI 配置')
     await settle()
