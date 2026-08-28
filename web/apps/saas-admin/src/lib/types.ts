@@ -51,7 +51,7 @@ export interface OverviewSummary {
 
 export interface TenantSummary {
   companyName: string
-	expired: boolean
+  expired: boolean
   expiresAt: string
   expiringSoon: boolean
   maxUsageCurrent: number

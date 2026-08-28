@@ -121,7 +121,7 @@ interface ResendOperation {
   accountHint: string
   expectedVersion: number
   requestKeySlot: string
-	requestKey: string
+  requestKey: string
 }
 
 const tenantCompanyName = (tenant?: TenantSummary | null) => tenant?.companyName?.trim() || tenant?.tenantName?.trim() || ''
