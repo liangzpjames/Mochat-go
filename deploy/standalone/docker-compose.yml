@@ -317,7 +317,7 @@ services:
     volumes:
       - app-storage:/app/storage
     healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:8083/healthz"]
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:8083/readyz"]
       interval: 5s
       timeout: 3s
       retries: 30

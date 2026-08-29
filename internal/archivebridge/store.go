@@ -3,6 +3,7 @@ package archivebridge
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"sync"
 
@@ -39,7 +40,10 @@ type Driver struct {
 	DataZone DataZoneDriver
 }
 
-type BridgeError struct{ Code string }
+type BridgeError struct {
+	Code  string
+	Cause error
+}
 
 func (e *BridgeError) Error() string {
 	if e == nil || strings.TrimSpace(e.Code) == "" {
@@ -48,8 +52,16 @@ func (e *BridgeError) Error() string {
 	return "archive bridge request failed: " + strings.TrimSpace(e.Code)
 }
 
+func (e *BridgeError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Cause
+}
+
 func ErrorCode(err error) string {
-	if typed, ok := err.(*BridgeError); ok && typed != nil {
+	var typed *BridgeError
+	if errors.As(err, &typed) && typed != nil {
 		return strings.TrimSpace(typed.Code)
 	}
 	return ""
@@ -113,6 +125,15 @@ func (s *Store) Status() map[string]any {
 		counts[driver.Binding.IntegrationMode]++
 	}
 	return map[string]any{"status": "ok", "bindingCount": len(s.drivers), "modeCounts": counts}
+}
+
+func (s *Store) DriverCount() int {
+	if s == nil {
+		return 0
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return len(s.drivers)
 }
 
 func (s *Store) Unregister(binding Binding) error {
