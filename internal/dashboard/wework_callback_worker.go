@@ -763,7 +763,7 @@ func (w *WeWorkCallbackWorker) syncContactFromEvent(ctx context.Context, corpID 
 		}
 		if err := w.handleFissionAddContactFromState(ctx, corpID, credential, employee, contact, result, event); err != nil {
 			w.logger.Printf("wework callback work fission add contact skipped: corp=%d employee=%d contact=%d state=%q err=%v", corpID, employee.ID, result.ContactID, contactWelcomeState(event), errors.New(SanitizeWeWorkCallbackFailure(err.Error())))
-			if errors.Is(err, ErrWeWorkCallbackSideEffectReconcileRequired) {
+			if _, durable := WeWorkCallbackExecutionFromContext(ctx); durable {
 				return err
 			}
 		}
