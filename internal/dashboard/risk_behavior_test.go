@@ -5,10 +5,15 @@ import (
 	"testing"
 )
 
-func TestValidateRiskRuleRejectsDuplicateBehavior(t *testing.T) {
-	err := ValidateRiskRule(RiskRule{Name: "敏感信息", Status: RiskRuleEnabled, Subject: RiskSubjectEmployee, Strategies: []RiskRuleStrategy{{Behavior: "sensitive_word", Pattern: "手机号", RiskLevel: "high"}, {Behavior: "sensitive_word", Pattern: "电话", RiskLevel: "high"}}})
-	if err == nil {
-		t.Fatal("expected duplicate behavior to be rejected")
+func TestValidateRiskRuleRequiresExactlyOneSupportedStrategy(t *testing.T) {
+	for _, strategies := range [][]RiskRuleStrategy{
+		nil,
+		{{Behavior: "private_transaction", Pattern: "私下", RiskLevel: "high"}, {Behavior: "sensitive_word", Pattern: "电话", RiskLevel: "high"}},
+	} {
+		err := ValidateRiskRule(RiskRule{Name: "敏感信息", Status: RiskRuleEnabled, Subject: RiskSubjectEmployee, Strategies: strategies})
+		if err == nil || !strings.Contains(err.Error(), "恰好配置 1 条") {
+			t.Fatalf("strategies=%d err=%v", len(strategies), err)
+		}
 	}
 }
 
@@ -19,19 +24,10 @@ func TestValidateRiskRuleAcceptsArcRiskRuleShape(t *testing.T) {
 	}
 }
 
-func TestValidateRiskRuleRejectsUnknownBehaviorAndUnboundedStrategies(t *testing.T) {
+func TestValidateRiskRuleRejectsUnknownBehavior(t *testing.T) {
 	base := RiskRule{Name: "风险行为", Status: RiskRuleEnabled, Subject: RiskSubjectBoth}
 	base.Strategies = []RiskRuleStrategy{{Behavior: "unknown", Pattern: "报价", RiskLevel: "medium"}}
 	if err := ValidateRiskRule(base); err == nil || !strings.Contains(err.Error(), "行为") {
 		t.Fatalf("unknown behavior err=%v", err)
-	}
-	base.Strategies = []RiskRuleStrategy{
-		{Behavior: "private_transaction", Pattern: "a", RiskLevel: "low"},
-		{Behavior: "promise_rebate", Pattern: "b", RiskLevel: "medium"},
-		{Behavior: "sensitive_word", Pattern: "c", RiskLevel: "high"},
-		{Behavior: "unknown", Pattern: "d", RiskLevel: "low"},
-	}
-	if err := ValidateRiskRule(base); err == nil || !strings.Contains(err.Error(), "最多") {
-		t.Fatalf("unbounded strategies err=%v", err)
 	}
 }

@@ -112,12 +112,17 @@ const (
 	RiskSubjectBoth     RiskSubject = "both"
 )
 
-const MaxRiskRuleStrategies = 3
+const (
+	MaxRiskRuleStrategies          = 1
+	RiskBehaviorPrivateTransaction = "private_transaction"
+	RiskBehaviorPromiseRebate      = "promise_rebate"
+	RiskBehaviorSensitiveWord      = "sensitive_word"
+)
 
 var supportedRiskBehaviors = map[string]struct{}{
-	"private_transaction": {},
-	"promise_rebate":      {},
-	"sensitive_word":      {},
+	RiskBehaviorPrivateTransaction: {},
+	RiskBehaviorPromiseRebate:      {},
+	RiskBehaviorSensitiveWord:      {},
 }
 
 type RiskRuleStrategy struct {
@@ -180,8 +185,8 @@ func ValidateRiskRule(rule RiskRule) error {
 	if rule.Subject != RiskSubjectEmployee && rule.Subject != RiskSubjectCustomer && rule.Subject != RiskSubjectBoth {
 		return fmt.Errorf("监听主体无效")
 	}
-	if len(rule.Strategies) == 0 || len(rule.Strategies) > MaxRiskRuleStrategies {
-		return fmt.Errorf("风险策略必须配置 1 条且最多 %d 条", MaxRiskRuleStrategies)
+	if len(rule.Strategies) != MaxRiskRuleStrategies {
+		return fmt.Errorf("当前产品规则必须恰好配置 1 条风险策略")
 	}
 	seen := map[string]struct{}{}
 	for _, strategy := range rule.Strategies {

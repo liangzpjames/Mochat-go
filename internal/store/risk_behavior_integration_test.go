@@ -175,8 +175,8 @@ func TestRiskRuleBatchForEvaluationUsesBoundedHighWaterKeyset(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"id", "tenant_id", "corp_id", "name", "status", "subject", "whitelist_json", "ai_insight_enabled", "trigger_count"}).
 			AddRow(101, 11, 27, "rule-101", "enabled", "both", []byte(`[]`), 0, 0).
 			AddRow(102, 11, 27, "rule-102", "enabled", "both", []byte(`[]`), 0, 0))
-	mock.ExpectQuery(`(?s)FROM mochat_go_risk_rule_strategies.*rule_id IN \(\?,\?\).*ORDER BY rule_id,id FOR UPDATE`).
-		WithArgs(int64(101), int64(102)).
+	mock.ExpectQuery(`(?s)FROM mochat_go_risk_rule_strategies.*rule_id IN \(\?,\?\).*behavior IN \(\?,\?,\?\).*ORDER BY rule_id,id FOR UPDATE`).
+		WithArgs(int64(101), int64(102), "private_transaction", "promise_rebate", "sensitive_word").
 		WillReturnRows(sqlmock.NewRows([]string{"rule_id", "id", "behavior", "pattern", "notify_type", "risk_level"}).
 			AddRow(101, 1001, "sensitive_word", "first", "none", "high").
 			AddRow(102, 1002, "sensitive_word", "second", "none", "high"))
@@ -193,6 +193,31 @@ func TestRiskRuleBatchForEvaluationUsesBoundedHighWaterKeyset(t *testing.T) {
 		t.Fatalf("rules=%d cursor=%d", len(rules), cursor)
 	}
 	_ = tx.Rollback()
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestEvaluateRiskMessageDoesNotLoadUnsupportedHistoricalBehavior(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	mock.ExpectBegin()
+	expectRiskHighWater(mock, 1)
+	mock.ExpectQuery(`(?s)FROM mochat_go_risk_rules.*LIMIT \? FOR UPDATE`).
+		WithArgs(11, 27, int64(0), int64(1), 100).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "tenant_id", "corp_id", "name", "status", "subject", "whitelist_json", "ai_insight_enabled", "trigger_count"}).
+			AddRow(1, 11, 27, "legacy", "enabled", "both", []byte(`[]`), 0, 0))
+	mock.ExpectQuery(`(?s)FROM mochat_go_risk_rule_strategies.*behavior IN \(\?,\?,\?\).*ORDER BY rule_id,id FOR UPDATE`).
+		WithArgs(int64(1), "private_transaction", "promise_rebate", "sensitive_word").
+		WillReturnRows(sqlmock.NewRows([]string{"rule_id", "id", "behavior", "pattern", "notify_type", "risk_level"}))
+	mock.ExpectCommit()
+	created, err := NewMySQLStore(db).EvaluateRiskMessage(context.Background(), dashboard.RiskMessage{TenantID: 11, CorpID: 27, MessageID: "unsupported-history", Content: "legacy-token"})
+	if err != nil || created != 0 {
+		t.Fatalf("created=%d err=%v", created, err)
+	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)
 	}
@@ -254,11 +279,11 @@ func TestUpdateRiskRuleRequiresTenantAndCorpScope(t *testing.T) {
 	mock.ExpectQuery(`SELECT id FROM mochat_go_risk_rules.*FOR UPDATE`).
 		WithArgs(int64(77), int64(11), int64(27)).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(77))
-	mock.ExpectExec(`UPDATE mochat_go_risk_rules SET name=\?,status=\?,subject=\?.* WHERE id=\? AND tenant_id=\? AND corp_id=\?`).
-		WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectQuery(`SELECT id,behavior FROM mochat_go_risk_rule_strategies.*FOR UPDATE`).
 		WithArgs(int64(77)).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "behavior"}).AddRow(9001, "sensitive_word"))
+	mock.ExpectExec(`UPDATE mochat_go_risk_rules SET name=\?,status=\?,subject=\?.* WHERE id=\? AND tenant_id=\? AND corp_id=\?`).
+		WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectExec(`UPDATE mochat_go_risk_rule_strategies SET pattern=\?,notify_type=\?,risk_level=\? WHERE id=\? AND rule_id=\?`).
 		WithArgs("needle", "none", "high", int64(9001), int64(77)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
@@ -269,6 +294,32 @@ func TestUpdateRiskRuleRequiresTenantAndCorpScope(t *testing.T) {
 		Strategies: []dashboard.RiskRuleStrategy{{Behavior: "sensitive_word", Pattern: "needle", NotifyType: "none", RiskLevel: "high"}},
 	})
 	if err != nil || !updated {
+		t.Fatalf("updated=%v err=%v", updated, err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestUpdateRiskRuleRejectsHistoricalMultiStrategyWithoutWriting(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	mock.ExpectBegin()
+	mock.ExpectQuery(`SELECT id FROM mochat_go_risk_rules.*FOR UPDATE`).
+		WithArgs(int64(77), int64(11), int64(27)).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(77))
+	mock.ExpectQuery(`SELECT id,behavior FROM mochat_go_risk_rule_strategies.*FOR UPDATE`).
+		WithArgs(int64(77)).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "behavior"}).AddRow(9001, "sensitive_word").AddRow(9002, "private_transaction"))
+	mock.ExpectRollback()
+	updated, err := NewMySQLStore(db).UpdateRiskRule(context.Background(), dashboard.RiskRule{
+		ID: 77, TenantID: 11, CorpID: 27, Name: "legacy", Status: dashboard.RiskRuleEnabled, Subject: dashboard.RiskSubjectBoth,
+		Strategies: []dashboard.RiskRuleStrategy{{Behavior: "sensitive_word", Pattern: "needle", NotifyType: "none", RiskLevel: "high"}},
+	})
+	if err == nil || updated || !strings.Contains(err.Error(), "历史多策略") {
 		t.Fatalf("updated=%v err=%v", updated, err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
@@ -290,16 +341,17 @@ func expectRiskHighWater(mock sqlmock.Sqlmock, highWater int64) {
 func expectRiskEvaluationBatch(mock sqlmock.Sqlmock, cursor, highWater int64, values ...riskEvaluationRow) {
 	ruleRows := sqlmock.NewRows([]string{"id", "tenant_id", "corp_id", "name", "status", "subject", "whitelist_json", "ai_insight_enabled", "trigger_count"})
 	strategyRows := sqlmock.NewRows([]string{"rule_id", "id", "behavior", "pattern", "notify_type", "risk_level"})
-	strategyArgs := make([]driver.Value, 0, len(values))
+	strategyArgs := make([]driver.Value, 0, len(values)+3)
 	for _, value := range values {
 		ruleRows.AddRow(value.id, 11, 27, fmt.Sprintf("rule-%d", value.id), "enabled", "both", []byte(`[]`), 0, 0)
 		strategyRows.AddRow(value.id, value.strategyID, "sensitive_word", value.pattern, "none", "high")
 		strategyArgs = append(strategyArgs, int64(value.id))
 	}
+	strategyArgs = append(strategyArgs, "private_transaction", "promise_rebate", "sensitive_word")
 	mock.ExpectQuery(`(?s)FROM mochat_go_risk_rules.*id>\?.*id<=\?.*LIMIT \? FOR UPDATE`).
 		WithArgs(11, 27, cursor, highWater, 100).
 		WillReturnRows(ruleRows)
-	mock.ExpectQuery(`(?s)FROM mochat_go_risk_rule_strategies.*ORDER BY rule_id,id FOR UPDATE`).
+	mock.ExpectQuery(`(?s)FROM mochat_go_risk_rule_strategies.*behavior IN \(\?,\?,\?\).*ORDER BY rule_id,id FOR UPDATE`).
 		WithArgs(strategyArgs...).
 		WillReturnRows(strategyRows)
 }

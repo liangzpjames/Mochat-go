@@ -198,6 +198,9 @@ func (s *MySQLStore) EvaluateRiskMessage(ctx context.Context, message dashboard.
 }
 
 func riskRuleBatchForEvaluation(ctx context.Context, tx *sql.Tx, tenantID, corpID int, cursor, highWater int64, limit int) ([]dashboard.RiskRule, int64, error) {
+	if limit < 1 || limit > 100 {
+		limit = 100
+	}
 	rows, err := tx.QueryContext(ctx, `SELECT id,tenant_id,corp_id,name,status,subject,whitelist_json,ai_insight_enabled,trigger_count
 		FROM mochat_go_risk_rules
 		WHERE tenant_id=? AND corp_id=? AND status='enabled' AND id>? AND id<=?
@@ -233,15 +236,16 @@ func riskRuleBatchForEvaluation(ctx context.Context, tx *sql.Tx, tenantID, corpI
 	if len(rules) == 0 {
 		return rules, cursor, nil
 	}
-	args := make([]any, 0, len(ruleIDs))
+	args := make([]any, 0, len(ruleIDs)+3)
 	index := make(map[int64]int, len(ruleIDs))
 	for i, id := range ruleIDs {
 		args = append(args, id)
 		index[id] = i
 	}
+	args = append(args, dashboard.RiskBehaviorPrivateTransaction, dashboard.RiskBehaviorPromiseRebate, dashboard.RiskBehaviorSensitiveWord)
 	strategyRows, err := tx.QueryContext(ctx, `SELECT rule_id,id,behavior,pattern,notify_type,risk_level
 		FROM mochat_go_risk_rule_strategies
-		WHERE rule_id IN (`+placeholders(len(ruleIDs))+`)
+		WHERE rule_id IN (`+placeholders(len(ruleIDs))+`) AND behavior IN (?,?,?)
 		ORDER BY rule_id,id FOR UPDATE`, args...)
 	if err != nil {
 		return nil, cursor, err
@@ -473,6 +477,32 @@ func (s *MySQLStore) UpdateRiskRule(ctx context.Context, rule dashboard.RiskRule
 	if err != nil {
 		return false, err
 	}
+	rows, err := tx.QueryContext(ctx, `SELECT id,behavior FROM mochat_go_risk_rule_strategies WHERE rule_id=? ORDER BY id FOR UPDATE`, rule.ID)
+	if err != nil {
+		return false, err
+	}
+	existing := make(map[string]int64, len(rule.Strategies))
+	existingCount := 0
+	for rows.Next() {
+		var id int64
+		var behavior string
+		if err := rows.Scan(&id, &behavior); err != nil {
+			rows.Close()
+			return false, err
+		}
+		existingCount++
+		existing[behavior] = id
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return false, err
+	}
+	if err := rows.Close(); err != nil {
+		return false, err
+	}
+	if existingCount > 1 {
+		return false, fmt.Errorf("历史多策略规则不能通过当前单策略编辑器覆盖，请先治理")
+	}
 	result, err := tx.ExecContext(ctx, `UPDATE mochat_go_risk_rules SET name=?,status=?,subject=?,whitelist_json=?,ai_insight_enabled=?,updated_at=? WHERE id=? AND tenant_id=? AND corp_id=?`, strings.TrimSpace(rule.Name), rule.Status, rule.Subject, whitelist, rule.AIInsightEnabled, time.Now(), rule.ID, rule.TenantID, rule.CorpID)
 	if err != nil {
 		return false, err
@@ -483,27 +513,6 @@ func (s *MySQLStore) UpdateRiskRule(ctx context.Context, rule dashboard.RiskRule
 	}
 	if affected > 1 {
 		return false, fmt.Errorf("风险规则更新影响了意外的行数")
-	}
-	rows, err := tx.QueryContext(ctx, `SELECT id,behavior FROM mochat_go_risk_rule_strategies WHERE rule_id=? ORDER BY id FOR UPDATE`, rule.ID)
-	if err != nil {
-		return false, err
-	}
-	existing := make(map[string]int64, len(rule.Strategies))
-	for rows.Next() {
-		var id int64
-		var behavior string
-		if err := rows.Scan(&id, &behavior); err != nil {
-			rows.Close()
-			return false, err
-		}
-		existing[behavior] = id
-	}
-	if err := rows.Err(); err != nil {
-		rows.Close()
-		return false, err
-	}
-	if err := rows.Close(); err != nil {
-		return false, err
 	}
 	retained := make(map[string]struct{}, len(rule.Strategies))
 	for _, strategy := range rule.Strategies {

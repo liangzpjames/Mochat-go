@@ -15,6 +15,7 @@ type riskHandlerProvider struct {
 	recordFilter RiskRecordFilter
 	createCalls  int
 	updateCalls  int
+	updateErr    error
 }
 
 func (p *riskHandlerProvider) TenantIDByCorpID(context.Context, int) (int, error) {
@@ -42,7 +43,7 @@ func (p *riskHandlerProvider) CreateRiskRule(context.Context, RiskRule) (int64, 
 
 func (p *riskHandlerProvider) UpdateRiskRule(context.Context, RiskRule) (bool, error) {
 	p.updateCalls++
-	return true, nil
+	return p.updateErr == nil, p.updateErr
 }
 
 func (p *riskHandlerProvider) SetRiskRuleStatus(context.Context, int, int, int64, RiskRuleStatus) (bool, error) {
@@ -94,6 +95,18 @@ func TestRiskBehaviorHandlerRejectsUnsupportedStrategyBeforeStore(t *testing.T) 
 	handler.CreateRule(response, request)
 	if response.Code != http.StatusBadRequest || provider.createCalls != 0 {
 		t.Fatalf("status=%d calls=%d body=%s", response.Code, provider.createCalls, response.Body.String())
+	}
+}
+
+func TestRiskBehaviorHandlerSurfacesHistoricalMultiStrategyConflict(t *testing.T) {
+	provider := &riskHandlerProvider{updateErr: errors.New("历史多策略规则不能通过当前单策略编辑器覆盖，请先治理")}
+	handler := NewRiskBehaviorHandler(provider, nil, nil, nil)
+	body := `{"id":77,"name":"legacy","status":"enabled","subject":"both","strategies":[{"behavior":"sensitive_word","pattern":"x","riskLevel":"high"}]}`
+	request := authenticatedDashboardRequestForTestAs(http.MethodPut, "/dashboard/risk/rules", strings.NewReader(body), 7, 23, 5, 9)
+	response := httptest.NewRecorder()
+	handler.UpdateRule(response, request)
+	if response.Code != http.StatusBadRequest || provider.updateCalls != 1 || !strings.Contains(response.Body.String(), "历史多策略") {
+		t.Fatalf("status=%d calls=%d body=%s", response.Code, provider.updateCalls, response.Body.String())
 	}
 }
 
