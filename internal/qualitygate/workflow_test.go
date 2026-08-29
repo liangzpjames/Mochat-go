@@ -1151,7 +1151,7 @@ func TestWeWorkCallbackQueueGateAndSmokeUseDurableInboxContract(t *testing.T) {
 	}
 	assertDurableCallbackWorkerIsRedisOptional(t)
 	cutover := readRepositoryFile(t, "cmd/mochat-callback-legacy-cutover/main.go")
-	for _, required := range []string{"confirm-legacy-traffic-stopped", "MOCHAT_GO_WEWORK_CALLBACK_LEGACY_TRAFFIC_STOPPED", "sourceFingerprint", "CompleteWeWorkCallbackLegacyCutover", "LegacyWeWorkCallbackCutoverName"} {
+	for _, required := range []string{"confirm-legacy-traffic-stopped", "MOCHAT_GO_WEWORK_CALLBACK_LEGACY_TRAFFIC_STOPPED", "sourceFingerprint", "ownerToken", "newCutoverOwnerToken", "BeginWeWorkCallbackLegacyCutover", "CompleteWeWorkCallbackLegacyCutover", "LegacyWeWorkCallbackCutoverName"} {
 		if !strings.Contains(cutover, required) {
 			t.Fatalf("controlled legacy cutover command missing %q", required)
 		}
@@ -1193,7 +1193,9 @@ func assertDurableCallbackWorkerIsRedisOptional(t *testing.T) {
 	if callbackBlock == nil {
 		t.Fatal("durable callback worker startup block not found")
 	}
-	optionalResolverFound := false
+	startupProbeFound := false
+	lazyResolverInjected := false
+	staticEmptyCapabilities := false
 	ast.Inspect(callbackBlock, func(node ast.Node) bool {
 		call, ok := node.(*ast.CallExpr)
 		if !ok {
@@ -1204,13 +1206,28 @@ func assertDurableCallbackWorkerIsRedisOptional(t *testing.T) {
 			case "getRedisStore", "ImportLegacyWeWorkCallbackBacklog", "executeCutover":
 				t.Fatalf("ordinary durable callback startup calls forbidden dependency %s", name.Name)
 			case "optionalWeWorkCallbackCapabilities":
-				optionalResolverFound = true
+				startupProbeFound = true
+			}
+		}
+		if selector, ok := call.Fun.(*ast.SelectorExpr); ok {
+			switch selector.Sel.Name {
+			case "WithCapabilityResolver":
+				lazyResolverInjected = true
+			case "NewWeWorkCallbackWorker":
+				if len(call.Args) > 0 {
+					if literal, ok := call.Args[0].(*ast.CompositeLit); ok && len(literal.Elts) == 0 {
+						staticEmptyCapabilities = true
+					}
+				}
 			}
 		}
 		return true
 	})
-	if !optionalResolverFound {
-		t.Fatal("durable callback startup does not resolve Redis as an optional capability")
+	if !startupProbeFound {
+		t.Fatal("durable callback startup no longer probes Redis only for the optional consumer")
+	}
+	if !lazyResolverInjected || !staticEmptyCapabilities {
+		t.Fatal("durable callback producer does not use an empty static capability set plus lazy Redis resolver")
 	}
 
 	configPath := filepath.Join("..", "..", "internal", "config", "config.go")

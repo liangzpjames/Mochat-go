@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS `mochat_go_wework_callback_cutovers` (
   `name` varchar(64) COLLATE utf8mb4_bin NOT NULL,
   `status` varchar(16) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'pending',
   `source_fingerprint` char(64) COLLATE utf8mb4_bin NOT NULL DEFAULT '',
+  `owner_token` char(64) COLLATE utf8mb4_bin NOT NULL DEFAULT '',
   `imported_count` bigint(20) unsigned NOT NULL DEFAULT 0,
   `last_error` varchar(512) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
   `completed_at` datetime(6) NULL DEFAULT NULL,

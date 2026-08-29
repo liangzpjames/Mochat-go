@@ -60,6 +60,21 @@ type weWorkCallbackRedisCapabilities interface {
 	dashboard.AutoTagMarkTagsQueue
 }
 
+type weWorkCallbackRedisCapabilityResolver struct {
+	candidate weWorkCallbackRedisCapabilities
+}
+
+func (r weWorkCallbackRedisCapabilityResolver) ResolveWeWorkCallbackCapabilities(ctx context.Context) (dashboard.WeWorkCallbackWorkerCapabilities, error) {
+	if r.candidate == nil || r.candidate.Ping(ctx) != nil {
+		return dashboard.WeWorkCallbackWorkerCapabilities{}, fmt.Errorf("%w: dependency=redis capability=callback_downstream_queue", dashboard.ErrWeWorkCallbackDependencyUnavailable)
+	}
+	return dashboard.WeWorkCallbackWorkerCapabilities{
+		ContactWelcomeQueue: r.candidate,
+		ContactWelcomeCache: r.candidate,
+		MarkTagsQueue:       r.candidate,
+	}, nil
+}
+
 func optionalWeWorkCallbackCapabilities(ctx context.Context, candidate weWorkCallbackRedisCapabilities) (dashboard.WeWorkCallbackWorkerCapabilities, bool) {
 	if candidate == nil || candidate.Ping(ctx) != nil {
 		return dashboard.WeWorkCallbackWorkerCapabilities{}, false
@@ -3147,8 +3162,9 @@ func main() {
 	}
 	if cfg.EnableWeWorkCallbackWorker {
 		callbackRedis := getOptionalWeWorkCallbackRedisStore()
+		callbackCapabilityResolver := weWorkCallbackRedisCapabilityResolver{candidate: callbackRedis}
 		capabilityCtx, cancelCapabilityProbe := context.WithTimeout(context.Background(), 2*time.Second)
-		callbackCapabilities, redisCapabilitiesAvailable := optionalWeWorkCallbackCapabilities(capabilityCtx, callbackRedis)
+		_, redisCapabilitiesAvailable := optionalWeWorkCallbackCapabilities(capabilityCtx, callbackRedis)
 		cancelCapabilityProbe()
 		if !redisCapabilitiesAvailable {
 			structuredLogger().Warn("durable WeWork callback worker started without optional Redis downstream queues",
@@ -3159,12 +3175,13 @@ func main() {
 			)
 		}
 		worker := dashboard.NewWeWorkCallbackWorker(
-			callbackCapabilities,
+			dashboard.WeWorkCallbackWorkerCapabilities{},
 			getMySQLStore(),
 			dashboard.NewRoomWelcomeWeComClient(cfg.WeComAPIBaseURL),
 			"",
 			log.Default(),
-		).WithProcessingTimeout(cfg.WorkerProcessingTimeout).
+		).WithCapabilityResolver(callbackCapabilityResolver).
+			WithProcessingTimeout(cfg.WorkerProcessingTimeout).
 			WithWorkFissionBaseURLs(cfg.APIBaseURL, cfg.OperationBaseURL).
 			WithSidebarBaseURL(cfg.SidebarBaseURL).
 			WithFileStorageRoot(cfg.FileStorageRoot).

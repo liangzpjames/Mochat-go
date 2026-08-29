@@ -1260,6 +1260,40 @@ func TestWeWorkCallbackWorkerEnqueuesRoomJoinAutoTagFromRoomEvent(t *testing.T) 
 	}
 }
 
+func TestWeWorkCallbackWorkerRetriesRoomJoinMarkTagsUntilRedisRecovers(t *testing.T) {
+	queue := &fakeWeWorkCallbackWorkerQueue{}
+	resolver := &fakeWeWorkCallbackCapabilityResolver{err: errors.New("redis down")}
+	store := &fakeWeWorkCallbackWorkerStore{
+		credential: RoomWelcomeCorpCredential{CorpID: 7, WXCorpID: "ww-go", ContactSecret: "contact-secret"},
+		roomJoinTaskResult: AutoTagRoomJoinTaskResult{MarkTagsEvents: []MarkTagsEvent{{
+			CorpID: 7, ContactID: 101, EmployeeID: 3, TagIDs: []int{8}, Source: "auto-tag-join-room:77", AutoTagID: 66, AutoTagRecordID: 77,
+		}}},
+	}
+	client := &fakeWeWorkCallbackWorkerClient{
+		groupChats: []WorkRoomSyncGroupChat{{WXChatID: "room-1", Status: 1}},
+		rooms:      map[string]WorkRoomSyncRoom{"room-1": {WXChatID: "room-1", Name: "customer room"}},
+	}
+	worker := NewWeWorkCallbackWorker(WeWorkCallbackWorkerCapabilities{}, store, client, "worker-secret", log.Default()).
+		WithCapabilityResolver(resolver)
+	event := WeWorkCallbackEvent{CorpID: 7, EventPath: "event.change_external_chat.update", Message: map[string]string{"ChatId": "room-1"}}
+
+	if err := worker.Process(context.Background(), event); !errors.Is(err, ErrWeWorkCallbackDependencyUnavailable) {
+		t.Fatalf("redis-down Process error=%v", err)
+	}
+	if len(queue.markTagsEvents) != 0 {
+		t.Fatalf("redis-down enqueued=%v", queue.markTagsEvents)
+	}
+
+	resolver.err = nil
+	resolver.capabilities = fakeWeWorkCallbackWorkerCapabilities(queue)
+	if err := worker.Process(context.Background(), event); err != nil {
+		t.Fatal(err)
+	}
+	if len(queue.markTagsEvents) != 1 || resolver.calls != 2 {
+		t.Fatalf("redis-recovered enqueued=%v resolver_calls=%d", queue.markTagsEvents, resolver.calls)
+	}
+}
+
 func TestWeWorkCallbackWorkerGeneratesRoomJoinSOPLogFromRoomEvent(t *testing.T) {
 	now := time.Date(2026, 7, 7, 10, 30, 0, 0, time.Local)
 	store := &fakeWeWorkCallbackWorkerStore{
@@ -1453,6 +1487,70 @@ func TestWeWorkCallbackWorkerRetriesFailedDurableClaim(t *testing.T) {
 
 	if len(store.failedClaims) != 1 || len(store.completedClaims) != 0 {
 		t.Fatalf("failed=%+v completed=%+v", store.failedClaims, store.completedClaims)
+	}
+}
+
+func TestWeWorkCallbackWorkerLazyRedisRecoveryRetriesQueueRequiredEvent(t *testing.T) {
+	const secret = "callback-secret-value"
+	queue := &fakeWeWorkCallbackWorkerQueue{welcomeStatuses: map[int]int{}}
+	resolver := &fakeWeWorkCallbackCapabilityResolver{
+		err: fmt.Errorf("redis password=%s", secret),
+	}
+	workerStore := &fakeWeWorkCallbackWorkerStore{
+		credential:           RoomWelcomeCorpCredential{CorpID: 7, WXCorpID: "ww-go", ContactSecret: "contact-secret"},
+		contactSyncEmployees: []WorkContactSyncEmployee{{ID: 3, WXUserID: "go-user"}},
+		syncResult:           WorkContactSyncResult{ContactID: 101},
+		greetings:            []GreetingItem{{ID: 1, CorpID: 7, Words: "hello", RangeType: 1}},
+	}
+	client := &fakeWeWorkCallbackWorkerClient{
+		contacts: map[string]WorkContactSyncContact{
+			"external-user": {WXExternalUserID: "external-user", Name: "customer", FollowUsers: []WorkContactSyncFollowUser{{UserID: "go-user"}}},
+		},
+	}
+	store := &fakeDurableWeWorkCallbackWorkerStore{fakeWeWorkCallbackWorkerStore: workerStore}
+	worker := NewWeWorkCallbackWorker(WeWorkCallbackWorkerCapabilities{}, store, client, "worker-secret", log.Default()).
+		WithCapabilityResolver(resolver)
+	eventKey := strings.Repeat("7", 64)
+	event := WeWorkCallbackEvent{
+		TenantID: 21, CorpID: 7, EventPath: "event.change_external_contact.add_external_contact",
+		Message: map[string]string{"UserID": "go-user", "ExternalUserID": "external-user", "WelcomeCode": "welcome-code"},
+	}
+
+	worker.handleClaim(context.Background(), WeWorkCallbackClaim{ID: 7, EventKey: eventKey, LeaseToken: "lease-1", LeaseFence: 1, Attempt: 1, Event: event})
+	if len(store.completedClaims) != 0 || len(store.failedClaims) != 1 || len(queue.contactWelcomeEvents) != 0 {
+		t.Fatalf("redis-down completed=%d failed=%d enqueued=%d", len(store.completedClaims), len(store.failedClaims), len(queue.contactWelcomeEvents))
+	}
+	if len(store.failedReasons) != 1 || !strings.Contains(store.failedReasons[0], ErrWeWorkCallbackDependencyUnavailable.Error()) || strings.Contains(store.failedReasons[0], secret) {
+		t.Fatalf("redis-down failure reason=%q", store.failedReasons)
+	}
+	if len(store.failRetryDelays) != 1 || store.failRetryDelays[0] <= 0 {
+		t.Fatalf("redis-down retry delays=%v", store.failRetryDelays)
+	}
+
+	resolver.err = nil
+	resolver.capabilities = fakeWeWorkCallbackWorkerCapabilities(queue)
+	worker.handleClaim(context.Background(), WeWorkCallbackClaim{ID: 7, EventKey: eventKey, LeaseToken: "lease-2", LeaseFence: 2, Attempt: 2, Event: event})
+	if len(store.completedClaims) != 1 || len(store.failedClaims) != 1 || len(queue.contactWelcomeEvents) != 1 {
+		t.Fatalf("redis-recovered completed=%d failed=%d enqueued=%d", len(store.completedClaims), len(store.failedClaims), len(queue.contactWelcomeEvents))
+	}
+	if resolver.calls != 2 {
+		t.Fatalf("resolver calls=%d, want 2", resolver.calls)
+	}
+}
+
+func TestWeWorkCallbackWorkerQueueFreeEventCompletesWithoutRedis(t *testing.T) {
+	resolver := &fakeWeWorkCallbackCapabilityResolver{err: errors.New("redis down")}
+	store := &fakeDurableWeWorkCallbackWorkerStore{fakeWeWorkCallbackWorkerStore: &fakeWeWorkCallbackWorkerStore{}}
+	worker := NewWeWorkCallbackWorker(WeWorkCallbackWorkerCapabilities{}, store, &fakeWeWorkCallbackWorkerClient{}, "worker-secret", log.Default()).
+		WithCapabilityResolver(resolver)
+
+	worker.handleClaim(context.Background(), WeWorkCallbackClaim{
+		ID: 8, EventKey: strings.Repeat("8", 64), LeaseToken: "lease", LeaseFence: 1, Attempt: 1,
+		Event: WeWorkCallbackEvent{TenantID: 21, CorpID: 7, EventPath: "event.msgaudit_notify"},
+	})
+
+	if len(store.completedClaims) != 1 || len(store.failedClaims) != 0 || resolver.calls != 0 {
+		t.Fatalf("completed=%d failed=%d resolver_calls=%d", len(store.completedClaims), len(store.failedClaims), resolver.calls)
 	}
 }
 
@@ -1988,10 +2086,11 @@ func (c *fakeWeWorkCallbackWorkerClient) GroupChatDetail(_ context.Context, _ Ro
 }
 
 type fakeWeWorkCallbackWorkerQueue struct {
-	contactWelcomeEvent ContactWelcomeEvent
-	welcomeStatuses     map[int]int
-	welcomeStatusTTL    time.Duration
-	markTagsEvents      []MarkTagsEvent
+	contactWelcomeEvent  ContactWelcomeEvent
+	contactWelcomeEvents []ContactWelcomeEvent
+	welcomeStatuses      map[int]int
+	welcomeStatusTTL     time.Duration
+	markTagsEvents       []MarkTagsEvent
 }
 
 func fakeWeWorkCallbackWorkerCapabilities(queue *fakeWeWorkCallbackWorkerQueue) WeWorkCallbackWorkerCapabilities {
@@ -2004,7 +2103,22 @@ func fakeWeWorkCallbackWorkerCapabilities(queue *fakeWeWorkCallbackWorkerQueue) 
 
 func (q *fakeWeWorkCallbackWorkerQueue) EnqueueContactWelcome(_ context.Context, event ContactWelcomeEvent) error {
 	q.contactWelcomeEvent = event
+	q.contactWelcomeEvents = append(q.contactWelcomeEvents, event)
 	return nil
+}
+
+type fakeWeWorkCallbackCapabilityResolver struct {
+	capabilities WeWorkCallbackWorkerCapabilities
+	err          error
+	calls        int
+}
+
+func (r *fakeWeWorkCallbackCapabilityResolver) ResolveWeWorkCallbackCapabilities(context.Context) (WeWorkCallbackWorkerCapabilities, error) {
+	r.calls++
+	if r.err != nil {
+		return WeWorkCallbackWorkerCapabilities{}, fmt.Errorf("%w: redis: %v", ErrWeWorkCallbackDependencyUnavailable, r.err)
+	}
+	return r.capabilities, nil
 }
 
 func (q *fakeWeWorkCallbackWorkerQueue) EnqueueMarkTags(_ context.Context, event MarkTagsEvent) error {
@@ -2032,6 +2146,7 @@ type fakeDurableWeWorkCallbackWorkerStore struct {
 	completedClaims      []WeWorkCallbackClaim
 	failedClaims         []WeWorkCallbackClaim
 	failedReasons        []string
+	failRetryDelays      []time.Duration
 	currentFences        map[string]uint64
 	claimLeaseDurations  []time.Duration
 	completed            chan WeWorkCallbackClaim
@@ -2084,11 +2199,12 @@ func (s *fakeDurableWeWorkCallbackWorkerStore) CompleteWeWorkCallback(_ context.
 	return nil
 }
 
-func (s *fakeDurableWeWorkCallbackWorkerStore) FailWeWorkCallback(_ context.Context, claim WeWorkCallbackClaim, reason string, _ int, _ time.Duration) (bool, error) {
+func (s *fakeDurableWeWorkCallbackWorkerStore) FailWeWorkCallback(_ context.Context, claim WeWorkCallbackClaim, reason string, _ int, retryDelay time.Duration) (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.failedClaims = append(s.failedClaims, claim)
 	s.failedReasons = append(s.failedReasons, reason)
+	s.failRetryDelays = append(s.failRetryDelays, retryDelay)
 	return false, nil
 }
 

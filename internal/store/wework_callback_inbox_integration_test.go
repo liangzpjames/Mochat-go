@@ -29,31 +29,46 @@ func TestMySQLStoreWeWorkCallbackInboxConcurrentAcceptanceAndLeaseFencing(t *tes
 	}
 	sourceA := strings.Repeat("a", 64)
 	sourceB := strings.Repeat("b", 64)
-	if err := store.BeginWeWorkCallbackLegacyCutover(context.Background(), sourceA); err != nil {
+	ownerA := strings.Repeat("1", 64)
+	ownerB := strings.Repeat("2", 64)
+	ownerC := strings.Repeat("3", 64)
+	if err := store.BeginWeWorkCallbackLegacyCutover(context.Background(), sourceA, ownerA); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.BeginWeWorkCallbackLegacyCutover(context.Background(), sourceB); !errors.Is(err, dashboard.ErrLegacyWeWorkCallbackSourceMismatch) {
+	if err := store.BeginWeWorkCallbackLegacyCutover(context.Background(), sourceA, ownerB); !errors.Is(err, dashboard.ErrLegacyWeWorkCallbackAlreadyRunning) {
+		t.Fatalf("same source concurrent begin error=%v", err)
+	}
+	if err := store.BeginWeWorkCallbackLegacyCutover(context.Background(), sourceB, ownerB); !errors.Is(err, dashboard.ErrLegacyWeWorkCallbackSourceMismatch) {
 		t.Fatalf("different source begin error=%v", err)
 	}
-	if err := store.FailWeWorkCallbackLegacyCutover(context.Background(), sourceA, 2, "Authorization: Bearer callback-secret-value"); err != nil {
+	if err := store.FailWeWorkCallbackLegacyCutover(context.Background(), sourceA, ownerB, 2, "wrong owner"); !errors.Is(err, dashboard.ErrLegacyWeWorkCallbackOwnerMismatch) {
+		t.Fatalf("different owner failure error=%v", err)
+	}
+	if err := store.CompleteWeWorkCallbackLegacyCutover(context.Background(), sourceA, ownerB, 2); !errors.Is(err, dashboard.ErrLegacyWeWorkCallbackOwnerMismatch) {
+		t.Fatalf("different owner completion error=%v", err)
+	}
+	if err := store.FailWeWorkCallbackLegacyCutover(context.Background(), sourceA, ownerA, 2, "Authorization: Bearer callback-secret-value"); err != nil {
 		t.Fatal(err)
 	}
-	var cutoverStatus, cutoverSource, cutoverError string
+	var cutoverStatus, cutoverSource, cutoverOwner, cutoverError string
 	var importedCount int
-	if err := db.QueryRow(`SELECT status,source_fingerprint,imported_count,last_error FROM mochat_go_wework_callback_cutovers WHERE name=?`, dashboard.LegacyWeWorkCallbackCutoverName).Scan(&cutoverStatus, &cutoverSource, &importedCount, &cutoverError); err != nil {
+	if err := db.QueryRow(`SELECT status,source_fingerprint,owner_token,imported_count,last_error FROM mochat_go_wework_callback_cutovers WHERE name=?`, dashboard.LegacyWeWorkCallbackCutoverName).Scan(&cutoverStatus, &cutoverSource, &cutoverOwner, &importedCount, &cutoverError); err != nil {
 		t.Fatal(err)
 	}
-	if cutoverStatus != "failed" || cutoverSource != sourceA || importedCount != 2 || strings.Contains(cutoverError, "callback-secret-value") {
-		t.Fatalf("failed cutover status=%q source=%q imported=%d error=%q", cutoverStatus, cutoverSource, importedCount, cutoverError)
+	if cutoverStatus != "failed" || cutoverSource != sourceA || cutoverOwner != "" || importedCount != 2 || strings.Contains(cutoverError, "callback-secret-value") {
+		t.Fatalf("failed cutover status=%q source=%q owner=%q imported=%d error=%q", cutoverStatus, cutoverSource, cutoverOwner, importedCount, cutoverError)
 	}
-	if err := store.CompleteWeWorkCallbackLegacyCutover(context.Background(), sourceB, 3); !errors.Is(err, dashboard.ErrLegacyWeWorkCallbackSourceMismatch) {
-		t.Fatalf("different source completion error=%v", err)
+	if err := store.BeginWeWorkCallbackLegacyCutover(context.Background(), sourceA, ownerC); err != nil {
+		t.Fatal(err)
 	}
-	if err := store.CompleteWeWorkCallbackLegacyCutover(context.Background(), sourceA, 3); err != nil {
+	if err := store.CompleteWeWorkCallbackLegacyCutover(context.Background(), sourceA, ownerA, 3); !errors.Is(err, dashboard.ErrLegacyWeWorkCallbackOwnerMismatch) {
+		t.Fatalf("stale owner completion error=%v", err)
+	}
+	if err := store.CompleteWeWorkCallbackLegacyCutover(context.Background(), sourceA, ownerC, 3); err != nil {
 		t.Fatal(err)
 	}
 	state, err = store.WeWorkCallbackLegacyCutover(context.Background())
-	if err != nil || state.Status != "completed" || state.SourceFingerprint != sourceA || state.ImportedCount != 5 {
+	if err != nil || state.Status != "completed" || state.SourceFingerprint != sourceA || state.OwnerToken != ownerC || state.ImportedCount != 5 {
 		t.Fatalf("completed cutover state=%+v err=%v", state, err)
 	}
 	event := dashboard.WeWorkCallbackEvent{
@@ -134,16 +149,18 @@ func TestMySQLStoreWeWorkCallbackInboxConcurrentAcceptanceAndLeaseFencing(t *tes
 	if err := store.CompleteWeWorkCallback(context.Background(), stale); !errors.Is(err, dashboard.ErrWeWorkCallbackLeaseLost) {
 		t.Fatalf("stale completion error=%v", err)
 	}
-	if dead, err := store.FailWeWorkCallback(context.Background(), first, `temporary provider failure Authorization: Bearer callback-secret-value`, 3, 0); err != nil || dead {
+	if dead, err := store.FailWeWorkCallback(context.Background(), first, dashboard.ErrWeWorkCallbackDependencyUnavailable.Error()+`: dependency=redis password=callback-secret-value`, 3, 20*time.Millisecond); err != nil || dead {
 		t.Fatalf("first failure dead=%t err=%v", dead, err)
 	}
-	var safeLastError string
-	if err := db.QueryRow(`SELECT last_error FROM mochat_go_wework_callback_inbox WHERE event_key=?`, eventKey).Scan(&safeLastError); err != nil {
+	var safeLastError, retryStatus string
+	var hasNextAttempt bool
+	if err := db.QueryRow(`SELECT status,last_error,next_attempt_at IS NOT NULL FROM mochat_go_wework_callback_inbox WHERE event_key=?`, eventKey).Scan(&retryStatus, &safeLastError, &hasNextAttempt); err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(safeLastError, "callback-secret-value") {
-		t.Fatalf("durable last_error leaked credential: %q", safeLastError)
+	if retryStatus != "pending" || !hasNextAttempt || !strings.Contains(safeLastError, dashboard.ErrWeWorkCallbackDependencyUnavailable.Error()) || strings.Contains(safeLastError, "callback-secret-value") {
+		t.Fatalf("durable retry status=%q next_attempt=%t last_error=%q", retryStatus, hasNextAttempt, safeLastError)
 	}
+	time.Sleep(30 * time.Millisecond)
 	second, found, err := store.ClaimWeWorkCallback(context.Background(), time.Minute, 3)
 	if err != nil || !found || second.LeaseFence != 2 || second.Attempt != 2 || second.LeaseToken == first.LeaseToken {
 		t.Fatalf("second claim=%+v found=%t err=%v", second, found, err)

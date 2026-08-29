@@ -19,6 +19,8 @@ const (
 	weWorkCallbackLeaseCompletionGrace      = 30 * time.Second
 )
 
+var ErrWeWorkCallbackDependencyUnavailable = errors.New("wework callback dependency is unavailable")
+
 type WeWorkCallbackWorkerStore interface {
 	SOPLogCronStore
 	GenericContactWelcomeStore
@@ -56,6 +58,10 @@ type WeWorkCallbackWorkerCapabilities struct {
 	ContactWelcomeQueue ContactWelcomeEnqueuer
 	ContactWelcomeCache ContactWelcomeStatusCache
 	MarkTagsQueue       AutoTagMarkTagsQueue
+}
+
+type WeWorkCallbackCapabilityResolver interface {
+	ResolveWeWorkCallbackCapabilities(context.Context) (WeWorkCallbackWorkerCapabilities, error)
 }
 
 type WorkFissionContactRule struct {
@@ -135,6 +141,7 @@ type WorkMessageArchiveSyncTrigger interface {
 
 type WeWorkCallbackWorker struct {
 	capabilities       WeWorkCallbackWorkerCapabilities
+	capabilityResolver WeWorkCallbackCapabilityResolver
 	inbox              WeWorkCallbackInbox
 	store              WeWorkCallbackWorkerStore
 	client             WeWorkCallbackWorkerClient
@@ -172,6 +179,18 @@ func NewWeWorkCallbackWorker(capabilities WeWorkCallbackWorkerCapabilities, stor
 	}
 	worker.inbox, _ = store.(WeWorkCallbackInbox)
 	return worker
+}
+
+func (w *WeWorkCallbackWorker) WithCapabilityResolver(resolver WeWorkCallbackCapabilityResolver) *WeWorkCallbackWorker {
+	w.capabilityResolver = resolver
+	return w
+}
+
+func (w *WeWorkCallbackWorker) resolveCapabilities(ctx context.Context) (WeWorkCallbackWorkerCapabilities, error) {
+	if w.capabilityResolver == nil {
+		return w.capabilities, nil
+	}
+	return w.capabilityResolver.ResolveWeWorkCallbackCapabilities(ctx)
 }
 
 func (w *WeWorkCallbackWorker) WithProcessingTimeout(timeout time.Duration) *WeWorkCallbackWorker {
@@ -724,7 +743,11 @@ func (w *WeWorkCallbackWorker) handleAutoTagContactTime(ctx context.Context, cor
 	if len(result.MarkTagsEvents) == 0 {
 		return nil
 	}
-	enqueuer := w.capabilities.MarkTagsQueue
+	capabilities, err := w.resolveCapabilities(ctx)
+	if err != nil {
+		return err
+	}
+	enqueuer := capabilities.MarkTagsQueue
 	if enqueuer == nil {
 		return nil
 	}
@@ -865,7 +888,18 @@ func (w *WeWorkCallbackWorker) enqueueGenericContactWelcome(ctx context.Context,
 	if contactID <= 0 || employeeID <= 0 || welcomeCode == "" {
 		return nil
 	}
-	cache := w.capabilities.ContactWelcomeCache
+	content, found, err := w.selectContactWelcomeContent(ctx, corpID, employeeID, event)
+	if err != nil {
+		return err
+	}
+	if !found {
+		return nil
+	}
+	capabilities, err := w.resolveCapabilities(ctx)
+	if err != nil {
+		return err
+	}
+	cache := capabilities.ContactWelcomeCache
 	if cache != nil {
 		status, err := cache.WorkContactWelcomeStatus(ctx, contactID)
 		if err != nil {
@@ -875,14 +909,7 @@ func (w *WeWorkCallbackWorker) enqueueGenericContactWelcome(ctx context.Context,
 			return nil
 		}
 	}
-	content, found, err := w.selectContactWelcomeContent(ctx, corpID, employeeID, event)
-	if err != nil {
-		return err
-	}
-	if !found {
-		return nil
-	}
-	enqueuer := w.capabilities.ContactWelcomeQueue
+	enqueuer := capabilities.ContactWelcomeQueue
 	if enqueuer == nil {
 		return nil
 	}
@@ -1096,7 +1123,11 @@ func (w *WeWorkCallbackWorker) handleAutoTagRoomJoin(ctx context.Context, corpID
 	if len(result.MarkTagsEvents) == 0 {
 		return nil
 	}
-	enqueuer := w.capabilities.MarkTagsQueue
+	capabilities, err := w.resolveCapabilities(ctx)
+	if err != nil {
+		return err
+	}
+	enqueuer := capabilities.MarkTagsQueue
 	if enqueuer == nil {
 		return nil
 	}

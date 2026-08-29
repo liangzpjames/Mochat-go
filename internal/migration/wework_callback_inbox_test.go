@@ -21,7 +21,7 @@ func TestWeWorkCallbackInboxMigrationIsScopedFencedAndMySQL57Compatible(t *testi
 	for _, required := range []string{
 		"mochat_go_wework_callback_inbox", "`tenant_id`", "`corp_id`", "`event_key`", "`payload_fingerprint`",
 		"`lease_token`", "`lease_fence`", "`lease_expires_at`", "`next_attempt_at`",
-		"mochat_go_wework_callback_cutovers", "legacy-redis-v1", "`status`", "`imported_count`", "`source_fingerprint`", "INSERT IGNORE",
+		"mochat_go_wework_callback_cutovers", "legacy-redis-v1", "`status`", "`imported_count`", "`source_fingerprint`", "`owner_token`", "INSERT IGNORE",
 		"UNIQUE KEY `uk_wework_callback_scope_event` (`tenant_id`,`corp_id`,`event_key`)",
 		"FOREIGN KEY (`tenant_id`,`corp_id`) REFERENCES `mc_corp` (`tenant_id`,`id`)",
 	} {

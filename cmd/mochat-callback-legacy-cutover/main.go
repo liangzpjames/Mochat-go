@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
@@ -29,6 +30,7 @@ type cutoverOptions struct {
 	redisDB           int
 	timeout           time.Duration
 	sourceFingerprint string
+	ownerToken        string
 }
 
 func main() {
@@ -86,10 +88,22 @@ func parseCutoverOptions(args []string, getenv func(string) string, output io.Wr
 	if err != nil {
 		return cutoverOptions{}, err
 	}
+	ownerToken, err := newCutoverOwnerToken()
+	if err != nil {
+		return cutoverOptions{}, fmt.Errorf("generate cutover owner: %w", err)
+	}
 	return cutoverOptions{
 		dsn: dsn, redisAddr: redisAddr, redisPassword: getenv("MOCHAT_REDIS_PASSWORD"),
-		redisDB: redisDB, timeout: *timeout, sourceFingerprint: fingerprint,
+		redisDB: redisDB, timeout: *timeout, sourceFingerprint: fingerprint, ownerToken: ownerToken,
 	}, nil
+}
+
+func newCutoverOwnerToken() (string, error) {
+	raw := make([]byte, 32)
+	if _, err := rand.Read(raw); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(raw), nil
 }
 
 func legacySourceFingerprint(redisAddr string, redisDB int) (string, error) {
@@ -137,17 +151,17 @@ func executeCutover(options cutoverOptions, output io.Writer) error {
 		fmt.Fprintf(output, "wework callback legacy cutover %s already completed and source is empty\n", dashboard.LegacyWeWorkCallbackCutoverName)
 		return nil
 	}
-	if err := cutoverStore.BeginWeWorkCallbackLegacyCutover(ctx, options.sourceFingerprint); err != nil {
+	if err := cutoverStore.BeginWeWorkCallbackLegacyCutover(ctx, options.sourceFingerprint, options.ownerToken); err != nil {
 		return fmt.Errorf("bind durable cutover source before import: %w", err)
 	}
 	imported, err := dashboard.ImportLegacyWeWorkCallbackBacklog(ctx, legacy, cutoverStore, log.Default())
 	if err != nil {
-		if markerErr := cutoverStore.FailWeWorkCallbackLegacyCutover(ctx, options.sourceFingerprint, imported, err.Error()); markerErr != nil {
+		if markerErr := cutoverStore.FailWeWorkCallbackLegacyCutover(ctx, options.sourceFingerprint, options.ownerToken, imported, err.Error()); markerErr != nil {
 			return fmt.Errorf("legacy cutover failed: %w; durable failure marker: %v", err, markerErr)
 		}
 		return err
 	}
-	if err := cutoverStore.CompleteWeWorkCallbackLegacyCutover(ctx, options.sourceFingerprint, imported); err != nil {
+	if err := cutoverStore.CompleteWeWorkCallbackLegacyCutover(ctx, options.sourceFingerprint, options.ownerToken, imported); err != nil {
 		return fmt.Errorf("complete durable cutover marker: %w", err)
 	}
 	fmt.Fprintf(output, "wework callback legacy cutover %s completed imported=%d\n", dashboard.LegacyWeWorkCallbackCutoverName, imported)

@@ -3,10 +3,13 @@ package main
 import (
 	"context"
 	"errors"
+	"os"
+	"strings"
 	"testing"
 	"time"
 
 	"jiyi/mochat-go/internal/dashboard"
+	"jiyi/mochat-go/internal/store"
 )
 
 type fakeCallbackRedisCapabilities struct {
@@ -40,4 +43,58 @@ func TestOptionalWeWorkCallbackCapabilitiesUseHealthyRedis(t *testing.T) {
 	if !available || caps.ContactWelcomeQueue == nil || caps.ContactWelcomeCache == nil || caps.MarkTagsQueue == nil {
 		t.Fatalf("capabilities=%+v available=%t", caps, available)
 	}
+}
+
+func TestWeWorkCallbackRedisCapabilityResolverRecoversAfterRedisReturns(t *testing.T) {
+	const secret = "callback-secret-value"
+	redis := &fakeCallbackRedisCapabilities{pingErr: errors.New("redis password=" + secret)}
+	resolver := weWorkCallbackRedisCapabilityResolver{candidate: redis}
+
+	if _, err := resolver.ResolveWeWorkCallbackCapabilities(context.Background()); !errors.Is(err, dashboard.ErrWeWorkCallbackDependencyUnavailable) || strings.Contains(err.Error(), secret) {
+		t.Fatalf("redis-down error=%v", err)
+	}
+
+	redis.pingErr = nil
+	caps, err := resolver.ResolveWeWorkCallbackCapabilities(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if caps.ContactWelcomeQueue != redis || caps.ContactWelcomeCache != redis || caps.MarkTagsQueue != redis {
+		t.Fatalf("recovered capabilities=%+v", caps)
+	}
+}
+
+func TestWeWorkCallbackRedisCapabilityResolverRecoversWithRealRedis(t *testing.T) {
+	if os.Getenv("MOCHAT_GO_CALLBACK_REDIS_RECOVERY_INTEGRATION") != "1" {
+		t.Skip("SKIP: set MOCHAT_GO_CALLBACK_REDIS_RECOVERY_INTEGRATION=1 with an isolated Redis that starts unavailable and then recovers")
+	}
+	addr := strings.TrimSpace(os.Getenv("MOCHAT_REDIS_ADDR"))
+	if addr == "" {
+		t.Fatal("MOCHAT_REDIS_ADDR is required")
+	}
+	redis := store.NewRedisStore(store.RedisConfig{Addr: addr})
+	defer redis.Close()
+	resolver := weWorkCallbackRedisCapabilityResolver{candidate: redis}
+
+	downCtx, cancelDown := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	_, downErr := resolver.ResolveWeWorkCallbackCapabilities(downCtx)
+	cancelDown()
+	if !errors.Is(downErr, dashboard.ErrWeWorkCallbackDependencyUnavailable) {
+		t.Fatalf("initial paused Redis error=%v", downErr)
+	}
+
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		probeCtx, cancelProbe := context.WithTimeout(context.Background(), 500*time.Millisecond)
+		caps, err := resolver.ResolveWeWorkCallbackCapabilities(probeCtx)
+		cancelProbe()
+		if err == nil {
+			if caps.ContactWelcomeQueue == nil || caps.ContactWelcomeCache == nil || caps.MarkTagsQueue == nil {
+				t.Fatalf("recovered capabilities=%+v", caps)
+			}
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatal("Redis capability did not recover before deadline")
 }

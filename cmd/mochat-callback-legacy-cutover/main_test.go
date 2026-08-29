@@ -20,8 +20,12 @@ func TestParseCutoverOptionsRequiresTrafficStoppedMaintenanceToken(t *testing.T)
 	if _, err := parseCutoverOptions(nil, getenv, &bytes.Buffer{}); err == nil || !strings.Contains(err.Error(), "confirm-legacy-traffic-stopped") {
 		t.Fatalf("missing explicit confirmation error=%v", err)
 	}
-	if _, err := parseCutoverOptions([]string{"-confirm-legacy-traffic-stopped"}, getenv, &bytes.Buffer{}); err != nil {
+	options, err := parseCutoverOptions([]string{"-confirm-legacy-traffic-stopped"}, getenv, &bytes.Buffer{})
+	if err != nil {
 		t.Fatal(err)
+	}
+	if len(options.ownerToken) != 64 {
+		t.Fatalf("owner token length=%d", len(options.ownerToken))
 	}
 }
 
@@ -62,5 +66,19 @@ func TestLegacySourceFingerprintNormalizesAddressAndExcludesPassword(t *testing.
 	c, _ := legacySourceFingerprint("redis.example.com:6379", 3)
 	if c == a {
 		t.Fatal("Redis DB was not bound into the source fingerprint")
+	}
+}
+
+func TestNewCutoverOwnerTokenIsUniqueAndOpaque(t *testing.T) {
+	a, err := newCutoverOwnerToken()
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := newCutoverOwnerToken()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(a) != 64 || len(b) != 64 || a == b {
+		t.Fatalf("owner tokens a=%q b=%q", a, b)
 	}
 }
