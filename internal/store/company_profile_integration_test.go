@@ -867,6 +867,7 @@ func prepareCompanyProfileRepositoryFixture(t *testing.T, db *sql.DB, manager *w
 		t.Fatal(err)
 	}
 	for _, statement := range []string{
+		`INSERT INTO mochat_go_tenant_corp_bindings (tenant_id, corp_id, status, wecom_integration_mode, version) VALUES (1, 100, 1, 'self_built', 1)`,
 		`INSERT INTO mochat_go_dashboard_identities (user_id, login_identifier, password_hash, status, must_rotate_password, auth_version, mfa_required, activated_at) VALUES (10, '13800000001', '!task10-fixture-hash', 1, 0, 1, 0, NOW())`,
 		`UPDATE mc_user SET isSuperAdmin=1 WHERE id=10`,
 		`UPDATE mc_corp SET wx_corpid='ww-candidate', employee_secret='', contact_secret='', token='', encoding_aes_key='', chat_secret='' WHERE id=100`,
