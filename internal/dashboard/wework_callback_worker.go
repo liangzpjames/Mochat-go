@@ -763,6 +763,9 @@ func (w *WeWorkCallbackWorker) syncContactFromEvent(ctx context.Context, corpID 
 		}
 		if err := w.handleFissionAddContactFromState(ctx, corpID, credential, employee, contact, result, event); err != nil {
 			w.logger.Printf("wework callback work fission add contact skipped: corp=%d employee=%d contact=%d state=%q err=%v", corpID, employee.ID, result.ContactID, contactWelcomeState(event), errors.New(SanitizeWeWorkCallbackFailure(err.Error())))
+			if errors.Is(err, ErrWeWorkCallbackSideEffectReconcileRequired) {
+				return err
+			}
 		}
 		return w.enqueueGenericContactWelcome(ctx, corpID, employee.ID, contact.Name, result.ContactID, event)
 	}
@@ -825,10 +828,9 @@ func (w *WeWorkCallbackWorker) handleFissionAddContactFromState(ctx context.Cont
 	if err != nil {
 		return err
 	}
-	if err := w.sendWorkFissionEmployeeReminder(ctx, corpID, fissionResult); err != nil {
-		return err
-	}
-	return w.sendWorkFissionCustomerPush(ctx, credential, fissionResult)
+	reminderErr := w.sendWorkFissionEmployeeReminder(ctx, corpID, fissionResult)
+	customerErr := w.sendWorkFissionCustomerPush(ctx, credential, fissionResult)
+	return errors.Join(reminderErr, customerErr)
 }
 
 func (w *WeWorkCallbackWorker) sendWorkFissionEmployeeReminder(ctx context.Context, corpID int, result WorkFissionAddContactResult) error {
@@ -847,7 +849,7 @@ func (w *WeWorkCallbackWorker) sendWorkFissionEmployeeReminder(ctx context.Conte
 		return err
 	}
 	if err := w.client.SendAgentTextMessageWithDuplicateCheck(ctx, agent, result.EmployeeReminder.ToUser, result.EmployeeReminder.Content); err != nil {
-		return errors.Join(ErrWeWorkCallbackSideEffectReconcileRequired, err)
+		return weWorkCallbackSideEffectFailure(ctx, err)
 	}
 	return complete(ctx)
 }
@@ -862,10 +864,10 @@ func (w *WeWorkCallbackWorker) sendWorkFissionCustomerPush(ctx context.Context, 
 	}
 	content, err := prepareContactMessageBatchSendContent(ctx, w.client, credential, w.fileStorageRoot, result.CustomerPush.Content)
 	if err != nil {
-		return errors.Join(ErrWeWorkCallbackSideEffectReconcileRequired, err)
+		return weWorkCallbackSideEffectFailure(ctx, err)
 	}
 	if len(content) == 0 {
-		return errors.Join(ErrWeWorkCallbackSideEffectReconcileRequired, errors.New("work fission customer push content is empty"))
+		return weWorkCallbackSideEffectFailure(ctx, errors.New("work fission customer push content is empty"))
 	}
 	_, err = w.client.SubmitContactMessageBatchSend(ctx, credential, ContactMessageBatchSendMessagePayload{
 		Content:        content,
@@ -873,9 +875,19 @@ func (w *WeWorkCallbackWorker) sendWorkFissionCustomerPush(ctx context.Context, 
 		ExternalUserID: []string{result.CustomerPush.ExternalUserID},
 	})
 	if err != nil {
-		return errors.Join(ErrWeWorkCallbackSideEffectReconcileRequired, err)
+		return weWorkCallbackSideEffectFailure(ctx, err)
 	}
 	return complete(ctx)
+}
+
+func weWorkCallbackSideEffectFailure(ctx context.Context, err error) error {
+	if err == nil {
+		return nil
+	}
+	if _, durable := WeWorkCallbackExecutionFromContext(ctx); !durable {
+		return err
+	}
+	return errors.Join(ErrWeWorkCallbackSideEffectReconcileRequired, err)
 }
 
 func (w *WeWorkCallbackWorker) beginDurableSideEffect(ctx context.Context, actionKey string, payload any) (bool, func(context.Context) error, error) {

@@ -902,6 +902,78 @@ func TestWeWorkCallbackWorkerDoesNotRepeatFissionPushAfterInboxCompletionFailure
 	}
 }
 
+func TestWeWorkCallbackWorkerLeavesInboxOpenAndAttemptsEveryFissionActionWhenSideEffectCompletionFails(t *testing.T) {
+	eventKey := strings.Repeat("b", 64)
+	store := &fakeDurableWeWorkCallbackWorkerStore{
+		fakeWeWorkCallbackWorkerStore: &fakeWeWorkCallbackWorkerStore{
+			credential:           RoomWelcomeCorpCredential{CorpID: 7, WXCorpID: "ww-go", ContactSecret: "contact-secret"},
+			contactSyncEmployees: []WorkContactSyncEmployee{{ID: 3, WXUserID: "go-user"}},
+			syncResult:           WorkContactSyncResult{ContactID: 101, ContactWasNew: true},
+			remindAgent: RoomTagPullAgentCredential{
+				CorpID: 7, WXCorpID: "ww-go", WXAgentID: "1000002", WXSecret: "agent-secret",
+			},
+			workFissionAddContactResult: WorkFissionAddContactResult{
+				ParentContactID: 77,
+				FissionID:       903,
+				InviteCount:     1,
+				TotalCount:      1,
+				Completed:       true,
+				EmployeeReminder: &WorkFissionEmployeeReminder{
+					ToUser: "go-user", Content: "客户已完成任务",
+				},
+				CustomerPush: &WorkFissionCustomerPush{
+					Sender:         "go-user",
+					ExternalUserID: "external-parent",
+					Content:        []ContactMessageBatchSendContent{{MsgType: "text", Content: "完成任务"}},
+				},
+			},
+		},
+		sideEffects: map[string]string{},
+		sideEffectCompleteErrors: map[string][]error{
+			WeWorkCallbackActionFissionEmployeeReminder: {errors.New("side effect completion unavailable")},
+		},
+	}
+	client := &fakeWeWorkCallbackWorkerClient{contacts: map[string]WorkContactSyncContact{
+		"external-user": {WXExternalUserID: "external-user", FollowUsers: []WorkContactSyncFollowUser{{UserID: "go-user"}}},
+	}}
+	worker := NewWeWorkCallbackWorker(WeWorkCallbackWorkerCapabilities{}, store, client, "worker-secret", log.Default())
+	event := WeWorkCallbackEvent{
+		TenantID:  21,
+		CorpID:    7,
+		EventPath: "event.change_external_contact.add_external_contact",
+		Message:   map[string]string{"UserID": "go-user", "ExternalUserID": "external-user", "State": "fission-77"},
+	}
+
+	worker.handleClaim(context.Background(), WeWorkCallbackClaim{ID: 10, EventKey: eventKey, LeaseToken: "lease-1", LeaseFence: 1, Attempt: 1, Event: event})
+
+	if len(store.completedClaims) != 0 || len(store.failedClaims) != 1 {
+		t.Fatalf("first delivery completed=%+v failed=%+v, want retryable failure", store.completedClaims, store.failedClaims)
+	}
+	if client.agentTextDuplicateChecks != 1 || client.contactBatchSendCalls != 1 {
+		t.Fatalf("first delivery reminder calls=%d customer calls=%d, want both attempted", client.agentTextDuplicateChecks, client.contactBatchSendCalls)
+	}
+	if status := store.sideEffects[eventKey+"\x00"+WeWorkCallbackActionFissionEmployeeReminder]; status != WeWorkCallbackSideEffectUnknown {
+		t.Fatalf("reminder status=%q, want unknown", status)
+	}
+	if status := store.sideEffects[eventKey+"\x00"+WeWorkCallbackActionFissionCustomerPush]; status != WeWorkCallbackSideEffectSent {
+		t.Fatalf("customer status=%q, want sent", status)
+	}
+	for key, status := range store.sideEffects {
+		if status == WeWorkCallbackSideEffectPending {
+			t.Fatalf("side effect %q remained pending", key)
+		}
+	}
+
+	worker.handleClaim(context.Background(), WeWorkCallbackClaim{ID: 10, EventKey: eventKey, LeaseToken: "lease-2", LeaseFence: 2, Attempt: 2, Event: event})
+
+	if len(store.completedClaims) != 0 || len(store.failedClaims) != 2 {
+		t.Fatalf("replay completed=%+v failed=%+v, want reconciliation failure", store.completedClaims, store.failedClaims)
+	}
+	if client.agentTextDuplicateChecks != 1 || client.contactBatchSendCalls != 1 {
+		t.Fatalf("replay repeated external effects: reminder=%d customer=%d", client.agentTextDuplicateChecks, client.contactBatchSendCalls)
+	}
+}
+
 func TestWeWorkCallbackWorkerFissionPushRemainsBestEffortButLogsSanitizedFailure(t *testing.T) {
 	const secret = "callback-secret-value"
 	store := &fakeWeWorkCallbackWorkerStore{
@@ -2204,24 +2276,25 @@ func (q *fakeWeWorkCallbackWorkerQueue) SetWorkContactWelcomeStatus(_ context.Co
 
 type fakeDurableWeWorkCallbackWorkerStore struct {
 	*fakeWeWorkCallbackWorkerStore
-	mu                   sync.Mutex
-	claims               []WeWorkCallbackClaim
-	completedClaims      []WeWorkCallbackClaim
-	failedClaims         []WeWorkCallbackClaim
-	failedReasons        []string
-	failRetryDelays      []time.Duration
-	deferredClaims       []WeWorkCallbackClaim
-	deferredReasons      []string
-	deferRetryDelays     []time.Duration
-	currentFences        map[string]uint64
-	claimLeaseDurations  []time.Duration
-	completed            chan WeWorkCallbackClaim
-	acceptLegacyErr      error
-	acceptedLegacyEvents []WeWorkCallbackEvent
-	acceptedLegacyKeys   []string
-	legacyUniqueKeys     map[string]struct{}
-	completeErrors       []error
-	sideEffects          map[string]string
+	mu                       sync.Mutex
+	claims                   []WeWorkCallbackClaim
+	completedClaims          []WeWorkCallbackClaim
+	failedClaims             []WeWorkCallbackClaim
+	failedReasons            []string
+	failRetryDelays          []time.Duration
+	deferredClaims           []WeWorkCallbackClaim
+	deferredReasons          []string
+	deferRetryDelays         []time.Duration
+	currentFences            map[string]uint64
+	claimLeaseDurations      []time.Duration
+	completed                chan WeWorkCallbackClaim
+	acceptLegacyErr          error
+	acceptedLegacyEvents     []WeWorkCallbackEvent
+	acceptedLegacyKeys       []string
+	legacyUniqueKeys         map[string]struct{}
+	completeErrors           []error
+	sideEffects              map[string]string
+	sideEffectCompleteErrors map[string][]error
 }
 
 func (s *fakeDurableWeWorkCallbackWorkerStore) HandleWorkFissionAddContact(ctx context.Context, event WorkFissionAddContactEvent) (WorkFissionAddContactResult, bool, error) {
@@ -2230,13 +2303,21 @@ func (s *fakeDurableWeWorkCallbackWorkerStore) HandleWorkFissionAddContact(ctx c
 		return result, found, err
 	}
 	execution, ok := WeWorkCallbackExecutionFromContext(ctx)
-	if ok && result.Completed && result.CustomerPush != nil {
+	if ok && result.Completed {
 		if s.sideEffects == nil {
 			s.sideEffects = map[string]string{}
 		}
-		key := execution.EventKey + "\x00fission.customer_push"
-		if _, exists := s.sideEffects[key]; !exists {
-			s.sideEffects[key] = "pending"
+		for actionKey, payload := range map[string]any{
+			WeWorkCallbackActionFissionEmployeeReminder: result.EmployeeReminder,
+			WeWorkCallbackActionFissionCustomerPush:     result.CustomerPush,
+		} {
+			if payload == nil {
+				continue
+			}
+			key := execution.EventKey + "\x00" + actionKey
+			if _, exists := s.sideEffects[key]; !exists {
+				s.sideEffects[key] = WeWorkCallbackSideEffectPending
+			}
 		}
 	}
 	return result, found, nil
@@ -2261,6 +2342,13 @@ func (s *fakeDurableWeWorkCallbackWorkerStore) CompleteWeWorkCallbackSideEffect(
 	key := eventKey + "\x00" + actionKey
 	if s.sideEffects[key] != "unknown" {
 		return errors.New("side effect is not unknown")
+	}
+	if queued := s.sideEffectCompleteErrors[actionKey]; len(queued) > 0 {
+		err := queued[0]
+		s.sideEffectCompleteErrors[actionKey] = queued[1:]
+		if err != nil {
+			return err
+		}
 	}
 	s.sideEffects[key] = "sent"
 	return nil
