@@ -35,4 +35,7 @@ Task 2: complete (commits b7f1a2e + 55fb4ef + 7491b72, two review fix rounds the
 Task 3: complete (commits 923c639 + 872719f + c453197 + a77e35f + aae8f62, five review rounds then approved; parent focused packages pass; real Provider and race SKIP)
 Task 4: complete (commits a54ba1b + 0382b07 + c33c1c7 + 8f8cc14 + e771640 + 229743a + 289558a, six review rounds then approved; parent Windows focused and Linux race pass; real controlled migration and Docker SKIP)
 Task 5: complete (commits 18fe290 + 9621ebf, one review fix round then approved; parent focused Go and front-end pass; MariaDB 10.6 and MySQL 5.7 integration pass)
-Minor backlog: remove unused optionalWeWorkCallbackCapabilities helper and its narrow test before final branch review if still unused.
+Task 6: complete (commits 71fdb36 + 266e2f9 + ccce3e9 + 6d80886 + e490f51 + 446f8c1, four review rounds then approved; MariaDB risk/keyword integration and repeated concurrency pass)
+Task 7: complete (commits 710f94c + 126b7a0 + 5982657 + c2acfbe + 348245a + 50bf187, runtime-derived gates and migration inventory; all nine target gates and MySQL 5.7 full lifecycle pass)
+Task 8: complete (commits 4dc19ca + 1498093, controlled 0165 and pinned supply-chain inputs; govulncheck and pnpm audit report no reachable/high vulnerabilities)
+Task 9: in_progress (final exact-SHA Docker, failure recovery, four-surface browser acceptance, final report and branch review)
