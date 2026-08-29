@@ -27,13 +27,13 @@ FAIL
 
 - `go test ./internal/store ./internal/dashboard -run 'Test(EvaluateRiskMessage|CreateRiskRule|UpdateRiskRule|SaveKeywordEntry|RiskBehaviorHandler)' -count=1`：PASS。
 - `go test ./internal/store ./internal/dashboard -count=1`：PASS。
+- `docker run --rm ... golang:1.26.7-bookworm go test -race ./internal/store -run 'Test(EvaluateRiskMessage|CreateRiskRule|UpdateRiskRule|SaveKeywordEntry)' -count=1`：Linux/CGO race PASS。
 - MariaDB 10.6 隔离容器：第 101 条命中、计数失败触发器整体回滚、16 并发重复消息仅一条记录/一次计数、关键词版本失败整体回滚、16 并发版本无丢失：PASS。
 - MySQL 5.7.44 隔离容器：同一组真实 SQL、故障触发器和并发测试：PASS。
 - 两个数据库容器均使用 `--rm` 且不挂载命名卷；验证后已停止并删除，没有触碰现有业务卷。
 
-### PENDING / SKIP
+### SKIP / NOT RUN
 
-- Linux/CGO `go test -race` 已在 `golang:1.26.7-bookworm` 隔离容器启动，首次冷缓存依赖下载/编译尚未结束；提交时不把它报告为 PASS，父任务可等待本任务后续补证据。
 - 未调用真实企业微信、真实 AI Provider、生产服务器或真实租户凭据；这些边界均 NOT RUN，且与本任务数据层合同无关。
 
 ## 变更范围
