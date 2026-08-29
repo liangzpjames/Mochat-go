@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -105,12 +106,16 @@ func runMigrationCommand(ctx context.Context, options migrationCommandOptions, r
 		err = fmt.Errorf("unknown migration action")
 	}
 	if err != nil {
+		var pending *migration.ControlledMigrationPendingError
+		if errors.As(err, &pending) {
+			fmt.Fprintf(output, "MIGRATION_CONTROLLED_PENDING\t%s\n", pending.Version)
+		}
 		logger.Error("数据库迁移失败；请检查数据库状态、迁移顺序和冲突记录",
 			"event", "migration_failed",
 			"component", "migration",
 			"step", action,
 			"result", "failed",
-			"error_code", migrationErrorCode(action),
+			"error_code", migrationFailureCode(action, err),
 			"duration_ms", time.Since(startedAt).Milliseconds(),
 		)
 		return err
@@ -150,4 +155,12 @@ func migrationErrorCode(action string) string {
 		normalized = "UNKNOWN"
 	}
 	return "MIGRATION_" + normalized + "_FAILED"
+}
+
+func migrationFailureCode(action string, err error) string {
+	var pending *migration.ControlledMigrationPendingError
+	if errors.As(err, &pending) {
+		return "MIGRATION_CONTROLLED_PENDING"
+	}
+	return migrationErrorCode(action)
 }

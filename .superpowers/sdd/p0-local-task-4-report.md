@@ -140,3 +140,69 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -Command \
 - `go test -race`：SKIP；本任务未在 Windows 环境启用 race 工具链。
 - 真实 SIGTERM 子进程端到端：SKIP；自动化测试覆盖同一 `signal.NotifyContext` 下游 cancellation/drain 边界，但没有向生产形态子进程发送 OS signal。
 - 真实 Provider、浏览器与生产部署：SKIP，均不在 Task 4 授权范围内。
+
+## Reviewer 修复轮（2026-08-29）
+
+### RED 与根因
+
+本轮按 reviewer 的 Critical/Important/Minor 逐项补测试后再实现：
+
+- 部署 RED：`scripts/test_deploy_docker_desktop.ps1` 以 fresh-schema `controlled_pending` 预览运行，最初因脚本没有 `DryRunMigrationState` 且原实现吞掉受控迁移错误而失败；根因是 `Invoke-AutomaticMigrations` 捕获 0130/0131 pending 后继续等待 `/readyz`。
+- 迁移 RED：`go test ./internal/migration -run TestStatusReadOnly -count=1` 最初以 `Runner.StatusReadOnly undefined` 失败；原 `Status` 会执行 `CREATE TABLE IF NOT EXISTS`，并忽略 ledger 中 registry 未知版本。
+- 周期任务 RED：`go test ./internal/taskrunner -run 'TestPeriodicSnapshotTracks|TestRequiredTasksReady' -count=1` 最初因 Snapshot 不含连续失败、最近成功和最近执行而编译失败；原 readiness 只能判断 goroutine 是否 running。
+- 长响应 RED：`go test ./internal/httpresponse -run TestAllowLongWrite -count=1` 最初以 `AllowLongWrite undefined` 失败；全局 `WriteTimeout=30s` 会中止合法的大文件响应。
+
+全仓回归首次发现 `cmd/mochat-bootstrap` 门禁把新维护命令必需的 `--platform-tenant-id` 误判为 legacy bootstrap 参数。根因是该测试用通用 `-tenant-id` 子串代替了对 `mochat-bootstrap` 调用本身的限制；门禁已收窄到原安全目标，仍然禁止部署入口出现 `mochat-bootstrap`、明文密码和旧 secret 参数。
+
+### GREEN 与故障注入
+
+- `controlled_pending` 现在由同一错误解析分支进入“受控迁移维护检查点”，明确要求先创建并验证备份、只读 preflight、审批维护确认工件，再按 0130 backfill、凭据加密、0131 cutover 顺序执行；脚本非零退出且不会触碰 ready wait。
+- 正常/已完成 controlled 路径保持 `app /healthz -> automatic migration up -> /readyz`。DryRun 测试同时断言两条路径。
+- 新增只读 `StatusReadOnly`：先查询 `information_schema`；ledger 不存在返回 pending，绝不建表。ledger 中 registry 未知/更高版本追加 `database_ahead`，readiness 以稳定 code `migration_database_ahead` 返回 503；已知版本 checksum mismatch 仍由 `migration_current` 摘流。
+- periodic 每个 tick 把最近执行、最近成功和连续失败写回内存 Snapshot；成功清零，错误或 panic 递增。当前角色实际注册的必要任务允许单次瞬时失败，连续 3 次失败返回 503，下一次成功恢复 200；未执行过的 periodic 使用 `30s + 首次调度间隔` 启动宽限。
+- chat-media、archive media、会话导出 ZIP、合规导出在鉴权和工件校验成功后、写 body 前通过 `http.ResponseController.SetWriteDeadline(time.Time{})` 局部清除 write deadline。注入式 writer 直接断言 zero deadline，无需等待 30 秒；HEAD、普通 API、静态前端和全局 server timeout 均未放宽。
+
+聚焦验证：
+
+```text
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/test_deploy_docker_desktop.ps1
+go test ./internal/httpresponse ./internal/modules/chat-media/transport/http ./internal/dashboard ./internal/taskrunner ./internal/migration ./cmd/mochat-go -run 'TestAllowLongWrite|TestReadOnlyListDownload|TestArchiveMediaContentServesFull|TestLongResponseDeadlines|TestPeriodicSnapshotTracks|TestRequiredTasksReady|TestStatusReadOnly|TestMigrationReadiness|TestBackgroundTaskReadiness' -count=1
+```
+
+结果：全部退出码 `0`。
+
+### 下载路由复查与自审
+
+重新搜索了 `Content-Disposition`、`http.ServeContent`、`http.ServeFile`、`io.Copy(w, ...)` 与 `io.CopyN(w, ...)`。需要越过 30 秒的四类鉴权大响应均已局部处理；其余命中为有界 CSV 生成、前端静态资产、公开上传静态文件或服务内部文件拷贝，不扩大 deadline 例外。
+
+- Task 1 的角色职责矩阵未改写；API 角色不会机械要求进程内不存在的 worker。
+- Task 3 的 callback dependency defer/Redis 恢复合同未改写。
+- 未执行真实 0130/0131、真实备份恢复、真实 Docker、真实 Provider 或生产操作。
+- 未修改 `docs/PROJECT_PROGRESS.zh-CN.md`，未 reset/clean，未触碰命名卷。
+
+### 本轮 SKIP
+
+- 真实 controlled migration 0130/0131 与恢复演练：SKIP，缺少显式生产/维护授权与工件；脚本按设计 fail-fast。
+- 真实慢连接超过 30 秒：SKIP；以注入的 ResponseController deadline 合同覆盖，不用睡眠测试冒充网络验收。
+- 真实 MySQL DB-ahead 与 ledger 缺失容器：SKIP；以 sqlmock 验证只读 SQL、缺表 pending、未知版本和 checksum 行为。
+
+## Reviewer 复审追加修复（2026-08-29）
+
+复审进一步指出 DryRun 不能替代真实命令链解析、迁移双读存在竞态窗口、ZIP/合规测试应执行真实 handler，以及 periodic 元数据发布存在极短初始化窗口。对应根因和修复如下：
+
+- `mochat-migrate` 现在把 typed `ControlledMigrationPendingError` 同时映射到稳定失败码和机器可解析行 `MIGRATION_CONTROLLED_PENDING\t<version>`；部署脚本从真实 migrate stderr/stdout 解析该行。fake-docker 非 DryRun 故障注入证明 fresh schema 会非零停在维护检查点且不进入 ready wait，已完成 controlled 路径仍按 health→up→ready 完成。
+- readiness 的第二次只读 ledger 检查对任意非 `applied` 状态 fail closed，因此两次探测之间数据库变为 ahead 时仍返回 503；`database_ahead` 稳定 code 保持不变。
+- 会话导出 ZIP 与合规导出新增真实 handler 测试，执行鉴权、工件打开、deadline 清除和 body 写出，顺序断言为 `artifact,deadline,body`；未授权请求断言不会清除 deadline。
+- `ConfiguredPeriodic` 在 Group 将任务标记为 running 的同一 snapshot 更新中发布 periodic 类型和启动宽限。生产 composition root 的 37 个 periodic 注册点全部使用该入口，不再依赖 goroutine 启动后的二次初始化。
+
+最终验证：
+
+```text
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/test_deploy_docker_desktop.ps1
+go test ./cmd/mochat-go ./cmd/mochat-migrate ./cmd/mochat-bootstrap ./internal/migration ./internal/taskrunner ./internal/httpresponse ./internal/modules/chat-media/transport/http ./internal/dashboard -count=1
+go test ./... -count=1
+go vet ./...
+git diff --check
+```
+
+结果均为退出码 `0`。真实 controlled migration、真实 Docker/依赖故障和生产仍保持 SKIP，未因复审扩张授权边界。

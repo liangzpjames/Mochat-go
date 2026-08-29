@@ -185,8 +185,34 @@ func (r *Runner) Status(ctx context.Context) ([]StatusItem, error) {
 	if err != nil {
 		return nil, err
 	}
+	return r.statusItems(applied)
+}
+
+// StatusReadOnly inspects migration state without creating or changing the
+// ledger. A missing ledger is an unambiguous pending state for readiness.
+func (r *Runner) StatusReadOnly(ctx context.Context) ([]StatusItem, error) {
+	count, err := r.informationSchemaTableCount(ctx, []string{VersionTable})
+	if err != nil {
+		return nil, err
+	}
+	if count > 1 {
+		return nil, fmt.Errorf("inspect %s returned invalid table count %d", VersionTable, count)
+	}
+	applied := map[string]AppliedMigration{}
+	if count == 1 {
+		applied, err = r.applied(ctx)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return r.statusItems(applied)
+}
+
+func (r *Runner) statusItems(applied map[string]AppliedMigration) ([]StatusItem, error) {
 	result := make([]StatusItem, 0, len(r.migrations))
+	known := make(map[string]struct{}, len(r.migrations))
 	for _, migration := range r.migrations {
+		known[migration.Version] = struct{}{}
 		_, checksum, err := migrationBodyAndChecksum(migration)
 		if err != nil {
 			return nil, err
@@ -204,6 +230,22 @@ func (r *Runner) Status(ctx context.Context) ([]StatusItem, error) {
 			}
 		}
 		result = append(result, item)
+	}
+	unknown := make([]string, 0)
+	for version := range applied {
+		if _, ok := known[version]; !ok {
+			unknown = append(unknown, version)
+		}
+	}
+	sort.Strings(unknown)
+	for _, version := range unknown {
+		existing := applied[version]
+		result = append(result, StatusItem{
+			Migration: Migration{Version: existing.Version, Description: existing.Description},
+			Checksum:  existing.Checksum,
+			Applied:   &existing,
+			State:     "database_ahead",
+		})
 	}
 	return result, nil
 }

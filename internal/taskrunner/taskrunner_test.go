@@ -219,6 +219,87 @@ func TestPeriodicRecoversPanicAtTickBoundaryAndRunsNextTick(t *testing.T) {
 	}
 }
 
+func TestPeriodicSnapshotTracksFailureThresholdAndRecovery(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	called := make(chan struct{}, 1)
+	outcomes := make(chan error)
+	group := New(slog.New(slog.NewTextHandler(io.Discard, nil)))
+	group.Add("cron-health", ConfiguredPeriodic(PeriodicConfig{Name: "cron-health", Interval: time.Millisecond, RunOnStart: true}, func(runCtx context.Context) error {
+		called <- struct{}{}
+		select {
+		case err := <-outcomes:
+			return err
+		case <-runCtx.Done():
+			return runCtx.Err()
+		}
+	}))
+	if err := group.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	for want := 1; want <= 3; want++ {
+		<-called
+		outcomes <- errors.New("dependency unavailable")
+		waitForCondition(t, func() bool {
+			return snapshotByName(t, group, "cron-health").ConsecutiveFailures == want
+		}, "periodic failure snapshot")
+		snapshot := snapshotByName(t, group, "cron-health")
+		if snapshot.LatestExecution == nil || snapshot.LatestExecution.Status != StatusFailed || snapshot.LastSuccessAt != "" {
+			t.Fatalf("failure snapshot %d = %+v", want, snapshot)
+		}
+		if got := RequiredTasksReady([]Snapshot{snapshot}, time.Now()); got != (want < 3) {
+			t.Fatalf("ready after %d failures = %v", want, got)
+		}
+	}
+
+	<-called
+	outcomes <- nil
+	waitForCondition(t, func() bool {
+		snapshot := snapshotByName(t, group, "cron-health")
+		return snapshot.ConsecutiveFailures == 0 && snapshot.LastSuccessAt != ""
+	}, "periodic recovery snapshot")
+	recovered := snapshotByName(t, group, "cron-health")
+	if recovered.LatestExecution == nil || recovered.LatestExecution.Status != StatusSucceeded || !RequiredTasksReady([]Snapshot{recovered}, time.Now()) {
+		t.Fatalf("recovered snapshot = %+v", recovered)
+	}
+	cancel()
+}
+
+func TestConfiguredPeriodicPublishesReadinessMetadataAtomicallyWithRunning(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	group := New(slog.New(slog.NewTextHandler(io.Discard, nil)))
+	group.Add("cron-initializing", ConfiguredPeriodic(PeriodicConfig{
+		Name: "cron-initializing", Interval: time.Hour, RunOnStart: false,
+	}, func(context.Context) error { return nil }))
+	if err := group.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	waitForCondition(t, func() bool {
+		return snapshotByName(t, group, "cron-initializing").Status == StatusRunning
+	}, "configured periodic running snapshot")
+	snapshot := snapshotByName(t, group, "cron-initializing")
+	if !snapshot.Periodic || snapshot.ReadinessGraceUntil == "" {
+		t.Fatalf("running snapshot missed periodic readiness metadata: %+v", snapshot)
+	}
+}
+
+func TestRequiredTasksReadyFailsNeverSuccessfulPeriodicAfterItsStartupGrace(t *testing.T) {
+	now := time.Now()
+	snapshot := Snapshot{
+		Name: "cron-slow", Status: StatusRunning, StartedAt: now.Add(-time.Hour).Format(time.RFC3339),
+		ReadinessGraceUntil: now.Add(-time.Second).Format(time.RFC3339),
+	}
+	if RequiredTasksReady([]Snapshot{snapshot}, now) {
+		t.Fatalf("never-successful task remained ready after grace: %+v", snapshot)
+	}
+	snapshot.ReadinessGraceUntil = now.Add(time.Minute).Format(time.RFC3339)
+	if !RequiredTasksReady([]Snapshot{snapshot}, now) {
+		t.Fatalf("task should remain ready during startup grace: %+v", snapshot)
+	}
+}
+
 func TestPeriodicCompactsSuccessAndKeepsUniqueFailure(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	recorder := &memoryRecorder{executions: make(chan ExecutionSnapshot, 8)}

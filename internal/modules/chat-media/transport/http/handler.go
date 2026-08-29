@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"jiyi/mochat-go/internal/httpresponse"
 	"jiyi/mochat-go/internal/modules/providers"
 	audiolocal "jiyi/mochat-go/internal/modules/providers/audio/local"
 	scrmhttp "jiyi/mochat-go/internal/modules/scrm/transport/http"
@@ -170,6 +171,7 @@ func (h *MediaHandler) serveContent(w http.ResponseWriter, r *http.Request, prin
 		return
 	}
 	defer reader.Close()
+	httpresponse.AllowLongWrite(w)
 	w.Header().Set("Content-Type", object.ContentType)
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Cache-Control", "private, max-age=3600")

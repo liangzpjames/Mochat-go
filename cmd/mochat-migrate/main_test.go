@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"log/slog"
 	"strings"
 	"testing"
 
@@ -52,6 +53,18 @@ func TestRunMigrationCommandLogsControlledFailure(t *testing.T) {
 	}
 	if strings.Contains(text, "password") || strings.Contains(text, "db:3306") {
 		t.Fatalf("migration failure leaked DSN: %s", text)
+	}
+}
+
+func TestRunMigrationCommandEmitsStableControlledPendingCode(t *testing.T) {
+	var output bytes.Buffer
+	runner := &fakeMigrationRunner{err: migration.ControlledMigrationBlocked("0130_identity_realms_single_corp_backfill")}
+	err := runMigrationCommand(context.Background(), migrationCommandOptions{Action: "up"}, runner, slog.New(slog.NewTextHandler(io.Discard, nil)), &output)
+	if err == nil {
+		t.Fatal("expected controlled migration failure")
+	}
+	if got := output.String(); got != "MIGRATION_CONTROLLED_PENDING\t0130_identity_realms_single_corp_backfill\n" {
+		t.Fatalf("controlled output = %q", got)
 	}
 }
 

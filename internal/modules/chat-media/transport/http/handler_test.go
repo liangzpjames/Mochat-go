@@ -96,6 +96,16 @@ func (fakeAuthorizer) Authorize(context.Context, scrmhttp.Principal, int64, stri
 	return nil
 }
 
+type deadlineRecorder struct {
+	*httptest.ResponseRecorder
+	deadlines []time.Time
+}
+
+func (w *deadlineRecorder) SetWriteDeadline(deadline time.Time) error {
+	w.deadlines = append(w.deadlines, deadline)
+	return nil
+}
+
 func newTestHandler(t *testing.T) (*MediaHandler, *fakeStore, string) {
 	t.Helper()
 	root := t.TempDir()
@@ -160,13 +170,16 @@ func TestReadOnlyListDownloadAndDurationBackfill(t *testing.T) {
 	}
 
 	contentReq := httptest.NewRequest(http.MethodGet, "/dashboard/chat/media/1/content", nil)
-	contentRec := httptest.NewRecorder()
+	contentRec := &deadlineRecorder{ResponseRecorder: httptest.NewRecorder()}
 	handler.ServeHTTP(contentRec, contentReq)
 	if contentRec.Code != http.StatusOK || !bytes.Equal(contentRec.Body.Bytes(), content) {
 		t.Fatalf("content code=%d len=%d", contentRec.Code, contentRec.Body.Len())
 	}
 	if contentType := contentRec.Header().Get("Content-Type"); contentType != "audio/wav" {
 		t.Fatalf("content type = %q", contentType)
+	}
+	if len(contentRec.deadlines) != 1 || !contentRec.deadlines[0].IsZero() {
+		t.Fatalf("long response deadline = %+v", contentRec.deadlines)
 	}
 	rangeReq := httptest.NewRequest(http.MethodGet, "/dashboard/chat/media/1/content", nil)
 	rangeReq.Header.Set("Range", "bytes=0-43")

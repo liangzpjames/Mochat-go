@@ -34,6 +34,14 @@ type ControlledMigration struct {
 	SuccessStatus   string
 }
 
+type ControlledMigrationPendingError struct {
+	Version string
+}
+
+func (e *ControlledMigrationPendingError) Error() string {
+	return fmt.Sprintf("controlled migration %s is pending; run mochat-identity-migrate before automatic migrations can continue", e.Version)
+}
+
 var controlledMigrationRegistry = map[string]ControlledMigration{
 	"0130_identity_realms_single_corp_backfill": {
 		Version:         "0130_identity_realms_single_corp_backfill",
@@ -79,7 +87,7 @@ func ControlledMigrationRegistry() []ControlledMigration {
 }
 
 func ControlledMigrationBlocked(version string) error {
-	return fmt.Errorf("controlled migration %s is pending; run mochat-identity-migrate before automatic migrations can continue", version)
+	return &ControlledMigrationPendingError{Version: version}
 }
 
 func ControlledMigrationRollbackRequired(version string) error {

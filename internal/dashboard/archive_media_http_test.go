@@ -33,6 +33,16 @@ type fakeArchiveMediaContentStore struct {
 	objectEmployeeID       int
 }
 
+type archiveDeadlineRecorder struct {
+	*httptest.ResponseRecorder
+	deadlines []time.Time
+}
+
+func (w *archiveDeadlineRecorder) SetWriteDeadline(deadline time.Time) error {
+	w.deadlines = append(w.deadlines, deadline)
+	return nil
+}
+
 func (store *fakeArchiveMediaContentStore) ArchiveMediaContent(_ context.Context, filter ArchiveMediaContentFilter) (ArchiveMediaContentObject, bool, error) {
 	store.mu.Lock()
 	defer store.mu.Unlock()
@@ -87,7 +97,7 @@ func TestArchiveMediaContentServesFullHeadAndSingleRanges(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			response := httptest.NewRecorder()
+			response := &archiveDeadlineRecorder{ResponseRecorder: httptest.NewRecorder()}
 			handler.ServeHTTP(response, archiveMediaRequest(test.method, test.header))
 			if response.Code != test.status || response.Body.String() != test.body {
 				t.Fatalf("status/body=%d/%q want=%d/%q", response.Code, response.Body.String(), test.status, test.body)
@@ -100,6 +110,9 @@ func TestArchiveMediaContentServesFullHeadAndSingleRanges(t *testing.T) {
 			}
 			if !strings.HasPrefix(response.Header().Get("Content-Disposition"), "inline;") {
 				t.Fatalf("inline disposition=%q", response.Header().Get("Content-Disposition"))
+			}
+			if got, want := len(response.deadlines), map[bool]int{true: 1, false: 0}[test.method == http.MethodGet]; got != want || (got == 1 && !response.deadlines[0].IsZero()) {
+				t.Fatalf("write deadlines=%+v method=%s", response.deadlines, test.method)
 			}
 		})
 	}

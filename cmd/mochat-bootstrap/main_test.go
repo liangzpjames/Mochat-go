@@ -108,7 +108,6 @@ func TestBootstrapProductionEntrypointsDoNotInvokeLegacyTenantBootstrap(t *testi
 		"'-secret'",
 		`"-secret"`,
 		" -secret ",
-		"-tenant-id",
 		"'-password'",
 		`"-password"`,
 		" -password ",

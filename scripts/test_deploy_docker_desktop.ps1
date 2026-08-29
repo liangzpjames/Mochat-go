@@ -52,6 +52,19 @@ function Assert-Matches {
 
 $defaultOutput = Invoke-DeploymentPreview
 $resetOutput = Invoke-DeploymentPreview -ResetData
+$previousPreference = $ErrorActionPreference
+$ErrorActionPreference = 'Continue'
+try {
+    $controlledPendingOutput = & powershell -NoProfile -ExecutionPolicy Bypass -File $deployScript `
+        -DryRun `
+        -SkipHttpCheck `
+        -DryRunMigrationState controlled_pending 2>&1 | Out-String
+} finally {
+    $ErrorActionPreference = $previousPreference
+}
+if ($LASTEXITCODE -eq 0) {
+    throw "controlled_pending 预览必须停在维护检查点：`n$controlledPendingOutput"
+}
 $fixtureOutput = & powershell -NoProfile -ExecutionPolicy Bypass -File $deployScript -DryRun -SkipHttpCheck -EnableArchiveFixture 2>&1 | Out-String
 if ($LASTEXITCODE -ne 0) {
     throw "模拟器部署预览失败：`n$fixtureOutput"
@@ -71,6 +84,19 @@ Assert-Matches $defaultOutput 'down --remove-orphans' '默认部署未替换旧�
 Assert-Matches $defaultOutput 'up -d --build --force-recreate --remove-orphans' '缺少强制重建参数'
 Assert-Matches $defaultOutput '仅在迁移账本不存在时执行 baseline' '未声明安全的条件基线策略'
 Assert-Matches $defaultOutput 'exec -T app mochat-migrate -action up -project-root /app' '未执行数据库迁移'
+Assert-Matches $controlledPendingOutput '受控迁移维护检查点' 'controlled_pending 未输出明确维护检查点'
+Assert-Matches $controlledPendingOutput 'mochat-identity-preflight' '维护检查点缺少只读 preflight 命令'
+Assert-Matches $controlledPendingOutput 'mochat-identity-migrate up --execute' '维护检查点缺少受控 up 命令'
+Assert-Matches $controlledPendingOutput '备份.*验证' '维护检查点缺少先备份并验证的要求'
+if ($controlledPendingOutput -match '\[跳过 HTTP 检查\] 应用就绪状态|访问检查通过：应用就绪状态') {
+    throw "controlled_pending 后仍进入 ready 等待，会形成部署自锁：`n$controlledPendingOutput"
+}
+$healthIndex = $defaultOutput.IndexOf('/healthz')
+$migrationIndex = $defaultOutput.IndexOf('mochat-migrate -action up')
+$readyIndex = $defaultOutput.IndexOf('/readyz')
+if ($healthIndex -lt 0 -or $migrationIndex -le $healthIndex -or $readyIndex -le $migrationIndex) {
+    throw "已完成 controlled migration 的部署预览顺序必须是 health -> automatic up -> ready：`n$defaultOutput"
+}
 $deploySource = Get-Content -LiteralPath $deployScript -Raw
 $simulatorSource = Get-Content -LiteralPath $simulatorScript -Raw
 $dockerIgnoreSource = Get-Content -LiteralPath $dockerIgnore -Raw
@@ -128,6 +154,13 @@ if "%1"=="inspect" (
   echo running^|healthy
   exit /b 0
 )
+if "%MOCHAT_TEST_CONTROLLED_PENDING%"=="1" (
+  echo %* | findstr /C:"mochat-migrate -action up" >nul
+  if not errorlevel 1 (
+    echo MIGRATION_CONTROLLED_PENDING 0130_identity_realms_single_corp_backfill 1>&2
+    exit /b 1
+  )
+)
 if "%9"=="-q" (
   echo 1234567890ab
   exit /b 0
@@ -157,6 +190,25 @@ exit /b 0
     Assert-Matches $fakeOutput 'realm_jwt=separate' 'SaaS 与 Dashboard 仍共享同一个 JWT 密钥'
     if ($fakeOutput -match 'mochat-migrate -action baseline') {
         throw '已有迁移账本时仍执行 baseline，会跳过新的增量迁移'
+    }
+
+    $env:MOCHAT_TEST_CONTROLLED_PENDING = '1'
+    $ErrorActionPreference = 'Continue'
+    try {
+        $fakeControlledOutput = & powershell -NoProfile -ExecutionPolicy Bypass -File $deployScript `
+            -DockerCommand $fakeDocker `
+            -SkipHttpCheck 2>&1 | Out-String
+        $fakeControlledExitCode = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $previousPreference
+        Remove-Item Env:MOCHAT_TEST_CONTROLLED_PENDING -ErrorAction SilentlyContinue
+    }
+    if ($fakeControlledExitCode -eq 0) {
+        throw "真实 Docker controlled pending 必须非零退出：`n$fakeControlledOutput"
+    }
+    Assert-Matches $fakeControlledOutput '受控迁移维护检查点' '真实 Docker stable code 未进入维护检查点'
+    if ($fakeControlledOutput -match '\[跳过 HTTP 检查\] 应用就绪状态|访问检查通过：应用就绪状态') {
+        throw "真实 Docker controlled pending 后仍进入 ready 等待：`n$fakeControlledOutput"
     }
 } finally {
     $env:MOCHAT_DOCKER_DESKTOP_SECRET_DIR = $previousSecretDirectory

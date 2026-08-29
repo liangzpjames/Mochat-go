@@ -10,6 +10,7 @@ param(
     [ValidateRange(1, 65535)][int]$OperationPort = 18082,
     [ValidateRange(1, 65535)][int]$MySQLPort = 13316,
     [ValidateRange(1, 65535)][int]$RedisPort = 26389,
+    [ValidateSet('completed', 'controlled_pending')][string]$DryRunMigrationState = 'completed',
     [string]$DockerCommand = 'docker'
 )
 
@@ -360,17 +361,38 @@ function Test-MigrationLedgerExists {
 
 function Invoke-AutomaticMigrations {
     try {
+        if ($DryRun -and $DryRunMigrationState -eq 'controlled_pending') {
+            throw 'MIGRATION_CONTROLLED_PENDING 0130_identity_realms_single_corp_backfill'
+        }
         Invoke-Compose -Arguments @(
             'exec', '-T', 'app',
             'mochat-migrate', '-action', 'up', '-project-root', '/app'
         ) -Capture
     } catch {
         $message = $_.Exception.Message
-        if ($message -notmatch 'controlled migration (0130_identity_realms_single_corp_backfill|0131_identity_realms_single_corp_cutover) is pending') {
+        if ($message -notmatch 'MIGRATION_CONTROLLED_PENDING[\s\t]+(0130_identity_realms_single_corp_backfill|0131_identity_realms_single_corp_cutover)') {
             throw
         }
-        Write-Host '普通迁移已完成至下一个 controlled migration；0130/0131 必须按维护流程显式执行。' -ForegroundColor Yellow
+        Stop-AtControlledMigrationCheckpoint -Version $Matches[1]
     }
+}
+
+function Stop-AtControlledMigrationCheckpoint {
+    param([string]$Version)
+
+    Write-Host ''
+    Write-Host "受控迁移维护检查点：$Version 尚未完成；已停止部署且不会等待 /readyz。" -ForegroundColor Yellow
+    Write-Host '必须先在已授权维护窗口完成数据库备份并验证可恢复性：' -ForegroundColor Yellow
+    Write-Host '  go run ./cmd/mochat-saas-maintenance -action backup-create'
+    Write-Host '  go run ./cmd/mochat-saas-maintenance -action backup-verify -backup-run-id <backup-run-id>'
+    Write-Host '备份验证通过后，以只读受限 DSN 运行 preflight：'
+    Write-Host '  go run ./cmd/mochat-identity-preflight --dsn-file <readonly-dsn-file> --schema <schema> --platform-tenant-id <id> --credential-key-file <key-file> --credential-key-id <key-id> [--mapping-file <signed-mapping> --mapping-key-file <mapping-key>]'
+    Write-Host '仅在 preflight 通过且维护确认工件已审批后，依次执行受控写入：'
+    Write-Host '  go run ./cmd/mochat-identity-migrate up --execute --request-id <request-id> --dsn-file <maintenance-dsn-file> --schema <schema> --platform-tenant-id <id> --maintenance-confirmation-file <confirmation-file> --credential-key-file <key-file> --credential-key-id <key-id> --project-root . [--mapping-file <signed-mapping> --mapping-key-file <mapping-key>]'
+    Write-Host '  go run ./cmd/mochat-identity-migrate encrypt-credentials --execute --request-id <request-id> --dsn-file <maintenance-dsn-file> --schema <schema> --platform-tenant-id <id> --maintenance-confirmation-file <confirmation-file> --credential-key-file <key-file> --credential-key-id <key-id> --project-root .'
+    Write-Host '  go run ./cmd/mochat-identity-migrate cutover --execute --request-id <request-id> --dsn-file <maintenance-dsn-file> --schema <schema> --platform-tenant-id <id> --maintenance-confirmation-file <confirmation-file> --credential-key-file <key-file> --credential-key-id <key-id> --project-root .'
+    Write-Host '完成 0130/0131 并核对迁移账本、checksum 与登录回归后，重新运行本部署脚本；脚本将按 health -> automatic up -> ready 顺序继续。'
+    throw "controlled migration $Version requires explicit maintenance authorization"
 }
 
 if (-not (Test-Path -LiteralPath $composeFile)) {

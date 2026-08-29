@@ -1,6 +1,7 @@
 package dashboard
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,11 +11,22 @@ import (
 	"strings"
 	"time"
 
+	"jiyi/mochat-go/internal/httpresponse"
 	"jiyi/mochat-go/internal/saascompliance"
 )
 
+type complianceExportOpener interface {
+	OpenExport(context.Context, int64, saascompliance.Actor) (saascompliance.ExportDownload, error)
+}
+
 func (h *SaaSAdminHandler) WithComplianceManager(manager *saascompliance.Manager) *SaaSAdminHandler {
 	h.complianceManager = manager
+	h.complianceExportOpener = manager
+	return h
+}
+
+func (h *SaaSAdminHandler) withComplianceExportOpener(opener complianceExportOpener) *SaaSAdminHandler {
+	h.complianceExportOpener = opener
 	return h
 }
 
@@ -213,17 +225,19 @@ func (h *SaaSAdminHandler) ComplianceExportDownload(w http.ResponseWriter, r *ht
 	if !ok {
 		return
 	}
-	manager, ok := h.saasComplianceManager(w)
-	if !ok {
+	opener := h.complianceExportOpener
+	if opener == nil {
+		writeEnvelope(w, http.StatusServiceUnavailable, http.StatusServiceUnavailable, "租户数据合规能力未配置", nil)
 		return
 	}
 	exportID, _ := strconv.ParseInt(strings.TrimSpace(r.URL.Query().Get("exportId")), 10, 64)
-	download, err := manager.OpenExport(r.Context(), exportID, saascompliance.Actor{UserID: user.ID, TenantID: user.TenantID})
+	download, err := opener.OpenExport(r.Context(), exportID, saascompliance.Actor{UserID: user.ID, TenantID: user.TenantID})
 	if err != nil {
 		writeSaaSComplianceError(w, err)
 		return
 	}
 	defer download.Reader.Close()
+	httpresponse.AllowLongWrite(w)
 	w.Header().Set("Content-Type", "application/gzip")
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, download.Filename))
 	w.Header().Set("Cache-Control", "no-store")

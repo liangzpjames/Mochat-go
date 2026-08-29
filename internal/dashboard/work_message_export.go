@@ -13,6 +13,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"jiyi/mochat-go/internal/httpresponse"
 )
 
 const (
@@ -296,6 +298,7 @@ func (h *AutoTagHandler) WorkMessageExportDownload(w http.ResponseWriter, r *htt
 	if filename == "." || filename == "" || filename == string(filepath.Separator) {
 		filename = "conversation-export.zip"
 	}
+	httpresponse.AllowLongWrite(w)
 	w.Header().Set("Content-Type", artifact.ContentType)
 	w.Header().Set("Content-Disposition", `attachment; filename="`+strings.ReplaceAll(filename, `"`, "_")+`"`)
 	http.ServeFile(w, r, artifact.Path)
