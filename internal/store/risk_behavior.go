@@ -140,6 +140,23 @@ func (s *MySQLStore) EvaluateRiskMessage(ctx context.Context, message dashboard.
 		return 0, err
 	}
 	const batchSize = 100
+	var lockCursor int64
+	for lockCursor < highWater {
+		nextCursor, count, err := lockRiskRuleBatchForEvaluation(ctx, tx, message.TenantID, message.CorpID, lockCursor, highWater, batchSize)
+		if err != nil {
+			return 0, err
+		}
+		if count == 0 {
+			break
+		}
+		if nextCursor <= lockCursor {
+			return 0, fmt.Errorf("风险规则锁游标未推进")
+		}
+		lockCursor = nextCursor
+		if count < batchSize {
+			break
+		}
+	}
 	var cursor int64
 	totalCreated := 0
 	for cursor < highWater {
@@ -195,6 +212,31 @@ func (s *MySQLStore) EvaluateRiskMessage(ctx context.Context, message dashboard.
 		return 0, err
 	}
 	return totalCreated, nil
+}
+
+func lockRiskRuleBatchForEvaluation(ctx context.Context, tx *sql.Tx, tenantID, corpID int, cursor, highWater int64, limit int) (int64, int, error) {
+	if limit < 1 || limit > 100 {
+		limit = 100
+	}
+	rows, err := tx.QueryContext(ctx, `SELECT id FROM mochat_go_risk_rules FORCE INDEX(PRIMARY)
+		WHERE tenant_id=? AND corp_id=? AND status='enabled' AND id>? AND id<=?
+		ORDER BY id LIMIT ? FOR UPDATE`, tenantID, corpID, cursor, highWater, limit)
+	if err != nil {
+		return cursor, 0, err
+	}
+	defer rows.Close()
+	nextCursor := cursor
+	count := 0
+	for rows.Next() {
+		if err := rows.Scan(&nextCursor); err != nil {
+			return cursor, 0, err
+		}
+		count++
+	}
+	if err := rows.Err(); err != nil {
+		return cursor, 0, err
+	}
+	return nextCursor, count, nil
 }
 
 func riskRuleBatchForEvaluation(ctx context.Context, tx *sql.Tx, tenantID, corpID int, cursor, highWater int64, limit int) ([]dashboard.RiskRule, int64, error) {
@@ -481,7 +523,7 @@ func (s *MySQLStore) UpdateRiskRule(ctx context.Context, rule dashboard.RiskRule
 	if err != nil {
 		return false, err
 	}
-	existing := make(map[string]int64, len(rule.Strategies))
+	var existingID int64
 	existingCount := 0
 	for rows.Next() {
 		var id int64
@@ -491,7 +533,7 @@ func (s *MySQLStore) UpdateRiskRule(ctx context.Context, rule dashboard.RiskRule
 			return false, err
 		}
 		existingCount++
-		existing[behavior] = id
+		existingID = id
 	}
 	if err := rows.Err(); err != nil {
 		rows.Close()
@@ -514,24 +556,9 @@ func (s *MySQLStore) UpdateRiskRule(ctx context.Context, rule dashboard.RiskRule
 	if affected > 1 {
 		return false, fmt.Errorf("风险规则更新影响了意外的行数")
 	}
-	retained := make(map[string]struct{}, len(rule.Strategies))
-	for _, strategy := range rule.Strategies {
-		behavior := strings.TrimSpace(strategy.Behavior)
-		retained[behavior] = struct{}{}
-		if id, ok := existing[behavior]; ok {
-			strategyResult, err := tx.ExecContext(ctx, `UPDATE mochat_go_risk_rule_strategies SET pattern=?,notify_type=?,risk_level=? WHERE id=? AND rule_id=?`, strings.TrimSpace(strategy.Pattern), strategy.NotifyType, strategy.RiskLevel, id, rule.ID)
-			if err != nil {
-				return false, err
-			}
-			n, err := strategyResult.RowsAffected()
-			if err != nil {
-				return false, err
-			}
-			if n > 1 {
-				return false, fmt.Errorf("风险策略更新影响了意外的行数")
-			}
-			continue
-		}
+	strategy := rule.Strategies[0]
+	behavior := strings.TrimSpace(strategy.Behavior)
+	if existingCount == 0 {
 		strategyResult, err := tx.ExecContext(ctx, `INSERT INTO mochat_go_risk_rule_strategies (rule_id,behavior,pattern,notify_type,risk_level,created_at) VALUES (?,?,?,?,?,?)`, rule.ID, behavior, strings.TrimSpace(strategy.Pattern), strategy.NotifyType, strategy.RiskLevel, time.Now())
 		if err != nil {
 			return false, err
@@ -543,21 +570,17 @@ func (s *MySQLStore) UpdateRiskRule(ctx context.Context, rule dashboard.RiskRule
 		if n != 1 {
 			return false, fmt.Errorf("风险策略新增失败")
 		}
-	}
-	for behavior, id := range existing {
-		if _, ok := retained[behavior]; ok {
-			continue
-		}
-		deleteResult, err := tx.ExecContext(ctx, `DELETE FROM mochat_go_risk_rule_strategies WHERE id=? AND rule_id=?`, id, rule.ID)
+	} else {
+		strategyResult, err := tx.ExecContext(ctx, `UPDATE mochat_go_risk_rule_strategies SET behavior=?,pattern=?,notify_type=?,risk_level=? WHERE id=? AND rule_id=?`, behavior, strings.TrimSpace(strategy.Pattern), strategy.NotifyType, strategy.RiskLevel, existingID, rule.ID)
 		if err != nil {
 			return false, err
 		}
-		n, err := deleteResult.RowsAffected()
+		n, err := strategyResult.RowsAffected()
 		if err != nil {
 			return false, err
 		}
-		if n != 1 {
-			return false, fmt.Errorf("风险策略删除影响了意外的行数")
+		if n > 1 {
+			return false, fmt.Errorf("风险策略更新影响了意外的行数")
 		}
 	}
 	if err = tx.Commit(); err != nil {
