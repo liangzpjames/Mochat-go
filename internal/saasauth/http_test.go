@@ -340,9 +340,14 @@ func TestSaaSAuthHTTPEnrollmentMFAThenPasswordCreatesDurableSession(t *testing.T
 	if sameStepReplay.Code != http.StatusUnauthorized {
 		t.Fatalf("same TOTP step replay status=%d body=%s", sameStepReplay.Code, sameStepReplay.Body.String())
 	}
+	thirdChallengeDigest := sha256.Sum256([]byte(thirdLoginEnvelope.Data.ChallengeToken))
 	persistence.mu.Lock()
 	if len(persistence.sessions) != sessionsAfterSecondMFA {
 		t.Fatalf("same TOTP step replay changed session count from %d to %d", sessionsAfterSecondMFA, len(persistence.sessions))
+	}
+	thirdChallenge := persistence.challenges[thirdChallengeDigest]
+	if thirdChallenge.Attempts != 1 || thirdChallenge.Status != 0 {
+		t.Fatalf("same TOTP step replay challenge attempts/status = %d/%d, want 1/0", thirdChallenge.Attempts, thirdChallenge.Status)
 	}
 	persistence.mu.Unlock()
 	sessionRequest := httptest.NewRequest(http.MethodGet, "/saas/auth/session", nil)

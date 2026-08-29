@@ -215,6 +215,11 @@ func (handler *HTTPHandler) mfaComplete(w http.ResponseWriter, r *http.Request) 
 	}
 	identity, err := handler.persistence.CompleteMFAChallenge(r.Context(), digest, challenge.UserID, challenge.AuthVersion, challenge.ChallengeType, totpStep)
 	if err != nil {
+		if !errors.Is(err, ErrMFAChallengeInvalid) {
+			writeSaaSAuthEnvelope(w, http.StatusServiceUnavailable, "AUTH_UNAVAILABLE", "authentication unavailable", nil)
+			return
+		}
+		_ = handler.persistence.RecordMFAFailure(r.Context(), digest)
 		writeSaaSAuthEnvelope(w, http.StatusUnauthorized, "MFA_CHALLENGE_INVALID", "multi-factor authentication challenge invalid", nil)
 		return
 	}
