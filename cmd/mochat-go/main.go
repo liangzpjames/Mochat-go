@@ -88,6 +88,7 @@ func main() {
 	if err != nil {
 		fatalf("load config: %v", err)
 	}
+	archivePlan := archiveRuntimePlanFor(cfg)
 	applicationLocation, err := time.LoadLocation(cfg.Timezone)
 	if err != nil {
 		fatalf("load application timezone: %v", err)
@@ -472,7 +473,7 @@ func main() {
 		companyProfileService := companyprofile.NewService(mysqlStore, companyProfileWeComVerifier{client: companyProfileWeComClient}).WithEmployeeSyncScheduler(
 			dashboard.NewCompanyEmployeeSyncScheduler(getRedisStore()),
 		)
-		if cfg.EnableDurableWorkMessageArchive {
+		if archivePlan.durableAPI {
 			companyArchiveBridgeClient, bridgeErr := archiveprovider.NewBridgeArchiveClient(
 				cfg.WorkMessageArchiveBridgeBaseURL,
 				cfg.WorkMessageArchiveBridgeToken,
@@ -1818,7 +1819,7 @@ func main() {
 		resolver, loginCache := buildUserResolver("autoTagDashboard")
 		autoTag := dashboard.NewAutoTagHandler(mysqlStore, loginCache, resolver, dashboard.NewRBACResolver(mysqlStore))
 		var archiveComponentHandler http.Handler
-		if cfg.EnableDurableWorkMessageArchive {
+		if archivePlan.durableAPI {
 			componentBridgeClient, componentBridgeErr := archiveprovider.NewBridgeArchiveClient(cfg.WorkMessageArchiveBridgeBaseURL, cfg.WorkMessageArchiveBridgeToken, nil)
 			if componentBridgeErr != nil {
 				fatalf("build Dashboard archive component bridge: %v", componentBridgeErr)
@@ -2951,8 +2952,8 @@ func main() {
 		debugf("go SaaS tenant domain delivery webhook enabled: POST /webhooks/saas/domain-delivery tolerance=%s signed=true", cfg.SaaSTenantDomainDeliveryCallbackTolerance)
 	}
 
-	backgroundTasksEnabled := cfg.EnableWeWorkCallbackWorker || cfg.EnableEmployeeApplyWorker || cfg.EnableAsyncFileUploadWorker || cfg.EnableMarkTagsWorker || cfg.EnableMessageRemindWorker || cfg.EnableWorkRoomSyncWorker || cfg.EnableWorkContactSyncWorker || cfg.EnableWorkDepartmentListWorker || cfg.EnableMediaIDUpdateWorker || cfg.EnableEmployeeStatisticWorker || cfg.EnablePullAgentCron || cfg.EnableEmployeeStatisticCron || cfg.EnableChannelCodeCron || cfg.EnableContactBatchSendCron || cfg.EnableRoomBatchSendCron || cfg.EnableContactSyncSendResultCron || cfg.EnableRoomSyncSendResultCron || cfg.EnableRoomTagPullCron || cfg.EnableCorpDataCron || cfg.EnableMediaIDUpdateCron || cfg.EnableTransferStateRefreshCron || cfg.EnableSOPLogCron || cfg.EnableSensitiveWordMonitorCron || cfg.EnableWorkMessageArchiveSyncCron || cfg.EnableDurableWorkMessageArchive || cfg.EnableSaaSStorageReconcileCron || cfg.EnableSaaSAlertNotificationDispatchCron || cfg.EnableSaaSOperationQueueAssignmentReminderCron || cfg.EnableSaaSApprovalReminderCron || cfg.EnableSaaSSystemHealthCron || cfg.EnableSaaSBackupCron || cfg.EnableSaaSComplianceCron || cfg.EnableSaaSIdentityCleanupCron || cfg.EnableSaaSServiceAccountUsageAlertCron || cfg.EnableSaaSAuditIntegrityCron || cfg.EnableSaaSAuditAnchorCron || cfg.EnableSaaSServiceAccountUsageCleanupCron || cfg.EnableSaaSTenantDomainDeliveryCron || cfg.EnableSaaSNotificationHealthRecoveryCron || cfg.EnableSaaSSubscriptionReconcileCron || cfg.EnableSaaSPaymentDunningCron || cfg.EnableSaaSPaymentSettlementSyncCron
-	persistentBackgroundRecorderEnabled := cfg.EnableWeWorkCallbackWorker || cfg.EnableEmployeeApplyWorker || (cfg.EnableAsyncFileUploadWorker && strings.TrimSpace(cfg.MySQLDSN) != "") || cfg.EnableMarkTagsWorker || cfg.EnableMessageRemindWorker || cfg.EnableWorkRoomSyncWorker || cfg.EnableWorkContactSyncWorker || cfg.EnableWorkDepartmentListWorker || cfg.EnableMediaIDUpdateWorker || cfg.EnableEmployeeStatisticWorker || cfg.EnablePullAgentCron || cfg.EnableEmployeeStatisticCron || cfg.EnableChannelCodeCron || cfg.EnableContactBatchSendCron || cfg.EnableRoomBatchSendCron || cfg.EnableContactSyncSendResultCron || cfg.EnableRoomSyncSendResultCron || cfg.EnableRoomTagPullCron || cfg.EnableCorpDataCron || cfg.EnableMediaIDUpdateCron || cfg.EnableTransferStateRefreshCron || cfg.EnableSOPLogCron || cfg.EnableSensitiveWordMonitorCron || cfg.EnableWorkMessageArchiveSyncCron || cfg.EnableDurableWorkMessageArchive || cfg.EnableSaaSStorageReconcileCron || cfg.EnableSaaSAlertNotificationDispatchCron || cfg.EnableSaaSOperationQueueAssignmentReminderCron || cfg.EnableSaaSApprovalReminderCron || cfg.EnableSaaSSystemHealthCron || cfg.EnableSaaSBackupCron || cfg.EnableSaaSComplianceCron || cfg.EnableSaaSIdentityCleanupCron || cfg.EnableSaaSServiceAccountUsageAlertCron || cfg.EnableSaaSAuditIntegrityCron || cfg.EnableSaaSAuditAnchorCron || cfg.EnableSaaSServiceAccountUsageCleanupCron || cfg.EnableSaaSTenantDomainDeliveryCron || cfg.EnableSaaSNotificationHealthRecoveryCron || cfg.EnableSaaSSubscriptionReconcileCron || cfg.EnableSaaSPaymentDunningCron || cfg.EnableSaaSPaymentSettlementSyncCron
+	backgroundTasksEnabled := cfg.EnableWeWorkCallbackWorker || cfg.EnableEmployeeApplyWorker || cfg.EnableAsyncFileUploadWorker || cfg.EnableMarkTagsWorker || cfg.EnableMessageRemindWorker || cfg.EnableWorkRoomSyncWorker || cfg.EnableWorkContactSyncWorker || cfg.EnableWorkDepartmentListWorker || cfg.EnableMediaIDUpdateWorker || cfg.EnableEmployeeStatisticWorker || cfg.EnablePullAgentCron || cfg.EnableEmployeeStatisticCron || cfg.EnableChannelCodeCron || cfg.EnableContactBatchSendCron || cfg.EnableRoomBatchSendCron || cfg.EnableContactSyncSendResultCron || cfg.EnableRoomSyncSendResultCron || cfg.EnableRoomTagPullCron || cfg.EnableCorpDataCron || cfg.EnableMediaIDUpdateCron || cfg.EnableTransferStateRefreshCron || cfg.EnableSOPLogCron || cfg.EnableSensitiveWordMonitorCron || archivePlan.durableWorker || archivePlan.durableScheduler || archivePlan.legacyScheduler || cfg.EnableSaaSStorageReconcileCron || cfg.EnableSaaSAlertNotificationDispatchCron || cfg.EnableSaaSOperationQueueAssignmentReminderCron || cfg.EnableSaaSApprovalReminderCron || cfg.EnableSaaSSystemHealthCron || cfg.EnableSaaSBackupCron || cfg.EnableSaaSComplianceCron || cfg.EnableSaaSIdentityCleanupCron || cfg.EnableSaaSServiceAccountUsageAlertCron || cfg.EnableSaaSAuditIntegrityCron || cfg.EnableSaaSAuditAnchorCron || cfg.EnableSaaSServiceAccountUsageCleanupCron || cfg.EnableSaaSTenantDomainDeliveryCron || cfg.EnableSaaSNotificationHealthRecoveryCron || cfg.EnableSaaSSubscriptionReconcileCron || cfg.EnableSaaSPaymentDunningCron || cfg.EnableSaaSPaymentSettlementSyncCron
+	persistentBackgroundRecorderEnabled := cfg.EnableWeWorkCallbackWorker || cfg.EnableEmployeeApplyWorker || (cfg.EnableAsyncFileUploadWorker && strings.TrimSpace(cfg.MySQLDSN) != "") || cfg.EnableMarkTagsWorker || cfg.EnableMessageRemindWorker || cfg.EnableWorkRoomSyncWorker || cfg.EnableWorkContactSyncWorker || cfg.EnableWorkDepartmentListWorker || cfg.EnableMediaIDUpdateWorker || cfg.EnableEmployeeStatisticWorker || cfg.EnablePullAgentCron || cfg.EnableEmployeeStatisticCron || cfg.EnableChannelCodeCron || cfg.EnableContactBatchSendCron || cfg.EnableRoomBatchSendCron || cfg.EnableContactSyncSendResultCron || cfg.EnableRoomSyncSendResultCron || cfg.EnableRoomTagPullCron || cfg.EnableCorpDataCron || cfg.EnableMediaIDUpdateCron || cfg.EnableTransferStateRefreshCron || cfg.EnableSOPLogCron || cfg.EnableSensitiveWordMonitorCron || archivePlan.durableWorker || archivePlan.durableScheduler || archivePlan.legacyScheduler || cfg.EnableSaaSStorageReconcileCron || cfg.EnableSaaSAlertNotificationDispatchCron || cfg.EnableSaaSOperationQueueAssignmentReminderCron || cfg.EnableSaaSApprovalReminderCron || cfg.EnableSaaSSystemHealthCron || cfg.EnableSaaSBackupCron || cfg.EnableSaaSComplianceCron || cfg.EnableSaaSIdentityCleanupCron || cfg.EnableSaaSServiceAccountUsageAlertCron || cfg.EnableSaaSAuditIntegrityCron || cfg.EnableSaaSAuditAnchorCron || cfg.EnableSaaSServiceAccountUsageCleanupCron || cfg.EnableSaaSTenantDomainDeliveryCron || cfg.EnableSaaSNotificationHealthRecoveryCron || cfg.EnableSaaSSubscriptionReconcileCron || cfg.EnableSaaSPaymentDunningCron || cfg.EnableSaaSPaymentSettlementSyncCron
 	if cfg.EnableConversationExportWorker {
 		backgroundTasksEnabled = true
 		persistentBackgroundRecorderEnabled = true
@@ -3066,8 +3067,9 @@ func main() {
 		}, cron.RunOnce))
 		debugf("go cron enabled: RoomTagPull 标签建群结果同步 interval=%s run_on_start=%v", cfg.RoomTagPullCronInterval, cfg.RoomTagPullCronRunOnStart)
 	}
-	archivePlan := archiveRuntimePlanFor(cfg)
-	if archivePlan.durableWorker {
+	var durableBridgeClient *archiveprovider.BridgeArchiveClient
+	var durableRunner *archiveprovider.DurableBridgeRunner
+	if archivePlan.durableWorker || archivePlan.durableScheduler {
 		bridgeClient, err := archiveprovider.NewBridgeArchiveClient(
 			cfg.WorkMessageArchiveBridgeBaseURL,
 			cfg.WorkMessageArchiveBridgeToken,
@@ -3076,8 +3078,11 @@ func main() {
 		if err != nil {
 			fatalf("build durable work message archive bridge: %v", err)
 		}
-		durableRunner := archiveprovider.NewDurableBridgeRunner(getMySQLStore(), bridgeClient, cfg.WorkMessageArchiveSyncLimit)
-		mediaRunner := archiveprovider.NewMediaSyncService(getMySQLStore(), bridgeClient, cfg.FileStorageRoot)
+		durableBridgeClient = bridgeClient
+		durableRunner = archiveprovider.NewDurableBridgeRunner(getMySQLStore(), bridgeClient, cfg.WorkMessageArchiveSyncLimit)
+	}
+	if archivePlan.durableWorker {
+		mediaRunner := archiveprovider.NewMediaSyncService(getMySQLStore(), durableBridgeClient, cfg.FileStorageRoot)
 		workerGroup.Add("worker-durable-work-message-archive-sync", taskrunner.Periodic(taskrunner.PeriodicConfig{
 			Name:       "worker-durable-work-message-archive-sync",
 			Interval:   cfg.WorkMessageArchiveSyncCronInterval,
@@ -3092,16 +3097,16 @@ func main() {
 		}, func(ctx context.Context) error {
 			return runDurableArchiveMediaBatch(ctx, mediaRunner, cfg.WorkMessageArchiveSyncLimit, log.Default())
 		}))
-		if archivePlan.durableScheduler {
-			workerGroup.Add("cron-durable-work-message-archive-enqueue", taskrunner.Periodic(taskrunner.PeriodicConfig{
-				Name:       "cron-durable-work-message-archive-enqueue",
-				Interval:   cfg.WorkMessageArchiveSyncCronInterval,
-				RunOnStart: cfg.WorkMessageArchiveSyncCronRunOnStart,
-				Logger:     structuredLogger(),
-			}, durableRunner.EnqueueScheduledOnce))
-		}
 		debugf("durable archive workers enabled: automatic_schedule=%t interval=%s schedule_run_on_start=%v limit=%d storage_root=%s",
 			archivePlan.durableScheduler, cfg.WorkMessageArchiveSyncCronInterval, cfg.WorkMessageArchiveSyncCronRunOnStart, cfg.WorkMessageArchiveSyncLimit, cfg.FileStorageRoot)
+	}
+	if archivePlan.durableScheduler {
+		workerGroup.Add("cron-durable-work-message-archive-enqueue", taskrunner.Periodic(taskrunner.PeriodicConfig{
+			Name:       "cron-durable-work-message-archive-enqueue",
+			Interval:   cfg.WorkMessageArchiveSyncCronInterval,
+			RunOnStart: cfg.WorkMessageArchiveSyncCronRunOnStart,
+			Logger:     structuredLogger(),
+		}, durableRunner.EnqueueScheduledOnce))
 	}
 	var workMessageArchiveCron *dashboard.WorkMessageArchiveSyncCron
 	if archivePlan.legacyScheduler {

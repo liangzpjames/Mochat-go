@@ -2302,8 +2302,6 @@ func (cfg *Config) applyRuntimeRole() {
 		cfg.EnableTransferStateRefreshCron = false
 		cfg.EnableSOPLogCron = false
 		cfg.EnableSensitiveWordMonitorCron = false
-		cfg.EnableWorkMessageArchiveSyncCron = false
-		cfg.EnableDurableWorkMessageArchive = false
 		cfg.EnableSaaSStorageReconcileCron = false
 		cfg.EnableSaaSAlertNotificationDispatchCron = false
 		cfg.EnableSaaSOperationQueueAssignmentReminderCron = false

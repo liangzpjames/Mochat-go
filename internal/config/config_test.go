@@ -1,8 +1,10 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -458,6 +460,32 @@ func TestFromEnvRuntimeRoleFiltersBackgroundResponsibilities(t *testing.T) {
 				t.Fatalf("EnablePullAgentCron = %v, want %v", cfg.EnablePullAgentCron, tt.wantScheduler)
 			}
 		})
+	}
+}
+
+func TestFromEnvRuntimeRolePreservesArchiveSwitches(t *testing.T) {
+	for _, role := range []string{"all", "api", "worker", "scheduler"} {
+		for _, durable := range []bool{false, true} {
+			for _, scheduled := range []bool{false, true} {
+				t.Run(fmt.Sprintf("role=%s/durable=%t/scheduled=%t", role, durable, scheduled), func(t *testing.T) {
+					clearEnv(t)
+					t.Setenv("MOCHAT_GO_RUNTIME_ROLE", role)
+					t.Setenv("MOCHAT_GO_ENABLE_DURABLE_WORK_MESSAGE_ARCHIVE", strconv.FormatBool(durable))
+					t.Setenv("MOCHAT_GO_ENABLE_WORK_MESSAGE_ARCHIVE_SYNC_CRON", strconv.FormatBool(scheduled))
+					t.Setenv("MOCHAT_GO_WORK_MESSAGE_ARCHIVE_BRIDGE_BASE_URL", "https://archive-bridge.example")
+					t.Setenv("MOCHAT_GO_WORK_MESSAGE_ARCHIVE_BRIDGE_TOKEN", "MOCHAT-LOCAL-ACCEPTANCE-BEARER-0123456789")
+					t.Setenv("MOCHAT_MYSQL_DSN", "user:pass@tcp(127.0.0.1:3306)/mochat")
+
+					cfg, err := FromEnv()
+					if err != nil {
+						t.Fatal(err)
+					}
+					if cfg.EnableDurableWorkMessageArchive != durable || cfg.EnableWorkMessageArchiveSyncCron != scheduled {
+						t.Fatalf("archive switches = durable %t scheduled %t, want durable %t scheduled %t", cfg.EnableDurableWorkMessageArchive, cfg.EnableWorkMessageArchiveSyncCron, durable, scheduled)
+					}
+				})
+			}
+		}
 	}
 }
 

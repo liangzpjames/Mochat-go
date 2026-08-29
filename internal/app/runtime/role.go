@@ -10,6 +10,17 @@ import (
 
 type Role string
 
+// Responsibilities is the runtime ownership matrix. Archive switches remain
+// user configuration; the role selects which process is allowed to act on it.
+type Responsibilities struct {
+	API                   bool
+	Workers               bool
+	Schedulers            bool
+	DurableArchiveAPI     bool
+	DurableArchiveWorkers bool
+	ArchiveEnqueuer       bool
+}
+
 const (
 	RoleAll       Role = "all"
 	RoleAPI       Role = "api"
@@ -40,4 +51,18 @@ func (r Role) RunsWorkers() bool {
 
 func (r Role) RunsScheduler() bool {
 	return r == RoleAll || r == RoleScheduler
+}
+
+func (r Role) Responsibilities(durableArchive, automaticArchiveScheduling bool) Responsibilities {
+	if r == "" {
+		r = RoleAll
+	}
+	return Responsibilities{
+		API:                   r.RunsAPI(),
+		Workers:               r.RunsWorkers(),
+		Schedulers:            r.RunsScheduler(),
+		DurableArchiveAPI:     r.RunsAPI() && durableArchive,
+		DurableArchiveWorkers: r.RunsWorkers() && durableArchive,
+		ArchiveEnqueuer:       r.RunsScheduler() && durableArchive && automaticArchiveScheduling,
+	}
 }
