@@ -536,7 +536,7 @@ func TestUnknownRouteWithoutPHPFallbackReturnsBadGateway(t *testing.T) {
 	}
 }
 
-func TestReadyzReportsSourceAndProxyState(t *testing.T) {
+func TestReadyzReportsSourceAndProxyStateAsStableChecks(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte("Hello MoChat "))
 	}))
@@ -562,24 +562,23 @@ func TestReadyzReportsSourceAndProxyState(t *testing.T) {
 		t.Fatalf("status = %d, want %d, body=%s", rec.Code, http.StatusOK, rec.Body.String())
 	}
 
-	var payload statusPayload
+	var payload readinessPayload
 	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
 		t.Fatal(err)
 	}
-	if !payload.SourceRootExists {
-		t.Fatalf("SourceRootExists = false")
+	if !payload.Ready || len(payload.ReadinessChecks) != 4 {
+		t.Fatalf("readiness payload = %+v", payload)
 	}
-	if !payload.ManifestExists {
-		t.Fatalf("ManifestExists = false")
+	for _, check := range payload.ReadinessChecks {
+		if !check.Ready {
+			t.Fatalf("readiness check = %+v", check)
+		}
 	}
-	if !payload.ProxyFallbackEnabled {
-		t.Fatalf("ProxyFallbackEnabled = false")
-	}
-	if !payload.PHPUpstreamReady {
-		t.Fatalf("PHPUpstreamReady = false, probe=%s", payload.PHPUpstreamProbe)
-	}
-	if payload.NextMigrationBoundary != "auth/tenant/rbac" {
-		t.Fatalf("NextMigrationBoundary = %q", payload.NextMigrationBoundary)
+	wantCodes := []string{"compat_source", "compat_manifest", "compat_proxy", "compat_upstream"}
+	for index, wantCode := range wantCodes {
+		if payload.ReadinessChecks[index].Code != wantCode {
+			t.Fatalf("readiness check %d code = %q, want %q", index, payload.ReadinessChecks[index].Code, wantCode)
+		}
 	}
 }
 
@@ -654,24 +653,12 @@ func TestReadyzStandaloneDoesNotRequireSourceManifestOrPHP(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d, body=%s", rec.Code, http.StatusOK, rec.Body.String())
 	}
-	var payload statusPayload
+	var payload readinessPayload
 	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
 		t.Fatal(err)
 	}
-	if !payload.Standalone || payload.Mode != "standalone-go" {
+	if !payload.Ready || len(payload.ReadinessChecks) != 1 || payload.ReadinessChecks[0] != (ReadinessCheck{Code: "compat_assets", Ready: true}) {
 		t.Fatalf("standalone payload = %+v", payload)
-	}
-	if payload.SourceRootExists {
-		t.Fatalf("SourceRootExists = true")
-	}
-	if !payload.ManifestExists {
-		t.Fatalf("ManifestExists = false")
-	}
-	if payload.ProxyFallbackEnabled {
-		t.Fatalf("ProxyFallbackEnabled = true")
-	}
-	if payload.PHPUpstreamReady {
-		t.Fatalf("PHPUpstreamReady = true")
 	}
 }
 
@@ -738,12 +725,105 @@ func TestHealthzStaysLiveWhileDependencyReadinessRecovers(t *testing.T) {
 	}
 }
 
+func TestReadyzPublishesOnlyStableReadinessFields(t *testing.T) {
+	var redisDown atomic.Bool
+	redisDown.Store(true)
+	checker := NewReadinessChecker(ReadinessProbe{Code: "redis_connection", Check: func(context.Context) error {
+		if redisDown.Load() {
+			return errors.New("dial tcp redis.internal:6379: password=secret dsn=root:secret@tcp(mysql.internal:3306)/mochat")
+		}
+		return nil
+	}})
+	srv, err := New(config.Config{
+		ListenAddr:   ":0",
+		Standalone:   true,
+		SourceRoot:   `C:\private\dsn=root-secret`,
+		ManifestPath: `C:\private\manifest-0172.json`,
+		PHPUpstream:  "http://php.internal:9501",
+		ProxyTimeout: time.Second,
+	}, WithReadinessChecker(checker), WithBackgroundTasks(func() []taskrunner.Snapshot {
+		return []taskrunner.Snapshot{{
+			Name:   "sensitive-task",
+			Status: taskrunner.StatusFailed,
+			Error:  `task failed path=C:\private\task.log`,
+			LatestExecution: &taskrunner.ExecutionSnapshot{
+				Status: taskrunner.StatusFailed,
+				Error:  "dial tcp worker.internal:9443: bare-secret",
+			},
+		}}
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	assertPublicPayload := func(wantStatus int, wantReady bool) {
+		t.Helper()
+		recorder := httptest.NewRecorder()
+		srv.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/readyz", nil))
+		if recorder.Code != wantStatus {
+			t.Fatalf("status = %d, want %d, body=%s", recorder.Code, wantStatus, recorder.Body.String())
+		}
+		for _, private := range []string{
+			"background_tasks", "latest_execution", "error", "redis.internal", "mysql.internal", "worker.internal",
+			"root-secret", "bare-secret", "C:\\private", "php.internal", "0172", "source_root", "manifest_path", "php_upstream",
+		} {
+			if strings.Contains(strings.ToLower(recorder.Body.String()), strings.ToLower(private)) {
+				t.Fatalf("readyz leaked %q: %s", private, recorder.Body.String())
+			}
+		}
+		var payload map[string]any
+		if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+			t.Fatal(err)
+		}
+		if len(payload) != 2 {
+			t.Fatalf("readyz fields = %#v, want only ready and readiness_checks", payload)
+		}
+		ready, ok := payload["ready"].(bool)
+		if !ok || ready != wantReady {
+			t.Fatalf("ready = %#v, want %t", payload["ready"], wantReady)
+		}
+		checks, ok := payload["readiness_checks"].([]any)
+		if !ok || len(checks) != 2 {
+			t.Fatalf("readiness_checks = %#v", payload["readiness_checks"])
+		}
+		for _, raw := range checks {
+			check, ok := raw.(map[string]any)
+			if !ok || len(check) != 2 {
+				t.Fatalf("readiness check fields = %#v", raw)
+			}
+			if _, ok := check["code"].(string); !ok {
+				t.Fatalf("readiness code = %#v", check["code"])
+			}
+			if _, ok := check["ready"].(bool); !ok {
+				t.Fatalf("readiness ready = %#v", check["ready"])
+			}
+		}
+	}
+
+	assertPublicPayload(http.StatusServiceUnavailable, false)
+	redisDown.Store(false)
+	assertPublicPayload(http.StatusOK, true)
+}
+
 func TestReadinessFailureCanSelectAStablePublicCode(t *testing.T) {
 	checker := NewReadinessChecker(ReadinessProbe{Code: "migration_current", Check: func(context.Context) error {
 		return NewReadinessFailure("migration_database_ahead")
 	}})
 	checks := checker.Check(context.Background())
 	if len(checks) != 1 || checks[0].Code != "migration_database_ahead" || checks[0].Ready {
+		t.Fatalf("checks = %+v", checks)
+	}
+}
+
+func TestReadinessCheckerReplacesUnstableProbeCode(t *testing.T) {
+	checker := NewReadinessChecker(ReadinessProbe{
+		Code: "redis at redis.internal:6379",
+		Check: func(context.Context) error {
+			return errors.New("dsn=root:secret@tcp(mysql.internal:3306)/mochat")
+		},
+	})
+	checks := checker.Check(context.Background())
+	if len(checks) != 1 || checks[0].Code != "dependency_check" || checks[0].Ready {
 		t.Fatalf("checks = %+v", checks)
 	}
 }

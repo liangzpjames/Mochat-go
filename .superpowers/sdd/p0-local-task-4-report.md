@@ -303,3 +303,28 @@ git diff --check
 ```
 
 结果全部退出码 `0`。真实 controlled migration、真实备份恢复、真实 Docker Compose 与生产维护窗口继续 SKIP；测试仅使用 DryRun、fake Docker 和本地临时 HTTP server，未触碰命名卷、真实 Provider 或生产数据。Task 1/Task 3 合同未改写，`docs/PROJECT_PROGRESS.zh-CN.md` 未修改。
+
+## Reviewer 第五轮复审修复（2026-08-29）
+
+### RED 与根因
+
+- `TestReadyzPublishesOnlyStableReadinessFields` 首次失败并打印了旧 `/readyz` 响应，其中包含 `background_tasks`、`latest_execution.error`、内部 Redis/MySQL/worker 主机、DSN/路径、PHP upstream 地址和迁移版本。根因不是 readiness probe 自身（其错误文本已不序列化），而是 `/readyz` 先调用完整诊断用的 `s.status()`，再在同一对象上追加 readiness 结果。
+- `TestReadinessCheckerReplacesUnstableProbeCode` 首次失败，证明 probe 注册若误把内部地址放入 `Code`，旧 checker 会原样公开。稳定码合同此前只约束 typed failure code，没有约束 probe base code。
+
+### GREEN 与公开合同
+
+- `/readyz` 改用独立 `readinessPayload`，顶层固定只有 `ready` 与 `readiness_checks`；每项固定只有稳定 `code` 与 `ready`。不再调用或复用 `s.status()`，因此后台任务快照、错误文本、内部地址、路径、上游地址、版本和路由诊断均无法进入公开响应。
+- standalone 资产状态转为 `compat_assets` bool；兼容拓扑只公开 `compat_source`、`compat_manifest`、`compat_proxy`、`compat_upstream` 四个稳定能力码，不公开实际目录、manifest 路径、probe 文本或 upstream 地址。
+- `NewReadinessChecker` 对不符合 `[a-z0-9_]` 的 base code 统一降级为 `dependency_check`，仍执行 probe 并保持失败摘流语义，但不允许误配置内容进入响应。
+- 故障注入同时放入 `dial tcp redis.internal:6379`、MySQL DSN、worker `LatestExecution.Error`、私有路径、PHP upstream 与版本字符串；断言故障为 `503/ready=false`、恢复为 `200/ready=true`，响应只有稳定字段且所有敏感片段零命中。`/healthz` 继续只表示进程 live；完整兼容诊断仍保留在既有 `/compat/status`，本任务未扩大其鉴权范围或复用范围。
+
+### 最终验证与边界
+
+```text
+go test ./internal/server ./cmd/mochat-go -count=1
+go test ./... -count=1
+go vet ./...
+git diff --check
+```
+
+前三项均已确认退出码 `0`；提交前再次执行 `git diff --check`。真实 Provider、Docker、受控迁移和生产部署仍为 SKIP；未修改 Task 1/Task 3 合同、命名卷或 `docs/PROJECT_PROGRESS.zh-CN.md`。

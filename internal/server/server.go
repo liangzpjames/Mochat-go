@@ -725,8 +725,11 @@ type statusPayload struct {
 	MigratedRoutes        []string              `json:"migrated_routes"`
 	BackgroundTasks       []taskrunner.Snapshot `json:"background_tasks,omitempty"`
 	NextMigrationBoundary string                `json:"next_migration_boundary"`
-	Ready                 *bool                 `json:"ready,omitempty"`
-	ReadinessChecks       []ReadinessCheck      `json:"readiness_checks,omitempty"`
+}
+
+type readinessPayload struct {
+	Ready           bool             `json:"ready"`
+	ReadinessChecks []ReadinessCheck `json:"readiness_checks"`
 }
 
 type ReadinessProbe struct {
@@ -781,6 +784,9 @@ func NewReadinessChecker(probes ...ReadinessProbe) *ReadinessChecker {
 		probe.Code = strings.TrimSpace(probe.Code)
 		if probe.Code == "" || probe.Check == nil {
 			continue
+		}
+		if stableReadinessCode(probe.Code) == "" {
+			probe.Code = "dependency_check"
 		}
 		filtered = append(filtered, probe)
 	}
@@ -4693,33 +4699,39 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "name": "mochat-go"})
 	case r.URL.Path == "/readyz" && r.Method == http.MethodGet:
 		status := http.StatusOK
-		payload := s.status()
-		readyState := true
-		payload.Ready = &readyState
+		payload := readinessPayload{Ready: true, ReadinessChecks: make([]ReadinessCheck, 0, 5)}
 		checkCtx, cancelChecks := context.WithTimeout(r.Context(), 2*time.Second)
 		if s.cfg.Standalone {
-			payload.PHPUpstreamReady = false
-			payload.PHPUpstreamProbe = "standalone mode: PHP upstream disabled"
-			if len(embeddedCompatManifest) == 0 {
-				status = http.StatusServiceUnavailable
-				readyState = false
-			}
+			payload.ReadinessChecks = append(payload.ReadinessChecks, ReadinessCheck{
+				Code:  "compat_assets",
+				Ready: len(embeddedCompatManifest) > 0,
+			})
 		} else {
-			ready, probe := s.probePHPUpstream(checkCtx)
-			payload.PHPUpstreamReady = ready
-			payload.PHPUpstreamProbe = probe
-			if !payload.SourceRootExists || !payload.ManifestExists || !payload.ProxyFallbackEnabled || !payload.PHPUpstreamReady {
-				status = http.StatusServiceUnavailable
-				readyState = false
+			sourceReady := false
+			if s.cfg.SourceRoot != "" {
+				_, err := os.Stat(s.cfg.SourceRoot)
+				sourceReady = err == nil
 			}
+			manifestReady := false
+			if s.cfg.ManifestPath != "" {
+				_, err := os.Stat(s.cfg.ManifestPath)
+				manifestReady = err == nil
+			}
+			upstreamReady, _ := s.probePHPUpstream(checkCtx)
+			payload.ReadinessChecks = append(payload.ReadinessChecks,
+				ReadinessCheck{Code: "compat_source", Ready: sourceReady},
+				ReadinessCheck{Code: "compat_manifest", Ready: manifestReady},
+				ReadinessCheck{Code: "compat_proxy", Ready: s.proxy != nil},
+				ReadinessCheck{Code: "compat_upstream", Ready: upstreamReady},
+			)
 		}
 		if s.readiness != nil {
-			payload.ReadinessChecks = s.readiness.Check(checkCtx)
-			for _, check := range payload.ReadinessChecks {
-				if !check.Ready {
-					status = http.StatusServiceUnavailable
-					readyState = false
-				}
+			payload.ReadinessChecks = append(payload.ReadinessChecks, s.readiness.Check(checkCtx)...)
+		}
+		for _, check := range payload.ReadinessChecks {
+			if !check.Ready {
+				status = http.StatusServiceUnavailable
+				payload.Ready = false
 			}
 		}
 		cancelChecks()
