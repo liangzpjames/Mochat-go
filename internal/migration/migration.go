@@ -433,6 +433,26 @@ func (r *Runner) execMigrationScript(ctx context.Context, migration Migration, b
 		return 0, fmt.Errorf("pin migration connection %s: %w", migration.Version, err)
 	}
 	defer conn.Close()
+	if automaticMigrationNeedsServerDetection(body) {
+		var serverVersion string
+		if err := conn.QueryRowContext(ctx, "SELECT VERSION()").Scan(&serverVersion); err != nil {
+			return 0, fmt.Errorf("read database version for %s: %w", migration.Version, err)
+		}
+		if strings.HasPrefix(strings.TrimSpace(serverVersion), "5.7.") {
+			start := r.currentTime()
+			if err := execSQLScriptMySQL57(ctx, conn, body); err != nil {
+				return 0, err
+			}
+			executionMS := int(r.currentTime().Sub(start).Milliseconds())
+			if executionMS < 0 {
+				executionMS = 0
+			}
+			if err := recordAppliedWith(ctx, conn, migration, checksum, executionMS); err != nil {
+				return 0, err
+			}
+			return executionMS, nil
+		}
+	}
 	start := r.currentTime()
 	if err := execSQLScriptWithExecutor(ctx, conn, body); err != nil {
 		return 0, err
@@ -453,11 +473,168 @@ func (r *Runner) execRollbackScript(ctx context.Context, migration Migration, bo
 		return fmt.Errorf("pin rollback connection %s: %w", migration.Version, err)
 	}
 	defer conn.Close()
+	if automaticMigrationNeedsServerDetection(body) {
+		var serverVersion string
+		if err := conn.QueryRowContext(ctx, "SELECT VERSION()").Scan(&serverVersion); err != nil {
+			return fmt.Errorf("read database version for rollback %s: %w", migration.Version, err)
+		}
+		if strings.HasPrefix(strings.TrimSpace(serverVersion), "5.7.") {
+			if err := execSQLScriptMySQL57(ctx, conn, body); err != nil {
+				return err
+			}
+			_, err = conn.ExecContext(ctx, `DELETE FROM `+VersionTable+` WHERE version = ?`, migration.Version)
+			return err
+		}
+	}
 	if err := execSQLScriptWithExecutor(ctx, conn, body); err != nil {
 		return err
 	}
 	_, err = conn.ExecContext(ctx, `DELETE FROM `+VersionTable+` WHERE version = ?`, migration.Version)
 	return err
+}
+
+func automaticMigrationNeedsServerDetection(body string) bool {
+	return strings.Contains(body, "ADD COLUMN IF NOT EXISTS") || strings.Contains(body, "ADD UNIQUE KEY IF NOT EXISTS") ||
+		strings.Contains(body, "ADD INDEX IF NOT EXISTS") || strings.Contains(body, "ADD KEY IF NOT EXISTS") ||
+		strings.Contains(body, "DROP COLUMN IF EXISTS") || strings.Contains(body, "DROP INDEX IF EXISTS")
+}
+
+type migrationQueryExecer interface {
+	migrationExecer
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}
+
+func execSQLScriptMySQL57(ctx context.Context, execer migrationQueryExecer, script string) error {
+	statements, err := SplitSQLStatements(script)
+	if err != nil {
+		return err
+	}
+	for _, statement := range statements {
+		compatible, err := mysql57ConditionalAlterStatement(ctx, execer, statement)
+		if err != nil {
+			return err
+		}
+		if strings.TrimSpace(compatible) == "" {
+			continue
+		}
+		if _, err := execer.ExecContext(ctx, compatible); err != nil {
+			return fmt.Errorf("%s: %w", compactStatement(compatible), err)
+		}
+	}
+	return nil
+}
+
+func mysql57ConditionalAlterStatement(ctx context.Context, queryer migrationQueryExecer, statement string) (string, error) {
+	trimmed := strings.TrimSpace(statement)
+	if !strings.HasPrefix(strings.ToUpper(trimmed), "ALTER TABLE ") || !automaticMigrationNeedsServerDetection(trimmed) {
+		return statement, nil
+	}
+	rest := strings.TrimSpace(trimmed[len("ALTER TABLE "):])
+	tableToken, clausesBody := firstSQLToken(rest)
+	tableName := strings.Trim(tableToken, "`")
+	if tableName == "" || strings.TrimSpace(clausesBody) == "" {
+		return "", errors.New("invalid conditional ALTER TABLE statement")
+	}
+	clauses := splitSQLTopLevelCommas(clausesBody)
+	kept := make([]string, 0, len(clauses))
+	for _, clause := range clauses {
+		compatible, keep, err := mysql57ConditionalAlterClause(ctx, queryer, tableName, clause)
+		if err != nil {
+			return "", err
+		}
+		if keep {
+			kept = append(kept, compatible)
+		}
+	}
+	if len(kept) == 0 {
+		return "", nil
+	}
+	return "ALTER TABLE " + tableToken + "\n  " + strings.Join(kept, ",\n  "), nil
+}
+
+func mysql57ConditionalAlterClause(ctx context.Context, queryer migrationQueryExecer, tableName, clause string) (string, bool, error) {
+	trimmed := strings.TrimSpace(clause)
+	upper := strings.ToUpper(trimmed)
+	type conditional struct {
+		prefix, replacement, catalog string
+		add                          bool
+	}
+	conditions := []conditional{
+		{"ADD COLUMN IF NOT EXISTS ", "ADD COLUMN ", "COLUMNS", true},
+		{"ADD UNIQUE INDEX IF NOT EXISTS ", "ADD UNIQUE INDEX ", "STATISTICS", true},
+		{"ADD UNIQUE KEY IF NOT EXISTS ", "ADD UNIQUE KEY ", "STATISTICS", true},
+		{"ADD INDEX IF NOT EXISTS ", "ADD INDEX ", "STATISTICS", true},
+		{"ADD KEY IF NOT EXISTS ", "ADD KEY ", "STATISTICS", true},
+		{"DROP COLUMN IF EXISTS ", "DROP COLUMN ", "COLUMNS", false},
+		{"DROP INDEX IF EXISTS ", "DROP INDEX ", "STATISTICS", false},
+	}
+	for _, condition := range conditions {
+		if !strings.HasPrefix(upper, condition.prefix) {
+			continue
+		}
+		identifier, _ := firstSQLToken(strings.TrimSpace(trimmed[len(condition.prefix):]))
+		identifier = strings.Trim(identifier, "`")
+		column := "COLUMN_NAME"
+		if condition.catalog == "STATISTICS" {
+			column = "INDEX_NAME"
+		}
+		var count int
+		query := "SELECT COUNT(*) FROM information_schema." + condition.catalog + " WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=? AND " + column + "=?"
+		if err := queryer.QueryRowContext(ctx, query, tableName, identifier).Scan(&count); err != nil {
+			return "", false, err
+		}
+		if (condition.add && count > 0) || (!condition.add && count == 0) {
+			return "", false, nil
+		}
+		return condition.replacement + strings.TrimSpace(trimmed[len(condition.prefix):]), true, nil
+	}
+	return trimmed, true, nil
+}
+
+func firstSQLToken(value string) (string, string) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "", ""
+	}
+	if value[0] == '`' {
+		if end := strings.Index(value[1:], "`"); end >= 0 {
+			end++
+			return value[:end+1], strings.TrimSpace(value[end+1:])
+		}
+	}
+	if end := strings.IndexAny(value, " \t\r\n"); end >= 0 {
+		return value[:end], strings.TrimSpace(value[end:])
+	}
+	return value, ""
+}
+
+func splitSQLTopLevelCommas(value string) []string {
+	var result []string
+	start, depth := 0, 0
+	var quote byte
+	for i := 0; i < len(value); i++ {
+		current := value[i]
+		if quote != 0 {
+			if current == quote && (i == 0 || value[i-1] != '\\') {
+				quote = 0
+			}
+			continue
+		}
+		if current == '\'' || current == '"' || current == '`' {
+			quote = current
+			continue
+		}
+		if current == '(' {
+			depth++
+		} else if current == ')' && depth > 0 {
+			depth--
+		} else if current == ',' && depth == 0 {
+			result = append(result, strings.TrimSpace(value[start:i]))
+			start = i + 1
+		}
+	}
+	result = append(result, strings.TrimSpace(value[start:]))
+	return result
 }
 
 type migrationExecer interface {

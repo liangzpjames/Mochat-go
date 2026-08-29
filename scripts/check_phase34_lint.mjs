@@ -14,11 +14,12 @@ export function selectDashboardChangedLintFiles(changedFiles) {
     .sort();
 }
 
-export function partitionLintFiles(files, { maxFiles = 40, maxCommandCharacters = 12_000 } = {}) {
+export function partitionLintFiles(files, { maxFiles = 40, maxCommandCharacters = 6_000 } = {}) {
   const batches = [];
   let current = [];
   let currentCharacters = 0;
   for (const file of files) {
+    if (file.length + 1 > maxCommandCharacters) throw new Error(`lint target exceeds command budget: ${file}`);
     const nextCharacters = currentCharacters + file.length + 1;
     if (current.length > 0 && (current.length >= maxFiles || nextCharacters > maxCommandCharacters)) {
       batches.push(current);
@@ -30,6 +31,14 @@ export function partitionLintFiles(files, { maxFiles = 40, maxCommandCharacters 
   }
   if (current.length > 0) batches.push(current);
   return batches;
+}
+
+export function eslintInvocation(files) {
+  return {
+    command: process.execPath,
+    args: [resolve(dashboardRoot, 'node_modules/eslint/bin/eslint.js'), ...files],
+    options: { cwd: dashboardRoot, stdio: 'inherit', shell: false },
+  };
 }
 
 function gitFiles(args) {
@@ -66,17 +75,13 @@ function main() {
     return;
   }
 
-  const pnpm = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
   let failed = false;
   const batches = partitionLintFiles(relativeFiles);
   for (const [index, batch] of batches.entries()) {
     console.log(`Phase 3.4 lint batch ${index + 1}/${batches.length}: ${batch.length} file(s).`);
-    const result = spawnSync(pnpm, ['exec', 'eslint', ...batch], {
-      cwd: dashboardRoot,
-      stdio: 'inherit',
-      shell: process.platform === 'win32',
-    });
-    if (result.error) console.error(`Failed to run ${pnpm}: ${result.error.message}`);
+    const invocation = eslintInvocation(batch);
+    const result = spawnSync(invocation.command, invocation.args, invocation.options);
+    if (result.error) console.error(`Failed to run eslint: ${result.error.message}`);
     if (result.error || result.status !== 0) failed = true;
   }
   process.exitCode = failed ? 1 : 0;

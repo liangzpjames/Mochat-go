@@ -154,6 +154,52 @@ func TestDashboardActivationStatusMapsAllStatesWithoutRawToken(t *testing.T) {
 	}
 }
 
+func TestDashboardActivationStatusOnlyMapsUnavailableIdentityToRevoked(t *testing.T) {
+	now := time.Date(2026, 8, 29, 10, 0, 0, 0, time.UTC)
+	databaseErr := errors.New("controlled identity database failure")
+	for _, test := range []struct {
+		name        string
+		identityErr error
+		wantRevoked bool
+	}{
+		{name: "not found is revoked", identityErr: sql.ErrNoRows, wantRevoked: true},
+		{name: "database failure propagates", identityErr: databaseErr},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			store := &DashboardIdentityStore{queryRow: func(_ context.Context, query string, _ ...any) identityRowScanner {
+				switch {
+				case strings.Contains(query, "mochat_go_dashboard_identity_activations"):
+					return identityTestRow{values: []any{7, "13800138000", now.Add(time.Hour), sql.NullTime{}, sql.NullTime{}, 1}}
+				case strings.Contains(query, "FROM mochat_go_dashboard_identities d"):
+					return identityTestRow{err: test.identityErr}
+				default:
+					return identityTestRow{err: sql.ErrNoRows}
+				}
+			}}
+			status, err := store.DashboardActivationStatus(context.Background(), [32]byte{1}, now)
+			if test.wantRevoked {
+				if err != nil || status.Status != dashboardauth.ActivationStatusRevoked {
+					t.Fatalf("status=%+v err=%v", status, err)
+				}
+				return
+			}
+			if !errors.Is(err, databaseErr) {
+				t.Fatalf("error=%v want database failure", err)
+			}
+		})
+	}
+}
+
+func TestResolveDashboardIdentityPropagatesDatabaseScanErrors(t *testing.T) {
+	databaseErr := errors.New("controlled identity scan failure")
+	store := &DashboardIdentityStore{queryRow: func(context.Context, string, ...any) identityRowScanner {
+		return identityTestRow{err: databaseErr}
+	}}
+	if _, err := store.ResolveIdentity(context.Background(), 7); !errors.Is(err, databaseErr) {
+		t.Fatalf("ResolveIdentity error=%v want database failure", err)
+	}
+}
+
 func TestDashboardIdentityStoreCompletesEnrollmentWithPendingToActiveTransition(t *testing.T) {
 	now := time.Now().UTC()
 	tx := &identityTestTx{}
