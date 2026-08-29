@@ -90,6 +90,55 @@ jobs:
 	}
 }
 
+func TestValidateWorkflowRequiresControlled0165PathsInBothTriggers(t *testing.T) {
+	workflow := readRepositoryFile(t, ".github/workflows/mysql57-amd64.yml")
+	for _, required := range []string{
+		"cmd/mochat-ai-insight-0165/**",
+		"scripts/preflight_0165_ai_daily_insight_unification.go",
+		"scripts/lib/migration_inventory_smoke.sh",
+	} {
+		if strings.Count(workflow, `- "`+required+`"`) != 2 {
+			t.Fatalf("workflow must include %q in both push and pull_request paths", required)
+		}
+		mutated := strings.Replace(workflow, `      - "`+required+`"`+"\n", "", 1)
+		path := writeWorkflow(t, mutated)
+		assertFailureContains(t, validateWorkflow(path), "on.push.paths missing: "+required)
+	}
+}
+
+func TestValidateWorkflowRejectsExcessivePermissions(t *testing.T) {
+	workflow := readRepositoryFile(t, ".github/workflows/mysql57-amd64.yml")
+	const safe = "permissions:\n  contents: read\n"
+	if !strings.Contains(workflow, safe) {
+		t.Fatal("workflow fixture no longer has the exact read-only permission baseline")
+	}
+	for _, test := range []struct {
+		name        string
+		replacement string
+	}{
+		{name: "missing", replacement: ""},
+		{name: "write all", replacement: "permissions: write-all\n"},
+		{name: "contents write", replacement: "permissions:\n  contents: write\n"},
+		{name: "oidc write", replacement: "permissions:\n  contents: read\n  id-token: write\n"},
+		{name: "attestations write", replacement: "permissions:\n  contents: read\n  attestations: write\n"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			path := writeWorkflow(t, strings.Replace(workflow, safe, test.replacement, 1))
+			assertFailureContains(t, validateWorkflow(path), "workflow permissions must be exactly contents: read")
+		})
+	}
+
+	t.Run("job override", func(t *testing.T) {
+		const job = "  mysql57-amd64:\n"
+		if !strings.Contains(workflow, job) {
+			t.Fatal("workflow fixture no longer has the mysql57-amd64 job")
+		}
+		mutated := strings.Replace(workflow, job, job+"    permissions: write-all\n", 1)
+		path := writeWorkflow(t, mutated)
+		assertFailureContains(t, validateWorkflow(path), "workflow job mysql57-amd64 must not override permissions")
+	})
+}
+
 func TestValidateWorkflowRejectsRequiredCommandAsInertText(t *testing.T) {
 	workflow := readRepositoryFile(t, ".github/workflows/mysql57-amd64.yml")
 	cases := []struct {

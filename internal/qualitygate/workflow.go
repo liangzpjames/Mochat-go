@@ -27,6 +27,7 @@ var requiredTriggerPaths = []string{
 	"architecture-policy.json",
 	"Dockerfile",
 	"cmd/mochat-architecture/**",
+	"cmd/mochat-ai-insight-0165/**",
 	"cmd/mochat-go/**",
 	"go.mod",
 	phase3Plan,
@@ -43,6 +44,8 @@ var requiredTriggerPaths = []string{
 	"scripts/test_audit_architecture_boundaries.sh",
 	"scripts/test_backend_quality_gate_contract.sh",
 	"scripts/ci_mysql57_amd64.sh",
+	"scripts/lib/migration_inventory_smoke.sh",
+	"scripts/preflight_0165_ai_daily_insight_unification.go",
 	"scripts/smoke_schema_migrate.sh",
 	"scripts/smoke_mysql57_schema_migrate.sh",
 }
@@ -53,10 +56,11 @@ var githubRunnerStatePattern = regexp.MustCompile(
 )
 
 type workflowDocument struct {
-	On       workflowTriggers       `yaml:"on"`
-	Jobs     map[string]workflowJob `yaml:"jobs"`
-	Env      map[string]string      `yaml:"env"`
-	Defaults workflowDefaults       `yaml:"defaults"`
+	On          workflowTriggers       `yaml:"on"`
+	Jobs        map[string]workflowJob `yaml:"jobs"`
+	Env         map[string]string      `yaml:"env"`
+	Defaults    workflowDefaults       `yaml:"defaults"`
+	Permissions yaml.Node              `yaml:"permissions"`
 }
 
 type workflowTriggers struct {
@@ -77,6 +81,7 @@ type workflowJob struct {
 	Defaults        workflowDefaults  `yaml:"defaults"`
 	Steps           []workflowStep    `yaml:"steps"`
 	Env             map[string]string `yaml:"env"`
+	Permissions     yaml.Node         `yaml:"permissions"`
 }
 
 type workflowStep struct {
@@ -186,6 +191,9 @@ func validateWorkflow(path string) []string {
 	}
 
 	failures := make([]string, 0)
+	if !exactReadOnlyWorkflowPermissions(document.Permissions) {
+		failures = append(failures, "workflow permissions must be exactly contents: read")
+	}
 	if !supportedWorkflowShell(document.Defaults.Run.Shell) {
 		failures = append(
 			failures,
@@ -227,6 +235,9 @@ func validateWorkflow(path string) []string {
 			failures,
 			"workflow job "+workflowJobID+" must use supported runner ubuntu-22.04",
 		)
+	}
+	if job.Permissions.Kind != 0 {
+		failures = append(failures, "workflow job "+workflowJobID+" must not override permissions")
 	}
 	if !yamlBooleanOrAbsent(job.If, true) {
 		failures = append(failures, "workflow job "+workflowJobID+" must be unconditional")
@@ -525,6 +536,15 @@ func strictlyIncreasing(values []int) bool {
 		}
 	}
 	return true
+}
+
+func exactReadOnlyWorkflowPermissions(node yaml.Node) bool {
+	if node.Kind != yaml.MappingNode || len(node.Content) != 2 {
+		return false
+	}
+	key, value := node.Content[0], node.Content[1]
+	return key.Kind == yaml.ScalarNode && key.Value == "contents" &&
+		value.Kind == yaml.ScalarNode && value.Value == "read"
 }
 
 func yamlBooleanOrAbsent(node yaml.Node, expected bool) bool {
