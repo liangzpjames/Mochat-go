@@ -28,7 +28,7 @@ jobs:
         run: go test ./...
       - name: Go vet
         run: go vet ./...
-      - name: Migration 0098 lifecycle gate
+      - name: Migration registry lifecycle gate
         run: bash ./scripts/smoke_schema_migrate.sh
   detached-integration:
     steps:
@@ -110,7 +110,7 @@ func TestValidateWorkflowRejectsRequiredCommandAsInertText(t *testing.T) {
 			name:        "commented lifecycle",
 			original:    "        run: bash ./scripts/smoke_schema_migrate.sh\n",
 			replacement: "        run: |\n          # bash ./scripts/smoke_schema_migrate.sh\n",
-			step:        "Migration 0098 lifecycle gate",
+			step:        "Migration registry lifecycle gate",
 			command:     "bash ./scripts/smoke_schema_migrate.sh",
 		},
 		{
@@ -517,7 +517,7 @@ func TestValidateWorkflowRejectsEnvironmentOverrides(t *testing.T) {
 				"          MOCHAT_STACK_PROJECT: mochat-go-schema-migrate-ci\n" +
 				"          MOCHAT_MYSQL_PORT: \"13331\"\n" +
 				"          BASH_ENV: ./disable-errexit.sh\n",
-			failure: "Migration 0098 lifecycle gate step environment must exactly match the required allowlist",
+			failure: "Migration registry lifecycle gate step environment must exactly match the required allowlist",
 		},
 		{
 			name: "integration extra environment",
@@ -899,7 +899,7 @@ func TestValidateWorkflowRejectsLifecycleCommandInDeadBranch(t *testing.T) {
 	assertFailureContains(
 		t,
 		validateWorkflow(path),
-		"Migration 0098 lifecycle gate step does not own command: bash ./scripts/smoke_schema_migrate.sh",
+		"Migration registry lifecycle gate step does not own command: bash ./scripts/smoke_schema_migrate.sh",
 	)
 }
 

@@ -35,6 +35,7 @@
     "refresh:phase2-progress": "node scripts/check_phase2_frontend_progress.mjs --refresh",
     "initialize:page-metadata": "node scripts/audit_legacy_frontend_inventory.mjs --initialize-page-metadata",
     "check:deps": "node scripts/check_frontend_dependency_policy.mjs",
+    "check:supply-chain": "node --test scripts/check_supply_chain_policy.test.mjs && node scripts/check_supply_chain_policy.mjs",
     "check:logging": "node --test scripts/check_logging_policy.test.mjs && node scripts/check_logging_policy.mjs",
     "docs:check": "node scripts/check_documentation_structure.mjs",
     "lint": "pnpm -r --if-present lint",

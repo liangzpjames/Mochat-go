@@ -2,6 +2,8 @@ module jiyi/mochat-go
 
 go 1.26
 
+toolchain go1.26.7
+
 require (
 	github.com/DATA-DOG/go-sqlmock v1.5.2
 	github.com/ebitengine/purego v0.10.2

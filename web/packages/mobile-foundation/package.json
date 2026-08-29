@@ -21,7 +21,7 @@
     "eslint": "9.39.5",
     "jsdom": "26.1.0",
     "typescript": "5.9.3",
-    "vitest": "2.1.9"
+    "vitest": "3.2.6"
   },
   "exports": {
     ".": "./src/index.ts",

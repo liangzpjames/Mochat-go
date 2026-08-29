@@ -25,10 +25,17 @@ const (
 var requiredTriggerPaths = []string{
 	".github/workflows/mysql57-amd64.yml",
 	"architecture-policy.json",
+	"Dockerfile",
 	"cmd/mochat-architecture/**",
 	"cmd/mochat-go/**",
+	"go.mod",
 	phase3Plan,
 	"internal/**",
+	"package.json",
+	"pnpm-lock.yaml",
+	"pnpm-workspace.yaml",
+	"scripts/check_supply_chain_policy.mjs",
+	"scripts/check_supply_chain_policy.test.mjs",
 	"scripts/dev_check.sh",
 	"scripts/test.sh",
 	"scripts/audit_architecture_boundaries.sh",
@@ -98,16 +105,19 @@ type requiredStep struct {
 }
 
 var requiredSteps = []requiredStep{
+	{name: "Supply-chain policy gate", command: "pnpm check:supply-chain"},
+	{name: "Frontend dependency vulnerability gate", command: "pnpm audit --audit-level high"},
 	{name: "Go architecture gate", command: "go run ./cmd/mochat-architecture -root ."},
 	{name: "Go module race gate", command: "go test -race ./internal/modules/..."},
 	{name: "Go tests", command: "go test ./..."},
 	{name: "Go vet", command: "go vet ./..."},
-	{name: "Migration 0098 lifecycle gate", command: "bash ./scripts/smoke_schema_migrate.sh"},
+	{name: "Go reachable vulnerability gate", command: "go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 ./..."},
+	{name: "Migration registry lifecycle gate", command: "bash ./scripts/smoke_schema_migrate.sh"},
 	{name: "SCRM MySQL integration gate", command: "go test -v -count=1 -tags=integration ./internal/modules/scrm/adapters/mysql"},
 }
 
 var requiredStepEnvironments = map[string]map[string]string{
-	"Migration 0098 lifecycle gate": {
+	"Migration registry lifecycle gate": {
 		"MOCHAT_STACK_PROJECT": "mochat-go-schema-migrate-ci",
 		"MOCHAT_MYSQL_PORT":    "13331",
 	},
@@ -125,6 +135,7 @@ var approvedNonRequiredRunSteps = map[string]string{
 	"Frontend build gate":                     "./scripts/frontend_check.sh build",
 	"Architecture wrapper compatibility test": "sh ./scripts/test_audit_architecture_boundaries.sh",
 	"Backend quality gate workflow contract":  "sh ./scripts/test_backend_quality_gate_contract.sh",
+	"Checksum source dependency SBOM":         "sha256sum mochat-go.spdx.json | tee mochat-go.spdx.json.sha256",
 	"Docker info":                             "docker info",
 	"Architecture boundaries":                 "./scripts/audit_architecture_boundaries.sh\n./scripts/test_audit_architecture_boundaries.sh\n",
 	"Run MySQL 5.7 amd64 gate":                "mkdir -p docs/phases/phase-pre0-standalone/evidence/ci\nenv -u GOROOT ./scripts/ci_mysql57_amd64.sh 2>&1 | tee docs/phases/phase-pre0-standalone/evidence/ci/mysql57-amd64.log\ngrep -q \"mysql57 amd64 CI gate passed\" docs/phases/phase-pre0-standalone/evidence/ci/mysql57-amd64.log\n",
@@ -348,11 +359,11 @@ func validateWorkflow(path string) []string {
 	if len(positions) == len(requiredSteps) && !strictlyIncreasing(positions) {
 		failures = append(
 			failures,
-			"workflow gate order must be architecture -> race -> full test -> vet -> lifecycle -> integration within job "+workflowJobID,
+			"workflow gate order must be supply policy -> frontend vulnerability -> architecture -> race -> full test -> vet -> Go vulnerability -> lifecycle -> integration within job "+workflowJobID,
 		)
 	}
 
-	lifecycle := stepByName["Migration 0098 lifecycle gate"]
+	lifecycle := stepByName["Migration registry lifecycle gate"]
 	if lifecycle.Env["MOCHAT_STACK_PROJECT"] != "mochat-go-schema-migrate-ci" {
 		failures = append(failures, "migration lifecycle must use the dedicated mochat-go-schema-migrate-ci project")
 	}
