@@ -19,12 +19,6 @@ const defaultExemptions = [
   ].map(([method, route]) => ({ method, route, handlerSymbol: 'HTTPHandler.ServeHTTP', operation: 'Authorization' })),
 ];
 
-const defaultExactUnboundAuthContracts = new Set([
-  'GET /dashboard/user/securityMFA',
-  'POST /dashboard/user/securityMFA',
-  'PUT /dashboard/user/securityMFA',
-]);
-
 function walkGo(directory) {
   if (!fs.existsSync(directory)) return [];
   const files = [];
@@ -270,19 +264,25 @@ function localVariableTypes(scope) {
   return variables;
 }
 
-function explicitDashboardAuthContracts(root) {
-  const policyFile = path.join(root, 'internal', 'dashboard', 'dashboard_route_policy.go');
-  const source = fs.readFileSync(policyFile, 'utf8');
-  const readList = (name) => {
-    const body = source.match(new RegExp(`var\\s+${name}\\s*=\\s*\\[\\]string\\s*\\{([\\s\\S]*?)\\}`))?.[1] ?? '';
-    return new Set([...body.matchAll(/"([A-Z]+ \/dashboard\/[^"\n]+)"/g)].map((match) => match[1]));
-  };
-  return {
-    public: readList('publicDashboardRouteContracts'),
-    exactExempt: readList('exactExemptDashboardRouteContracts'),
-    saasPrincipal: readList('saasPrincipalDashboardRouteContracts'),
-    source: policyFile.replaceAll('\\', '/'),
-  };
+function dashboardRouteRegistry(root) {
+  const registryFile = path.join(root, 'internal', 'dashboard', 'dashboard_route_registry.go');
+  const source = sanitizeGo(fs.readFileSync(registryFile, 'utf8'), { commentsOnly: true });
+  const authKinds = new Map([
+    ['DashboardRouteAuthPublic', 'public'],
+    ['DashboardRouteAuthIdentity', 'identity-authenticated'],
+    ['DashboardRouteAuthPrincipal', 'dashboard-principal'],
+    ['DashboardRouteAuthSaaS', 'saas-principal'],
+  ]);
+  const entries = new Map();
+  const duplicates = [];
+  const pattern = /\{\s*Method:\s*"([A-Z]+)"\s*,\s*Path:\s*"(\/dashboard\/[^"\n]+)"\s*,\s*Handler:\s*"([A-Za-z_][A-Za-z0-9_.]*)"\s*,\s*AuthKind:\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}/g;
+  for (const match of source.matchAll(pattern)) {
+    const contract = `${match[1]} ${match[2]}`;
+    const entry = { method: match[1], route: match[2], handlerSymbol: match[3], auth: authKinds.get(match[4]), authToken: match[4] };
+    if (entries.has(contract)) duplicates.push(contract);
+    else entries.set(contract, entry);
+  }
+  return { entries, duplicates, source: registryFile.replaceAll('\\', '/') };
 }
 
 function constructorType(name, definitions) {
@@ -583,7 +583,7 @@ function operationsIn(definition) {
   return operations;
 }
 
-function auditDashboardAuthContext(root = process.cwd(), options = {}) {
+function auditDashboardAuthContext(root = process.cwd()) {
   const goFiles = walkGo(root);
   const serverFiles = goFiles.filter((file) => file.replaceAll('\\', '/').includes('/internal/server/'));
   const compositionFiles = goFiles.filter((file) => file.replaceAll('\\', '/').includes('/cmd/mochat-go/'));
@@ -597,26 +597,41 @@ function auditDashboardAuthContext(root = process.cwd(), options = {}) {
   const bindings = compositionBindings(compositionFiles, fields, definitions);
   const dispatchRoutes = serverRoutes(serverFiles).map((route) => ({ ...route, ...(bindings.get(route.field) || {}), registrationKind: 'dispatch' })).filter((route) => route.handlerSymbol);
   const moduleRoutes = registeredHandlerRoutes(productionSources, definitions);
-  const explicitAuth = explicitDashboardAuthContracts(root);
-  const routes = [...dispatchRoutes, ...moduleRoutes].map((route) => {
+  const registry = dashboardRouteRegistry(root);
+  const discoveredRoutes = [...dispatchRoutes, ...moduleRoutes];
+  const routes = discoveredRoutes.map((route) => {
     const contract = `${route.method} ${route.route}`;
-    const auth = explicitAuth.public.has(contract)
-      ? 'public'
-      : explicitAuth.saasPrincipal.has(contract)
-        ? 'saas-principal'
-        : explicitAuth.exactExempt.has(contract)
-          ? 'identity-authenticated'
-          : 'dashboard-principal';
-    return { ...route, auth, authSource: explicitAuth.source };
+    const metadata = registry.entries.get(contract);
+    return { ...route, auth: metadata?.auth, declaredHandlerSymbol: metadata?.handlerSymbol, authSource: registry.source };
   });
   const catalogContracts = extractBackendRegisteredAPIs(productionSources.map(({ file, source }) => ({ file, body: source })))
     .map((item) => item.contract)
     .filter((contract) => !contract.includes(' /dashboard/saasAdmin/') && !contract.includes(' /dashboard/saasAlert/') && !contract.includes(' /dashboard/saasBilling/'));
-  const auditedContracts = new Set(routes.map((route) => `${route.method} ${route.route}`));
-  const exactUnboundContracts = options.exactUnboundContracts || defaultExactUnboundAuthContracts;
-  const missingContracts = catalogContracts.filter((contract) => !auditedContracts.has(contract) && !exactUnboundContracts.has(contract));
-  const violations = routes.filter((route) => !route.auth || !route.handlerSymbol)
-    .map((route) => ({ method: route.method, route: route.route, handlerSymbol: route.handlerSymbol || 'missing', operation: 'AUTH_METADATA_MISSING', source: route.dispatchSource }));
+  const auditedContracts = new Set(discoveredRoutes.map((route) => `${route.method} ${route.route}`));
+  const catalogContractSet = new Set(catalogContracts);
+  for (const [contract, metadata] of registry.entries) {
+    if (!auditedContracts.has(contract) && catalogContractSet.has(contract)) {
+      routes.push({ ...metadata, declaredHandlerSymbol: metadata.handlerSymbol, authSource: registry.source, registrationKind: 'conditional', dispatchSource: registry.source });
+    }
+  }
+  const missingContracts = [...new Set([
+    ...catalogContracts.filter((contract) => !auditedContracts.has(contract) && !registry.entries.has(contract)),
+    ...discoveredRoutes.map((route) => `${route.method} ${route.route}`).filter((contract) => !registry.entries.has(contract)),
+  ])];
+  const violations = routes.flatMap((route) => {
+    if (!route.auth || !route.declaredHandlerSymbol) {
+      return [{ method: route.method, route: route.route, handlerSymbol: route.handlerSymbol || 'missing', operation: 'AUTH_METADATA_MISSING', source: route.dispatchSource }];
+    }
+    if (route.handlerSymbol !== route.declaredHandlerSymbol) {
+      return [{ method: route.method, route: route.route, handlerSymbol: route.handlerSymbol, operation: `HANDLER_METADATA_MISMATCH:${route.declaredHandlerSymbol}`, source: route.dispatchSource }];
+    }
+    return [];
+  });
+  for (const contract of registry.duplicates) violations.push({ method: contract.split(' ')[0], route: contract.slice(contract.indexOf(' ') + 1), handlerSymbol: 'duplicate', operation: 'DUPLICATE_AUTH_METADATA', source: registry.source });
+  for (const [contract, metadata] of registry.entries) {
+    if (!auditedContracts.has(contract) && !catalogContractSet.has(contract)) violations.push({ method: metadata.method, route: metadata.route, handlerSymbol: metadata.handlerSymbol, operation: 'ORPHAN_AUTH_METADATA', source: registry.source });
+    if (!metadata.auth) violations.push({ method: metadata.method, route: metadata.route, handlerSymbol: metadata.handlerSymbol, operation: `UNKNOWN_AUTH_KIND:${metadata.authToken}`, source: registry.source });
+  }
   const uniqueRoutes = [...new Map(routes.map((route) => [`${route.method} ${route.route} ${route.handlerSymbol}`, route])).values()];
   return { routes: uniqueRoutes, violations, catalogContracts, missingContracts };
 }

@@ -110,6 +110,20 @@ func TestRunProductionSDKModeFailsClosedBeforeListenWhenRegistrationIsEmptyOrFai
 	}
 }
 
+func TestRunProductionSDKModeRegistrationFailureNeverConstructsServer(t *testing.T) {
+	registrar := &fakeRegistrar{registerErr: &archivebridge.BridgeError{Code: "ARCHIVE_DRIVER_INITIALIZATION_FAILED"}}
+	serverConstructed := false
+	err := runWithServerFactory(context.Background(), productionTestEnv(), func(*archivebridge.Store) (driverRegistrar, error) {
+		return registrar, nil
+	}, func(commandConfig, http.Handler, *archivebridge.Store) bridgeServer {
+		serverConstructed = true
+		return &fakeBridgeServer{}
+	})
+	if archivebridge.ErrorCode(err) != "ARCHIVE_DRIVER_INITIALIZATION_FAILED" || serverConstructed || !registrar.closed {
+		t.Fatalf("err=%v constructed=%t registrarClosed=%t", err, serverConstructed, registrar.closed)
+	}
+}
+
 func TestRunProductionSDKModeRejectsNilRegistrar(t *testing.T) {
 	err := run(context.Background(), productionTestEnv(), func(*archivebridge.Store) (driverRegistrar, error) {
 		return nil, nil

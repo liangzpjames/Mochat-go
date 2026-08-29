@@ -36,6 +36,7 @@ type driverRegistrar interface {
 }
 
 type registrarFactory func(*archivebridge.Store) (driverRegistrar, error)
+type serverFactory func(commandConfig, http.Handler, *archivebridge.Store) bridgeServer
 
 type bridgeServer interface {
 	ListenAndServe() error
@@ -177,8 +178,17 @@ func loadConfig(getenv func(string) string) (commandConfig, error) {
 }
 
 func run(ctx context.Context, getenv func(string) string, newRegistrar registrarFactory) error {
+	return runWithServerFactory(ctx, getenv, newRegistrar, func(config commandConfig, handler http.Handler, store *archivebridge.Store) bridgeServer {
+		return &http.Server{Addr: config.address, Handler: newReadinessHandler(handler, store, config.sdkEnabled), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 35 * time.Second, WriteTimeout: 35 * time.Second, IdleTimeout: 60 * time.Second}
+	})
+}
+
+func runWithServerFactory(ctx context.Context, getenv func(string) string, newRegistrar registrarFactory, newServer serverFactory) error {
 	if ctx == nil {
 		return errors.New("archive bridge context is required")
+	}
+	if newServer == nil {
+		return errors.New("archive bridge server factory is required")
 	}
 	config, err := loadConfig(getenv)
 	if err != nil {
@@ -219,7 +229,10 @@ func run(ctx context.Context, getenv func(string) string, newRegistrar registrar
 	if err != nil {
 		return closeRegistrar(registrar, err)
 	}
-	server := &http.Server{Addr: config.address, Handler: newReadinessHandler(handler, store, config.sdkEnabled), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 35 * time.Second, WriteTimeout: 35 * time.Second, IdleTimeout: 60 * time.Second}
+	server := newServer(config, handler, store)
+	if server == nil {
+		return closeRegistrar(registrar, errors.New("archive bridge server is required"))
+	}
 	log.Printf("archive bridge listening on %s; local fixtures enabled=%t; production SDK enabled=%t", config.address, config.fixtureEnabled, config.sdkEnabled)
 	return serve(ctx, server, registrar)
 }

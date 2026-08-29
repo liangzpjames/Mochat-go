@@ -59,10 +59,18 @@ func (h *PageHandler) DeleteCache(w ResponseWriter, r *Request) { h.cache.Delete
 func (h *PageHandler) Unregistered(w ResponseWriter, r *Request) { h.cache.UserCorpCache(r.Context(), 7) }
 func (h *DashboardAuthHandler) Logout(w ResponseWriter, r *Request) { h.cache.DeleteUserCorpCache(r.Context(), 7) }
 `);
-  await fs.writeFile(path.join(root, 'internal', 'dashboard', 'dashboard_route_policy.go'), `package dashboard
-var publicDashboardRouteContracts = []string{"POST /dashboard/auth/logout"}
-var exactExemptDashboardRouteContracts = []string{"POST /dashboard/auth/logout"}
-var saasPrincipalDashboardRouteContracts = []string{}
+  await fs.writeFile(path.join(root, 'internal', 'dashboard', 'dashboard_route_registry.go'), `package dashboard
+var dashboardRouteRegistry = []DashboardRoute{
+  {Method: "GET", Path: "/dashboard/safe", Handler: "PageHandler.Safe", AuthKind: DashboardRouteAuthPrincipal},
+  {Method: "GET", Path: "/dashboard/legacy", Handler: "PageHandler.Legacy", AuthKind: DashboardRouteAuthPrincipal},
+  {Method: "GET", Path: "/dashboard/header", Handler: "PageHandler.Header", AuthKind: DashboardRouteAuthPrincipal},
+  {Method: "POST", Path: "/dashboard/page/delete-cache", Handler: "PageHandler.DeleteCache", AuthKind: DashboardRouteAuthPrincipal},
+  {Method: "POST", Path: "/dashboard/auth/logout", Handler: "DashboardAuthHandler.Logout", AuthKind: DashboardRouteAuthPublic},
+  {Method: "GET", Path: "/dashboard/module/constant", Handler: "ModuleHandler.Legacy", AuthKind: DashboardRouteAuthPrincipal},
+  {Method: "POST", Path: "/dashboard/module/one", Handler: "ModuleHandler.ServeHTTP", AuthKind: DashboardRouteAuthPrincipal},
+  {Method: "POST", Path: "/dashboard/module/two", Handler: "ModuleHandler.ServeHTTP", AuthKind: DashboardRouteAuthPrincipal},
+  {Method: "PUT", Path: "/dashboard/module/shared", Handler: "SharedHandler.ServeHTTP", AuthKind: DashboardRouteAuthPrincipal},
+}
 `);
   await fs.writeFile(path.join(root, 'internal', 'dashboard', 'page_test.go'), `package dashboard
 func TestProof() { _ = "h.cache.UserCorpCache(r.Context(), 7)" }
@@ -118,4 +126,31 @@ test('public auth metadata requires the exact method and route contract', async 
   const result = auditDashboardAuthContext(root);
   assert.equal(result.routes.find((route) => route.route === '/dashboard/auth/logout' && route.method === 'POST')?.auth, 'public');
   assert.notEqual(result.routes.find((route) => route.route === '/dashboard/auth/logout' && route.method === 'GET')?.auth, 'public');
+});
+
+test('missing typed metadata cannot be bypassed by an unbound allowlist or a comment', async (t) => {
+  const root = await fixture();
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const registryPath = path.join(root, 'internal', 'dashboard', 'dashboard_route_registry.go');
+  const source = await fs.readFile(registryPath, 'utf8');
+  await fs.writeFile(registryPath, source.replace(/^.*\/dashboard\/legacy.*\r?\n/m, '') + '\n// {Method: "GET", Path: "/dashboard/legacy", Handler: "PageHandler.Legacy", AuthKind: DashboardRouteAuthPrincipal}\n');
+  const result = auditDashboardAuthContext(root, { exactUnboundContracts: new Set(['GET /dashboard/legacy']) });
+  assert.ok(result.missingContracts.includes('GET /dashboard/legacy'));
+});
+
+test('handler and auth mutations are reported against the typed registry', async (t) => {
+  const root = await fixture();
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const registryPath = path.join(root, 'internal', 'dashboard', 'dashboard_route_registry.go');
+  const source = await fs.readFile(registryPath, 'utf8');
+  await fs.writeFile(registryPath, source.replace('Handler: "PageHandler.Safe"', 'Handler: "PageHandler.Legacy"').replace('AuthKind: DashboardRouteAuthPrincipal', 'AuthKind: DashboardRouteAuthUnknown'));
+  const result = auditDashboardAuthContext(root);
+  assert.ok(result.violations.some((item) => item.route === '/dashboard/safe'));
+});
+
+test('production registry explicitly covers all securityMFA methods as identity authenticated', () => {
+  const result = auditDashboardAuthContext(process.cwd());
+  for (const method of ['GET', 'POST', 'PUT']) {
+    assert.equal(result.routes.find((route) => route.method === method && route.route === '/dashboard/user/securityMFA')?.auth, 'identity-authenticated');
+  }
 });
