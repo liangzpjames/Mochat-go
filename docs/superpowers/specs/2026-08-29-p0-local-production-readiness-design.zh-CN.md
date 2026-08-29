@@ -134,7 +134,44 @@ pnpm audit 按调用可达性分类：生产 bundle/runtime 可达项必须升�
 6. 浏览器：只对本地受控 seed/API 数据执行 Dashboard、SaaS、Sidebar、Operation 核心流程；静态占位路由不算业务通过。
 7. 外部边界：Finance/DataZone fake、fixture、MariaDB、Redis、Docker、浏览器均是本地证据；真实企微拉取、真实 DataZone、真实 AI、生产部署保持 SKIP/NOT RUN。
 
-## 8. 设计自审
+## 8. 续作一：统一真实迁移注册表集成夹具
+
+上一轮聚焦集成测试虽然覆盖了新增路径，但在设置 `MOCHAT_GO_MYSQL_INTEGRATION_DSN` 后运行 `go test ./internal/store ./internal/migration` 仍会失败。根因不是 MariaDB 与 MySQL 语法差异，而是历史测试各自创建局部 schema：表、列、索引和受控迁移证据停留在测试编写时的版本；当前 runner 会发现完整 `0001`–`0174` 注册表，`0130_identity_realms_single_corp_backfill` 又要求真实 staging/校验证据，两套前置条件互相冲突。
+
+统一夹具分两层，避免测试反向依赖业务 store 或形成 import cycle：
+
+1. `internal/integrationtestdb` 只负责从环境 DSN 创建随机隔离数据库、返回连接和 DSN，并在 `t.Cleanup` 中回滚场景数据后删除数据库；它不手写业务 DDL，也不持有全局共享库。
+2. migration test harness 消费生产 `DefaultMigrations`/Runner。store 场景先执行完整最新注册表；针对某个历史迁移的测试则执行真实注册表前缀到目标前一版本，再加载该场景 seed、执行目标迁移和断言。跨越 `0130` 时必须通过现有受控身份 staging API 写入可校验证据；跨越 `0165` 时必须使用现有受控备份/验证接口。禁止直接插入 migration ledger 冒充执行成功。
+3. 场景 seed 只插入测试所需业务行，必须带唯一测试前缀；清理先回滚 seed，再由数据库级 cleanup 删除隔离库。失败时保留测试名和 migration version 诊断，但不保留凭据。
+4. MariaDB 10.6 和 MySQL 5.7 使用同一 harness 与断言；`MOCHAT_GO_MYSQL_INTEGRATION_DSN` 只提供管理员连接，不把已有业务 schema 当测试库。
+
+“真实注册表”不等于每个迁移测试都必须从最新 schema 倒推。正确合同是：测试前置 schema 只能由生产注册表的确定前缀产生；场景差异只能由 seed 产生。这样既能验证历史迁移，又不会继续维护第二套手写 schema。
+
+## 9. 续作二：callback unknown 人工恢复闭环
+
+`0174` 的 `pending → unknown → sent` 能阻止不确定外部副作用自动重放，但 `unknown` 目前只能 fail closed，没有受控恢复入口。生产闭环采用“人工证明事实，再恢复 inbox”的状态机，不让系统猜测 Provider 是否已经执行：
+
+- `confirm_sent`：操作员根据企业微信侧证据确认已经发送；同一事务将指定 action 从 `unknown` 标为 `sent`、保存操作者/原因/请求键/版本和审计，并重新激活对应 inbox，让 worker 跳过该 action 后继续其余 action。
+- `confirm_not_sent_and_retry`：操作员确认未发送；同一事务将指定 action 从 `unknown` 重置为 `pending`、递增 reconciliation fence、写审计并重新激活 inbox。Provider 调用仍只由正式 worker 执行，管理 API 不直接调用企微。
+- 同一事件的两个 action 独立解析和推进；确认一个 action 不得修改另一个 action。已经 `sent` 的 action 永不因另一个 action 的恢复而回退。
+
+新增 `0175_wework_callback_side_effect_reconciliation`：为 intent 增加乐观版本、最后 reconciliation fence/决议信息；新增不可变 command receipt/audit 表，唯一键覆盖 `(tenant_id, corp_id, request_id)`，payload hash 防止同请求键异义重放。所有变更提供 MySQL 5.7 兼容 up/down；down 只移除本迁移字段和表，不删除 0174 intent。
+
+管理面使用 Dashboard 企业设置权限 `dashboard.company_setting.website`，路由进入现有 principal、tenant gate、corp binding 和 page RBAC：
+
+- `GET /dashboard/company/callback-side-effects?status=unknown&cursor=...&limit=...`
+- `GET /dashboard/company/callback-side-effects/{eventKey}/{actionKey}`
+- `POST /dashboard/company/callback-side-effects/{eventKey}/{actionKey}/reconcile`
+
+tenant/corp 只能来自服务端 principal/binding，禁止从 body 覆盖；跨租户、跨企业和无权限统一 fail closed。列表使用稳定游标，详情不返回 callback 正文或 Provider 凭据。reconcile 请求必须含 `Idempotency-Key`、期望版本、决议和非空原因。数据库事务以 `SELECT ... FOR UPDATE` 锁定 intent 和 inbox；活动 lease/fence 已变化、状态不是 `unknown` 或期望版本过期均返回 409，DB 不可用返回 503，范围外资源返回 404，请求格式错误返回 400。重复同请求键同 payload 重放首次响应；同键不同 payload 返回 409。
+
+失败注入必须覆盖：审计写入失败整体回滚、inbox 复活失败整体回滚、两个操作员并发仅一人成功、过期版本/lease fence 拒绝、双 action 独立恢复、重复命令重放、跨租户/企业/权限越界不泄露。fake Provider 只证明恢复后 worker 状态机；不会宣称真实企微成功。
+
+## 10. 合入与远端一致性
+
+候选分支通过全部门禁后，不能在含用户修改的 main 工作树执行 merge。新建临时 integration worktree，以新鲜 `origin/main` 创建临时分支，普通合并候选并复跑关键门禁；推送使用非 force 的 `git push origin HEAD:refs/heads/main`。推送前后都读取 `git ls-remote`，若远端在验证期间变化则推送必须被 non-fast-forward 拒绝，重新整合并复验。主工作树的 index、工作区和本地已检出 `main` ref 不强制移动；远端 `main` 与临时集成提交精确一致才算完成。
+
+## 11. 设计自审
 
 - [x] 没有修改进度台账，也没有把 fixture 注册写成生产完成。
 - [x] 每个 High/Medium 根因都有一个源头级合同，不靠日志过滤、空文件或旧逻辑回退。
@@ -142,3 +179,6 @@ pnpm audit 按调用可达性分类：生产 bundle/runtime 可达项必须升�
 - [x] readiness 与迁移启动顺序一起设计，避免部署死锁。
 - [x] 供应链使用当前官方 patch，SBOM/provenance 与签名边界分开。
 - [x] 本地、Linux/CGO、Docker、浏览器、真实 Provider 和生产证据分层陈述。
+- [x] 历史集成测试的前置 schema 只能来自真实 migration registry 前缀，场景数据只能来自 seed；没有用 migration ledger 或局部 DDL 伪造通过。
+- [x] unknown 恢复要求人工确认事实，管理 API 不直接调用 Provider；双 action、租户隔离、幂等、审计和 lease/fence 均有明确事务合同。
+- [x] 合入不触碰脏 main 工作树，远端并发更新依赖普通 push 的 fast-forward 保护而不是 force。

@@ -192,6 +192,69 @@
 - [ ] 生成 whole-branch review package，独立 reviewer 检查 Critical/Important，修复后复验。
 - [ ] 提交最终验收文档并输出精确 SHA、PASS/FAIL/SKIP 和真实 Provider 边界。
 
+### Task 10: 真实 migration registry 集成 harness
+
+**Files:**
+- Create: `internal/integrationtestdb/database.go`
+- Test: `internal/integrationtestdb/database_test.go`
+- Create: `internal/migration/testharness/registry.go`
+- Test: `internal/migration/testharness/registry_test.go`
+- Modify: `internal/store/*_integration_test.go` 中读取 `MOCHAT_GO_MYSQL_INTEGRATION_DSN` 的测试
+- Modify: `internal/migration/*_integration_test.go` 中读取 `MOCHAT_GO_MYSQL_INTEGRATION_DSN` 的测试
+
+**Interfaces:**
+- `integrationtestdb.NewIsolated(t, adminDSN)` 创建随机数据库并注册 seed rollback + drop cleanup，不创建业务表。
+- `testharness.ApplyThrough(ctx, db, root, targetVersion, ControlledEvidence)` 只通过生产 registry/runner 建 schema；`ApplyLatest` 覆盖完整注册表。
+- `ControlledEvidence` 用正式 staging/backup API 满足 `0130` 与 `0165`，禁止直接写 migration ledger。
+
+- [ ] RED：在隔离 MariaDB 10.6 设置 DSN 运行完整 `go test ./internal/store ./internal/migration -count=1`，保存每个局部 schema 与 registry/0130 冲突。
+- [ ] 为 harness 写失败测试：拒绝复用 DSN 中已有 database、失败时执行 seed rollback、跨 0130 缺证据 fail closed、同一进程并发数据库名唯一。
+- [ ] 实现通用数据库生命周期和 registry prefix/latest 执行；为 0130/0165 复用正式受控证据 API。
+- [ ] 将每个历史测试改成“registry 前缀/latest + 场景 seed”，删除测试内业务 `CREATE TABLE` 与伪 ledger；不减少原断言、测试名或覆盖场景。
+- [ ] 在 MariaDB 10.6 和 MySQL 5.7 分别运行完整两包测试；测试结束核对无残留临时数据库/账户。
+- [ ] 提交 `test(db): build integration fixtures from migration registry`。
+
+### Task 11: unknown side effect 权限化恢复
+
+**Files:**
+- Create: `deploy/standalone/migrations/0175_wework_callback_side_effect_reconciliation.up.sql`
+- Create: `deploy/standalone/migrations/0175_wework_callback_side_effect_reconciliation.down.sql`
+- Create: `internal/dashboard/wework_callback_side_effect_admin.go`
+- Test: `internal/dashboard/wework_callback_side_effect_admin_test.go`
+- Modify: `internal/dashboard/wework_callback_inbox.go`
+- Modify: `internal/dashboard/dashboard_route_registry.go`
+- Modify: `internal/dashboard/dashboard_page_catalog.json`
+- Modify: `internal/store/wework_callback_side_effect.go`
+- Create: `internal/store/wework_callback_side_effect_reconciliation_integration_test.go`
+- Modify: `cmd/mochat-go/main.go`
+- Create: `docs/deployment/2026-08-30-wework-callback-side-effect-reconciliation.zh-CN.md`
+
+**Interfaces:**
+- `ListUnknownSideEffects`/`GetSideEffect` 只接收服务端 principal 解析出的 tenant/corp。
+- `ReconcileSideEffect` 接收 request id、expected version、`confirm_sent|confirm_not_sent_and_retry` 和 reason；在同一事务锁定 intent/inbox、写 command receipt/audit、推进 action 并复活 inbox。
+- command receipt 按 tenant/corp/request id 幂等；payload hash 冲突、版本/fence/状态冲突返回稳定领域错误。
+
+- [ ] RED：无权限 403、跨租户/企业 404、列表/详情不泄露；同请求重放首次响应、异义 409；并发双操作仅一成功。
+- [ ] RED：审计失败/inbox 更新失败整体回滚；活动 lease 或 fence 变化 409；两个 action 可独立 confirm/retry，已 sent action 不回退。
+- [ ] 写 0175 up/down 并运行 MySQL 5.7 合同测试；实现 store 事务、租户范围 query、乐观版本和审计。
+- [ ] 注册三个 Dashboard 路由及 `dashboard.company_setting.website` RBAC 映射；实现 400/401/403/404/409/503 稳定错误语义和 body limit。
+- [ ] 用 fake Provider 证明 `confirm_sent` 后跳过已发 action、`confirm_not_sent_and_retry` 后仅对应 action 重试；不发真实网络请求。
+- [ ] 编写中文运维说明，明确取证、双人复核建议、命令幂等键、审计查询和绝不“猜测已发送”。
+- [ ] 提交 `feat(callback): add audited unknown side-effect reconciliation`。
+
+### Task 12: 全量复验、干净合入与普通推送
+
+**Files:**
+- Modify: `docs/superpowers/reports/2026-08-29-p0-local-production-readiness-final-report.zh-CN.md`
+
+- [ ] 复跑全量 Go test/vet、前端 lint/typecheck/test/build、全部仓库门禁、govulncheck、pnpm audit、migration lifecycle、`git diff --check`。
+- [ ] MariaDB 10.6 与 MySQL 5.7 完整运行 `go test ./internal/store ./internal/migration -count=1`；Linux/CGO race 覆盖新增 harness/reconcile。
+- [ ] 构建候选精确 SHA Docker 产物，验证 175/175 migration、health/ready、故障恢复、四端入口和相关本地浏览器/API 流程。
+- [ ] 独立 reviewer 对续作提交和 whole branch 给出规格/质量结论，修复全部 Critical/Important。
+- [ ] `git fetch origin --prune` 并核对 `ls-remote`；从最新 `origin/main` 创建新的干净临时 integration worktree，普通 merge 候选，复跑合入后关键门禁。
+- [ ] 非 force 推送临时集成 HEAD 到 `origin/main`；再次以 `git ls-remote origin refs/heads/main` 与本地集成提交双核验精确 SHA。
+- [ ] 只清理本任务临时容器、网络、数据库/账户和临时 integration worktree；保留命名卷、候选 worktree、用户文件。
+
 ## 计划自审
 
 - [x] 每个行为任务都有 RED 命令、GREEN 命令、精确文件和提交边界。
@@ -199,3 +262,6 @@
 - [x] 角色、callback、readiness、订单、风险/关键词、门禁、供应链和验收覆盖设计全文。
 - [x] 不含 TBD/TODO、空文件兼容、真实 Provider 调用或生产部署步骤。
 - [x] 明确先迁移后 readiness，避免当前部署脚本死锁。
+- [x] 续作覆盖历史全量 DSN、真实 registry 前缀/最新 schema、0130/0165 受控证据和可回滚 seed cleanup。
+- [x] unknown 恢复覆盖权限、租户隔离、审计、幂等、lease/fence、并发、双 action、错误语义和 fake Provider 边界。
+- [x] 合入使用干净临时 worktree、普通 merge/push 和远端精确 SHA 双核验，不修改脏 main 工作树。
