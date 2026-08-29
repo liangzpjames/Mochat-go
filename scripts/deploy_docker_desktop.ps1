@@ -164,7 +164,14 @@ function Format-Command {
         [string[]]$Secrets = @()
     )
 
-    $rendered = 'docker ' + ($Arguments -join ' ')
+	$displayArguments = foreach ($argument in $Arguments) {
+		if ($argument -match '[\s;`"$<>|&]') {
+			"'" + $argument.Replace("'", "''") + "'"
+		} else {
+			$argument
+		}
+	}
+	$rendered = 'docker ' + ($displayArguments -join ' ')
     foreach ($secret in $Secrets) {
         if (-not [string]::IsNullOrEmpty($secret)) {
             $rendered = $rendered.Replace($secret, '<已隐藏>')
@@ -377,21 +384,43 @@ function Invoke-AutomaticMigrations {
     }
 }
 
+function Write-ComposeCommand {
+    param([string[]]$Arguments)
+    Write-Host ('  ' + (Format-Command -Arguments ($composeArguments + $Arguments)))
+}
+
 function Stop-AtControlledMigrationCheckpoint {
     param([string]$Version)
 
+	$database = if ([string]::IsNullOrWhiteSpace($env:MOCHAT_MYSQL_DATABASE)) { 'mochat' } else { $env:MOCHAT_MYSQL_DATABASE }
+	$platformTenantID = if ([string]::IsNullOrWhiteSpace($env:MOCHAT_GO_SAAS_PLATFORM_ADMIN_TENANT_ID)) { '1' } else { $env:MOCHAT_GO_SAAS_PLATFORM_ADMIN_TENANT_ID }
+	$credentialKeyID = if ([string]::IsNullOrWhiteSpace($env:MOCHAT_GO_WECOM_CREDENTIAL_ENCRYPTION_KEY_ID)) { 'primary' } else { $env:MOCHAT_GO_WECOM_CREDENTIAL_ENCRYPTION_KEY_ID }
+	$maintenanceRoot = '/app/storage/identity-maintenance'
+
     Write-Host ''
     Write-Host "受控迁移维护检查点：$Version 尚未完成；已停止部署且不会等待 /readyz。" -ForegroundColor Yellow
+	Write-Host '先验证一次性 app 容器确实继承非空数据库环境；命令不打印 DSN：'
+	Invoke-Compose -Arguments @(
+		'run', '--rm', '--no-deps', '--entrypoint', '/bin/sh', 'app', '-c', 'test -n "$MOCHAT_MYSQL_DSN"'
+	)
     Write-Host '必须先在已授权维护窗口完成数据库备份并验证可恢复性：' -ForegroundColor Yellow
-    Write-Host '  go run ./cmd/mochat-saas-maintenance -action backup-create'
-    Write-Host '  go run ./cmd/mochat-saas-maintenance -action backup-verify -backup-run-id <backup-run-id>'
-    Write-Host '备份验证通过后，以只读受限 DSN 运行 preflight：'
-    Write-Host '  go run ./cmd/mochat-identity-preflight --dsn-file <readonly-dsn-file> --schema <schema> --platform-tenant-id <id> --credential-key-file <key-file> --credential-key-id <key-id> [--mapping-file <signed-mapping> --mapping-key-file <mapping-key>]'
+	Write-ComposeCommand -Arguments @('run', '--rm', '--no-deps', '--entrypoint', '/usr/local/bin/mochat-saas-maintenance', 'app', '-action', 'backup-create')
+	Write-ComposeCommand -Arguments @('run', '--rm', '--no-deps', '--entrypoint', '/usr/local/bin/mochat-saas-maintenance', 'app', '-action', 'backup-verify', '-backup-run-id', '<backup-run-id>')
+	Write-Host '备份验证通过后，将 app 容器已有 DSN/凭据写入命名卷内 0600 临时文件，并复制已审批维护确认工件（不会打印秘密）：'
+	Write-ComposeCommand -Arguments @('run', '--rm', '--no-deps', '--entrypoint', '/bin/sh', 'app', '-c', "umask 077; mkdir -p $maintenanceRoot; printf '%s' `"`$MOCHAT_MYSQL_DSN`" > $maintenanceRoot/mysql.dsn; printf '%s' `"`$MOCHAT_GO_WECOM_CREDENTIAL_ENCRYPTION_KEY`" > $maintenanceRoot/wecom.key")
+	Write-ComposeCommand -Arguments @('cp', '<approved-maintenance-confirmation-file>', "app:$maintenanceRoot/confirmation.txt")
+	Write-ComposeCommand -Arguments @('exec', '-T', '--user', 'root', 'app', 'sh', '-c', "chown mochat:mochat $maintenanceRoot/confirmation.txt; chmod 0400 $maintenanceRoot/confirmation.txt")
+	Write-Host '以同一 app 容器拓扑运行只读 preflight：'
+	Write-ComposeCommand -Arguments @('run', '--rm', '--no-deps', '--entrypoint', '/usr/local/bin/mochat-identity-preflight', 'app', '--dsn-file', "$maintenanceRoot/mysql.dsn", '--schema', $database, '--platform-tenant-id', $platformTenantID, '--credential-key-file', "$maintenanceRoot/wecom.key", '--credential-key-id', $credentialKeyID)
     Write-Host '仅在 preflight 通过且维护确认工件已审批后，依次执行受控写入：'
-    Write-Host '  go run ./cmd/mochat-identity-migrate up --execute --request-id <request-id> --dsn-file <maintenance-dsn-file> --schema <schema> --platform-tenant-id <id> --maintenance-confirmation-file <confirmation-file> --credential-key-file <key-file> --credential-key-id <key-id> --project-root . [--mapping-file <signed-mapping> --mapping-key-file <mapping-key>]'
-    Write-Host '  go run ./cmd/mochat-identity-migrate encrypt-credentials --execute --request-id <request-id> --dsn-file <maintenance-dsn-file> --schema <schema> --platform-tenant-id <id> --maintenance-confirmation-file <confirmation-file> --credential-key-file <key-file> --credential-key-id <key-id> --project-root .'
-    Write-Host '  go run ./cmd/mochat-identity-migrate cutover --execute --request-id <request-id> --dsn-file <maintenance-dsn-file> --schema <schema> --platform-tenant-id <id> --maintenance-confirmation-file <confirmation-file> --credential-key-file <key-file> --credential-key-id <key-id> --project-root .'
-    Write-Host '完成 0130/0131 并核对迁移账本、checksum 与登录回归后，重新运行本部署脚本；脚本将按 health -> automatic up -> ready 顺序继续。'
+	$identityCommon = @('--execute', '--request-id', '<approved-request-id>', '--dsn-file', "$maintenanceRoot/mysql.dsn", '--schema', $database, '--platform-tenant-id', $platformTenantID, '--maintenance-confirmation-file', "$maintenanceRoot/confirmation.txt", '--credential-key-file', "$maintenanceRoot/wecom.key", '--credential-key-id', $credentialKeyID, '--project-root', '/app')
+	Write-ComposeCommand -Arguments (@('run', '--rm', '--no-deps', '--entrypoint', '/usr/local/bin/mochat-identity-migrate', 'app', 'up') + $identityCommon)
+	Write-ComposeCommand -Arguments (@('run', '--rm', '--no-deps', '--entrypoint', '/usr/local/bin/mochat-identity-migrate', 'app', 'encrypt-credentials') + $identityCommon)
+	Write-ComposeCommand -Arguments (@('run', '--rm', '--no-deps', '--entrypoint', '/usr/local/bin/mochat-identity-migrate', 'app', 'cutover') + $identityCommon)
+	Write-Host '完成 0130/0131 后重新执行 automatic up，并核对账本/checksum 与登录回归：'
+	Write-ComposeCommand -Arguments @('exec', '-T', 'app', 'mochat-migrate', '-action', 'up', '-project-root', '/app')
+	Write-ComposeCommand -Arguments @('run', '--rm', '--no-deps', '--entrypoint', '/bin/sh', 'app', '-c', "rm -f $maintenanceRoot/mysql.dsn $maintenanceRoot/wecom.key $maintenanceRoot/confirmation.txt")
+	Write-Host '以上命令完成并验证后，重新运行本部署脚本；脚本将按 health -> automatic up -> ready 顺序继续。'
     throw "controlled migration $Version requires explicit maintenance authorization"
 }
 

@@ -4,6 +4,7 @@ $repositoryRoot = Split-Path -Parent $PSScriptRoot
 $deployScript = Join-Path $PSScriptRoot 'deploy_docker_desktop.ps1'
 $simulatorScript = Join-Path $PSScriptRoot 'run_archive_simulator.ps1'
 $dockerIgnore = Join-Path $repositoryRoot '.dockerignore'
+$dockerfile = Join-Path $repositoryRoot 'Dockerfile'
 
 if (-not (Test-Path -LiteralPath $deployScript)) {
     throw "部署脚本不存在：$deployScript"
@@ -86,8 +87,34 @@ Assert-Matches $defaultOutput '仅在迁移账本不存在时执行 baseline' '�
 Assert-Matches $defaultOutput 'exec -T app mochat-migrate -action up -project-root /app' '未执行数据库迁移'
 Assert-Matches $controlledPendingOutput '受控迁移维护检查点' 'controlled_pending 未输出明确维护检查点'
 Assert-Matches $controlledPendingOutput 'mochat-identity-preflight' '维护检查点缺少只读 preflight 命令'
-Assert-Matches $controlledPendingOutput 'mochat-identity-migrate up --execute' '维护检查点缺少受控 up 命令'
+Assert-Matches $controlledPendingOutput 'mochat-identity-migrate app up --execute' '维护检查点缺少受控 up 命令'
 Assert-Matches $controlledPendingOutput '备份.*验证' '维护检查点缺少先备份并验证的要求'
+Assert-Matches $controlledPendingOutput 'run --rm --no-deps --entrypoint /usr/local/bin/mochat-saas-maintenance app -action backup-create' '维护检查点备份命令不能在 app 容器环境直接执行'
+Assert-Matches $controlledPendingOutput 'run --rm --no-deps --entrypoint /usr/local/bin/mochat-saas-maintenance app -action backup-verify' '维护检查点缺少容器内备份验证命令'
+Assert-Matches $controlledPendingOutput 'run --rm --no-deps --entrypoint /usr/local/bin/mochat-identity-preflight app' '维护检查点 preflight 未复用 app 容器拓扑'
+Assert-Matches $controlledPendingOutput 'run --rm --no-deps --entrypoint /usr/local/bin/mochat-identity-migrate app up' '维护检查点缺少容器内 0130 命令'
+Assert-Matches $controlledPendingOutput 'run --rm --no-deps --entrypoint /usr/local/bin/mochat-identity-migrate app cutover' '维护检查点缺少容器内 0131 命令'
+Assert-Matches $controlledPendingOutput 'exec -T app mochat-migrate -action up -project-root /app' '维护检查点缺少 controlled 完成后的 automatic up 重跑命令'
+if ($controlledPendingOutput -match '@tcp\(|mochat_pass|--dsn(?:\s|=)') {
+    throw "维护检查点输出泄露 DSN 或密码：`n$controlledPendingOutput"
+}
+$controlledOrder = @(
+    'mochat-saas-maintenance app -action backup-create',
+    'mochat-saas-maintenance app -action backup-verify',
+    'mochat-identity-preflight app',
+    'mochat-identity-migrate app up',
+    'mochat-identity-migrate app encrypt-credentials',
+    'mochat-identity-migrate app cutover',
+    'exec -T app mochat-migrate -action up'
+)
+$previousControlledIndex = -1
+foreach ($step in $controlledOrder) {
+    $stepIndex = $controlledPendingOutput.IndexOf($step)
+    if ($stepIndex -le $previousControlledIndex) {
+        throw "受控维护顺序不完整或错序（$step）：`n$controlledPendingOutput"
+    }
+    $previousControlledIndex = $stepIndex
+}
 if ($controlledPendingOutput -match '\[跳过 HTTP 检查\] 应用就绪状态|访问检查通过：应用就绪状态') {
     throw "controlled_pending 后仍进入 ready 等待，会形成部署自锁：`n$controlledPendingOutput"
 }
@@ -100,9 +127,12 @@ if ($healthIndex -lt 0 -or $migrationIndex -le $healthIndex -or $readyIndex -le 
 $deploySource = Get-Content -LiteralPath $deployScript -Raw
 $simulatorSource = Get-Content -LiteralPath $simulatorScript -Raw
 $dockerIgnoreSource = Get-Content -LiteralPath $dockerIgnore -Raw
+$dockerfileSource = Get-Content -LiteralPath $dockerfile -Raw
 Assert-Matches $dockerIgnoreSource '(?m)^\.worktrees/\r?$' 'Docker 构建上下文仍包含多 GB 工作树'
 Assert-Matches $dockerIgnoreSource '(?m)^\.tmp\*/\r?$' 'Docker 构建上下文仍包含临时 Go 缓存'
 Assert-Matches $dockerIgnoreSource '(?m)^web/saas-admin/\r?$' 'Docker 构建上下文仍包含旧的未跟踪 SaaS 构建目录'
+Assert-Matches $dockerfileSource '/out/mochat-identity-preflight' 'app 镜像缺少维护检查点所需 preflight binary'
+Assert-Matches $dockerfileSource '/out/mochat-identity-migrate' 'app 镜像缺少 controlled migration binary'
 Assert-Matches $deploySource 'baseline-compose-init' 'fresh schema 未使用 0104 init 边界恢复后再执行增量迁移'
 Assert-Matches $deploySource 'baseline requires complete 0129 schema' '未声明 baseline 的 0129 schema 兼容性边界'
 Assert-Matches $deploySource 'IF\(COUNT\(\*\) > 0, 1, 0\)' '空迁移账本未回到专用 compose-init baseline'
@@ -137,7 +167,9 @@ $fakeRoot = Join-Path ([System.IO.Path]::GetTempPath()) ('mochat-docker-test-' +
 $fakeDocker = Join-Path $fakeRoot 'docker.cmd'
 New-Item -ItemType Directory -Path $fakeRoot | Out-Null
 $previousSecretDirectory = $env:MOCHAT_DOCKER_DESKTOP_SECRET_DIR
+$previousFakeComposeFile = $env:MOCHAT_TEST_COMPOSE_FILE
 $env:MOCHAT_DOCKER_DESKTOP_SECRET_DIR = Join-Path $fakeRoot 'secrets'
+$env:MOCHAT_TEST_COMPOSE_FILE = Join-Path $repositoryRoot 'deploy\standalone\docker-compose.yml'
 try {
 @'
 @echo off
@@ -155,6 +187,13 @@ if "%1"=="inspect" (
   exit /b 0
 )
 if "%MOCHAT_TEST_CONTROLLED_PENDING%"=="1" (
+  echo %* | findstr /C:"/bin/sh app -c" | findstr /C:"MOCHAT_MYSQL_DSN" >nul
+  if not errorlevel 1 (
+    findstr /C:"MOCHAT_MYSQL_DSN:" "%MOCHAT_TEST_COMPOSE_FILE%" >nul
+    if errorlevel 1 exit /b 42
+    echo maintenance_env=ready 1>&2
+    exit /b 0
+  )
   echo %* | findstr /C:"mochat-migrate -action up" >nul
   if not errorlevel 1 (
     echo MIGRATION_CONTROLLED_PENDING 0130_identity_realms_single_corp_backfill 1>&2
@@ -207,11 +246,13 @@ exit /b 0
         throw "真实 Docker controlled pending 必须非零退出：`n$fakeControlledOutput"
     }
     Assert-Matches $fakeControlledOutput '受控迁移维护检查点' '真实 Docker stable code 未进入维护检查点'
+    Assert-Matches $fakeControlledOutput 'maintenance_env=ready' '受控维护命令未实际验证 app 容器收到非空 MOCHAT_MYSQL_DSN'
     if ($fakeControlledOutput -match '\[跳过 HTTP 检查\] 应用就绪状态|访问检查通过：应用就绪状态') {
         throw "真实 Docker controlled pending 后仍进入 ready 等待：`n$fakeControlledOutput"
     }
 } finally {
     $env:MOCHAT_DOCKER_DESKTOP_SECRET_DIR = $previousSecretDirectory
+	$env:MOCHAT_TEST_COMPOSE_FILE = $previousFakeComposeFile
     Remove-Item -LiteralPath $fakeRoot -Recurse -Force -ErrorAction SilentlyContinue
 }
 

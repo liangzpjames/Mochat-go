@@ -738,6 +738,16 @@ func TestHealthzStaysLiveWhileDependencyReadinessRecovers(t *testing.T) {
 	}
 }
 
+func TestReadinessFailureCanSelectAStablePublicCode(t *testing.T) {
+	checker := NewReadinessChecker(ReadinessProbe{Code: "migration_current", Check: func(context.Context) error {
+		return NewReadinessFailure("migration_database_ahead")
+	}})
+	checks := checker.Check(context.Background())
+	if len(checks) != 1 || checks[0].Code != "migration_database_ahead" || checks[0].Ready {
+		t.Fatalf("checks = %+v", checks)
+	}
+}
+
 func TestReadyzFailsImmediatelyWhenDraining(t *testing.T) {
 	checker := NewReadinessChecker(ReadinessProbe{Code: "mysql_connection", Check: func(context.Context) error { return nil }})
 	srv, err := New(config.Config{ListenAddr: ":0", Standalone: true, ProxyTimeout: time.Second}, WithReadinessChecker(checker))

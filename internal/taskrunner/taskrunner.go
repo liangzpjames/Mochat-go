@@ -30,6 +30,7 @@ type Task struct {
 	Run                    func(context.Context) error
 	Periodic               bool
 	PeriodicReadinessGrace time.Duration
+	PeriodicMaxRunDuration time.Duration
 }
 
 type PeriodicConfig struct {
@@ -38,20 +39,23 @@ type PeriodicConfig struct {
 	RunOnStart          bool
 	Logger              *slog.Logger
 	SuppressOutcomeLogs bool
+	MaxRunDuration      time.Duration
 }
 
 type Snapshot struct {
-	Name                string             `json:"name"`
-	RunID               string             `json:"run_id,omitempty"`
-	Status              string             `json:"status"`
-	StartedAt           string             `json:"started_at"`
-	StoppedAt           string             `json:"stopped_at,omitempty"`
-	Error               string             `json:"error,omitempty"`
-	LastSuccessAt       string             `json:"last_success_at,omitempty"`
-	ConsecutiveFailures int                `json:"consecutive_failures"`
-	LatestExecution     *ExecutionSnapshot `json:"latest_execution,omitempty"`
-	Periodic            bool               `json:"periodic"`
-	ReadinessGraceUntil string             `json:"readiness_grace_until,omitempty"`
+	Name                      string             `json:"name"`
+	RunID                     string             `json:"run_id,omitempty"`
+	Status                    string             `json:"status"`
+	StartedAt                 string             `json:"started_at"`
+	StoppedAt                 string             `json:"stopped_at,omitempty"`
+	Error                     string             `json:"error,omitempty"`
+	LastSuccessAt             string             `json:"last_success_at,omitempty"`
+	ConsecutiveFailures       int                `json:"consecutive_failures"`
+	LatestExecution           *ExecutionSnapshot `json:"latest_execution,omitempty"`
+	Periodic                  bool               `json:"periodic"`
+	ReadinessGraceUntil       string             `json:"readiness_grace_until,omitempty"`
+	CurrentExecutionStartedAt string             `json:"current_execution_started_at,omitempty"`
+	PeriodicMaxRunDuration    string             `json:"periodic_max_run_duration,omitempty"`
 }
 
 type Recorder interface {
@@ -129,6 +133,9 @@ func Periodic(cfg PeriodicConfig, run func(context.Context) error) func(context.
 		if cfg.Interval <= 0 {
 			return fmt.Errorf("periodic task %s interval must be positive", strings.TrimSpace(cfg.Name))
 		}
+		if cfg.MaxRunDuration < 0 {
+			return fmt.Errorf("periodic task %s max run duration cannot be negative", strings.TrimSpace(cfg.Name))
+		}
 		startupGrace := periodicStartupGrace(cfg)
 		updateRuntimeSnapshot(ctx, func(snapshot Snapshot) Snapshot {
 			snapshot.ReadinessGraceUntil = time.Now().Add(startupGrace).Format(time.RFC3339)
@@ -139,17 +146,25 @@ func Periodic(cfg PeriodicConfig, run func(context.Context) error) func(context.
 		runOnce := func() {
 			startedAt := time.Now()
 			taskName := periodicTaskName(ctx, cfg.Name)
+			updateRuntimeSnapshot(ctx, func(snapshot Snapshot) Snapshot {
+				snapshot.CurrentExecutionStartedAt = startedAt.Format(time.RFC3339Nano)
+				return snapshot
+			})
 			var err error
 			func() {
 				defer func() {
 					if recovered := recover(); recovered != nil {
-						err = fmt.Errorf("panic: %v", recovered)
+						err = errors.New("periodic_task_panicked")
 					}
 				}()
 				err = run(ctx)
 			}()
 			stoppedAt := time.Now()
 			if errors.Is(err, context.Canceled) {
+				updateRuntimeSnapshot(ctx, func(snapshot Snapshot) Snapshot {
+					snapshot.CurrentExecutionStartedAt = ""
+					return snapshot
+				})
 				return
 			}
 			execution := ExecutionSnapshot{
@@ -212,17 +227,6 @@ func Periodic(cfg PeriodicConfig, run func(context.Context) error) func(context.
 	}
 }
 
-// ConfiguredPeriodic preserves periodic readiness metadata before the task
-// goroutine becomes observable as running. Use it when adding Periodic work to
-// a Group; Periodic remains available for standalone execution and tests.
-func ConfiguredPeriodic(cfg PeriodicConfig, run func(context.Context) error) Task {
-	return Task{
-		Run:                    Periodic(cfg, run),
-		Periodic:               true,
-		PeriodicReadinessGrace: periodicStartupGrace(cfg),
-	}
-}
-
 func periodicStartupGrace(cfg PeriodicConfig) time.Duration {
 	startupGrace := 30 * time.Second
 	if !cfg.RunOnStart {
@@ -231,19 +235,33 @@ func periodicStartupGrace(cfg PeriodicConfig) time.Duration {
 	return startupGrace
 }
 
-func (g *Group) Add(name string, runnable any) {
+func periodicMaxRunDuration(cfg PeriodicConfig) time.Duration {
+	if cfg.MaxRunDuration > 0 {
+		return cfg.MaxRunDuration
+	}
+	maxRunDuration := 3 * cfg.Interval
+	if startupGrace := periodicStartupGrace(cfg); startupGrace > maxRunDuration {
+		maxRunDuration = startupGrace
+	}
+	return maxRunDuration
+}
+
+func (g *Group) Add(name string, run func(context.Context) error) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	task := Task{Name: strings.TrimSpace(name)}
-	switch value := runnable.(type) {
-	case func(context.Context) error:
-		task.Run = value
-	case Task:
-		task.Run = value.Run
-		task.Periodic = value.Periodic
-		task.PeriodicReadinessGrace = value.PeriodicReadinessGrace
-	}
-	g.tasks = append(g.tasks, task)
+	g.tasks = append(g.tasks, Task{Name: strings.TrimSpace(name), Run: run})
+}
+
+func (g *Group) AddPeriodic(name string, cfg PeriodicConfig, run func(context.Context) error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.tasks = append(g.tasks, Task{
+		Name:                   strings.TrimSpace(name),
+		Run:                    Periodic(cfg, run),
+		Periodic:               true,
+		PeriodicReadinessGrace: periodicStartupGrace(cfg),
+		PeriodicMaxRunDuration: periodicMaxRunDuration(cfg),
+	})
 }
 
 func (g *Group) Start(ctx context.Context) error {
@@ -320,6 +338,7 @@ func (g *Group) run(ctx context.Context, task Task) {
 		snapshot.Periodic = task.Periodic
 		if task.Periodic {
 			snapshot.ReadinessGraceUntil = startedAt.Add(task.PeriodicReadinessGrace).Format(time.RFC3339)
+			snapshot.PeriodicMaxRunDuration = task.PeriodicMaxRunDuration.String()
 		}
 		return snapshot
 	})
@@ -330,7 +349,7 @@ func (g *Group) run(ctx context.Context, task Task) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			status = StatusFailed
-			errText = observability.SanitizeText(fmt.Sprintf("panic: %v", recovered))
+			errText = "background_task_panicked"
 		}
 		stoppedAt := time.Now()
 		g.set(task.Name, func(snapshot Snapshot) Snapshot {
@@ -376,6 +395,13 @@ func RequiredTasksReady(snapshots []Snapshot, now time.Time) bool {
 				return false
 			}
 		}
+		if snapshot.LastSuccessAt != "" && snapshot.CurrentExecutionStartedAt != "" {
+			startedAt, startedErr := time.Parse(time.RFC3339Nano, snapshot.CurrentExecutionStartedAt)
+			maxRunDuration, durationErr := time.ParseDuration(snapshot.PeriodicMaxRunDuration)
+			if startedErr != nil || durationErr != nil || maxRunDuration <= 0 || now.After(startedAt.Add(maxRunDuration)) {
+				return false
+			}
+		}
 	}
 	return true
 }
@@ -394,6 +420,7 @@ func updatePeriodicSnapshot(ctx context.Context, execution ExecutionSnapshot, co
 		latest := execution
 		snapshot.LatestExecution = &latest
 		snapshot.ConsecutiveFailures = consecutiveFailures
+		snapshot.CurrentExecutionStartedAt = ""
 		if succeeded {
 			snapshot.LastSuccessAt = execution.StoppedAt
 		}

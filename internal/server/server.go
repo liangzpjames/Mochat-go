@@ -4,6 +4,7 @@ import (
 	"context"
 	_ "embed"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httputil"
@@ -738,6 +739,34 @@ type ReadinessCheck struct {
 	Ready bool   `json:"ready"`
 }
 
+type ReadinessFailure struct{ code string }
+
+func NewReadinessFailure(code string) error {
+	return &ReadinessFailure{code: stableReadinessCode(code)}
+}
+
+func (e *ReadinessFailure) Error() string { return "readiness check failed" }
+
+func (e *ReadinessFailure) ReadinessCode() string {
+	if e == nil {
+		return ""
+	}
+	return e.code
+}
+
+func stableReadinessCode(code string) string {
+	code = strings.TrimSpace(code)
+	if code == "" {
+		return ""
+	}
+	for _, character := range code {
+		if (character < 'a' || character > 'z') && (character < '0' || character > '9') && character != '_' {
+			return ""
+		}
+	}
+	return code
+}
+
 // ReadinessChecker runs bounded dependency probes and returns only stable
 // codes. Probe errors are intentionally not serialized because they may carry
 // credentials or internal addresses.
@@ -776,7 +805,12 @@ func (c *ReadinessChecker) Check(ctx context.Context) []ReadinessCheck {
 		probeCtx, cancel := context.WithTimeout(ctx, 400*time.Millisecond)
 		err := probe.Check(probeCtx)
 		cancel()
-		results = append(results, ReadinessCheck{Code: probe.Code, Ready: err == nil})
+		code := probe.Code
+		var failure interface{ ReadinessCode() string }
+		if err != nil && errors.As(err, &failure) && stableReadinessCode(failure.ReadinessCode()) != "" {
+			code = failure.ReadinessCode()
+		}
+		results = append(results, ReadinessCheck{Code: code, Ready: err == nil})
 		if ctx.Err() != nil {
 			break
 		}

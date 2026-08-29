@@ -74,9 +74,10 @@ func TestGroupMarksFailures(t *testing.T) {
 }
 
 func TestGroupRecoversPanics(t *testing.T) {
-	group := New(slog.Default())
+	var output bytes.Buffer
+	group := New(slog.New(slog.NewJSONHandler(&output, nil)))
 	group.Add("panic-worker", func(context.Context) error {
-		panic("bad task")
+		panic("bare-secret")
 	})
 
 	if err := group.Start(context.Background()); err != nil {
@@ -84,7 +85,7 @@ func TestGroupRecoversPanics(t *testing.T) {
 	}
 	waitForStatus(t, group, "panic-worker", StatusFailed)
 	snapshot := snapshotByName(t, group, "panic-worker")
-	if !strings.Contains(snapshot.Error, "panic: bad task") {
+	if snapshot.Error != "background_task_panicked" || strings.Contains(output.String(), "bare-secret") {
 		t.Fatalf("error = %q", snapshot.Error)
 	}
 }
@@ -205,7 +206,7 @@ func TestPeriodicRecoversPanicAtTickBoundaryAndRunsNextTick(t *testing.T) {
 
 	failed := <-recorder.executions
 	recovered := <-recorder.executions
-	if failed.Status != StatusFailed || !strings.Contains(failed.Error, "panic:") || strings.Contains(failed.Error, "hidden-panic-token") {
+	if failed.Status != StatusFailed || failed.Error != "periodic_task_panicked" || strings.Contains(failed.Error, "hidden-panic-token") {
 		t.Fatalf("panic execution = %+v", failed)
 	}
 	if recovered.Status != StatusSucceeded || calls.Load() != 2 {
@@ -217,6 +218,9 @@ func TestPeriodicRecoversPanicAtTickBoundaryAndRunsNextTick(t *testing.T) {
 	if !strings.Contains(output.String(), `"event":"periodic_task_failed"`) || !strings.Contains(output.String(), `"event":"periodic_task_recovered"`) {
 		t.Fatalf("panic failure/recovery logs = %s", output.String())
 	}
+	if strings.Contains(output.String(), "hidden-panic-token") {
+		t.Fatalf("panic value leaked to logs: %s", output.String())
+	}
 }
 
 func TestPeriodicSnapshotTracksFailureThresholdAndRecovery(t *testing.T) {
@@ -225,7 +229,7 @@ func TestPeriodicSnapshotTracksFailureThresholdAndRecovery(t *testing.T) {
 	called := make(chan struct{}, 1)
 	outcomes := make(chan error)
 	group := New(slog.New(slog.NewTextHandler(io.Discard, nil)))
-	group.Add("cron-health", ConfiguredPeriodic(PeriodicConfig{Name: "cron-health", Interval: time.Millisecond, RunOnStart: true}, func(runCtx context.Context) error {
+	group.AddPeriodic("cron-health", PeriodicConfig{Name: "cron-health", Interval: time.Millisecond, RunOnStart: true}, func(runCtx context.Context) error {
 		called <- struct{}{}
 		select {
 		case err := <-outcomes:
@@ -233,7 +237,7 @@ func TestPeriodicSnapshotTracksFailureThresholdAndRecovery(t *testing.T) {
 		case <-runCtx.Done():
 			return runCtx.Err()
 		}
-	}))
+	})
 	if err := group.Start(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -266,13 +270,13 @@ func TestPeriodicSnapshotTracksFailureThresholdAndRecovery(t *testing.T) {
 	cancel()
 }
 
-func TestConfiguredPeriodicPublishesReadinessMetadataAtomicallyWithRunning(t *testing.T) {
+func TestAddPeriodicPublishesReadinessMetadataAtomicallyWithRunning(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	group := New(slog.New(slog.NewTextHandler(io.Discard, nil)))
-	group.Add("cron-initializing", ConfiguredPeriodic(PeriodicConfig{
+	group.AddPeriodic("cron-initializing", PeriodicConfig{
 		Name: "cron-initializing", Interval: time.Hour, RunOnStart: false,
-	}, func(context.Context) error { return nil }))
+	}, func(context.Context) error { return nil })
 	if err := group.Start(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -282,6 +286,48 @@ func TestConfiguredPeriodicPublishesReadinessMetadataAtomicallyWithRunning(t *te
 	snapshot := snapshotByName(t, group, "cron-initializing")
 	if !snapshot.Periodic || snapshot.ReadinessGraceUntil == "" {
 		t.Fatalf("running snapshot missed periodic readiness metadata: %+v", snapshot)
+	}
+}
+
+func TestPeriodicHungTickRemovesReadinessAndCompletionRestoresIt(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	started := make(chan struct{}, 2)
+	release := make(chan struct{})
+	var calls atomic.Int32
+	group := New(slog.New(slog.NewTextHandler(io.Discard, nil)))
+	group.AddPeriodic("cron-hung", PeriodicConfig{
+		Name: "cron-hung", Interval: 50 * time.Millisecond, RunOnStart: true, MaxRunDuration: 20 * time.Millisecond,
+	}, func(context.Context) error {
+		call := calls.Add(1)
+		started <- struct{}{}
+		if call == 2 {
+			<-release
+		}
+		return nil
+	})
+	if err := group.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	<-started
+	waitForCondition(t, func() bool { return snapshotByName(t, group, "cron-hung").LastSuccessAt != "" }, "first periodic success")
+	<-started
+	waitForCondition(t, func() bool { return snapshotByName(t, group, "cron-hung").CurrentExecutionStartedAt != "" }, "current periodic execution")
+	snapshot := snapshotByName(t, group, "cron-hung")
+	currentStarted, err := time.Parse(time.RFC3339Nano, snapshot.CurrentExecutionStartedAt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !RequiredTasksReady([]Snapshot{snapshot}, currentStarted.Add(19*time.Millisecond)) {
+		t.Fatalf("periodic tick was removed before its explicit max run duration: %+v", snapshot)
+	}
+	if RequiredTasksReady([]Snapshot{snapshot}, currentStarted.Add(21*time.Millisecond)) {
+		t.Fatalf("hung periodic tick remained ready: %+v", snapshot)
+	}
+	close(release)
+	waitForCondition(t, func() bool { return snapshotByName(t, group, "cron-hung").CurrentExecutionStartedAt == "" }, "periodic tick completion")
+	if recovered := snapshotByName(t, group, "cron-hung"); !RequiredTasksReady([]Snapshot{recovered}, time.Now()) {
+		t.Fatalf("completed periodic tick did not restore readiness: %+v", recovered)
 	}
 }
 

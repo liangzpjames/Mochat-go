@@ -206,3 +206,34 @@ git diff --check
 ```
 
 结果均为退出码 `0`。真实 controlled migration、真实 Docker/依赖故障和生产仍保持 SKIP，未因复审扩张授权边界。
+
+## Reviewer 第二轮复审修复（2026-08-29）
+
+### RED 与根因
+
+- 部署命令 RED：fake 部署首先报“维护检查点备份命令不能在 app 容器环境直接执行”。根因是检查点打印宿主机 `go run`，而默认镜像既没有 identity maintenance binaries，也没有复用 app 的 Compose 环境。
+- taskrunner RED：`AddPeriodic`、`MaxRunDuration`、`CurrentExecutionStartedAt` 均不存在；panic 快照仍可包含 raw panic value。根因是 previous snapshot 只覆盖已完成 tick，且 `Group.Add(any)` 用运行时 type switch 补元数据。
+- readiness RED：callback-only 测试缺少 `redisReadinessProbe`，migration reader 计数证明每次 `/readyz` 调了两次 `StatusReadOnly`。根因分别是 callback 使用独立可选 Redis 实例，而 probe 只观察 primary 实例；两个 migration code 被实现成两个独立 probe。
+- cleanup RED：post-worker build error 测试缺少统一 cleanup helper，源码审计命中 worker 启动后的 `fatal/fatalf`。`os.Exit` 会跳过 root cancel 和有界 `Wait`。
+
+### GREEN 与故障注入
+
+- Dockerfile 现在包含 `/usr/local/bin/mochat-identity-preflight` 与 `/usr/local/bin/mochat-identity-migrate`。controlled checkpoint 先以 `docker compose run --rm --no-deps` 执行不输出值的 `MOCHAT_MYSQL_DSN` 非空探测，再打印可直接复用 app env/volume 的 backup-create→backup-verify→preflight→0130 up→credential encryption→0131 cutover→automatic up→临时秘密文件清理命令；输出不含 DSN/密码。fake Docker 非 DryRun 路径实际接收环境探测命令并返回 `maintenance_env=ready`，同时断言 controlled pending 非零退出且不进入 ready wait。真实 Docker 仍为 SKIP。
+- callback/welcome 与其他 Redis 消费者统一到同一 lazy Redis topology：callback-only 不做启动期 fatal ping，保留 Task 3 dependency defer/恢复合同；只要该实际实例已注册，就加入 `redis_connection`。注入 Redis down 时即使 worker snapshot 为 Running 仍 `/readyz=503`，恢复后为 200。
+- periodic 在 tick 开始时记录 `CurrentExecutionStartedAt`，并记录由显式 `MaxRunDuration` 或 `max(3*interval,startupGrace)` 得到的阈值；已有成功的当前 tick 超时后 readiness 变为 503，完成后清空 current 状态并恢复 200。会话导出 worker 显式给出 30 分钟上限，避免 2 秒轮询间隔误杀合法长导出。
+- periodic panic 和 Group 顶层 panic 分别只持久化固定 `periodic_task_panicked`、`background_task_panicked`。`panic("bare-secret")`/带 token 的故障注入断言 execution、snapshot 与结构化日志均无 raw value。
+- worker 启动后的 module/server/listener build 错误统一设置 `runtimeErr` 后 return；统一 defer 先 cancel root，再以 30 秒上限等待 worker。测试注入 build error，证明 cancel 先于 wait 且 wait 未被跳过；源码门禁保证该范围不再出现 fatal/os.Exit。
+- migration readiness 合并为一次 `StatusReadOnly`；typed readiness failure 在同一次 snapshot 中把 DB-ahead 映射为稳定 `migration_database_ahead`，其他 pending/checksum mismatch 使用 `migration_current`。reader 计数断言每请求只读一次 ledger/checksum。
+- `Group.Add(name, func)` 恢复编译期类型安全，新增 `AddPeriodic(name, config, func)`；37 个生产 periodic 注册点全部迁移，不再使用 `any`/静默 nil。
+
+最终验证：
+
+```text
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/test_deploy_docker_desktop.ps1
+go test ./internal/taskrunner ./internal/server ./cmd/mochat-go ./internal/migration ./cmd/mochat-migrate ./scripts/productionbuild -count=1
+go test ./... -count=1
+go vet ./...
+git diff --check
+```
+
+结果全部退出码 `0`。真实 controlled migration/备份恢复、真实 Docker image build、真实 Redis/MySQL 故障、Provider 与生产继续明确 SKIP；未修改项目进度文档、未 reset/clean、未触碰命名卷。

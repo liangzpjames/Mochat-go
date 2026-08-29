@@ -232,28 +232,24 @@ func main() {
 	}
 
 	var redisStore *store.RedisStore
-	getRedisStore := func() *store.RedisStore {
-		if redisStore != nil {
-			return redisStore
-		}
-		redisStore = store.NewRedisStore(store.RedisConfig{
-			Addr:     cfg.RedisAddr,
-			Password: cfg.RedisPassword,
-			DB:       cfg.RedisDB,
-		})
-		if err := redisStore.Ping(rootCtx); err != nil {
-			fatalf("ping redis: %v", err)
-		}
-		return redisStore
-	}
-	var weWorkCallbackRedisStore *store.RedisStore
+	redisStorePinged := false
 	getOptionalWeWorkCallbackRedisStore := func() *store.RedisStore {
-		if weWorkCallbackRedisStore == nil {
-			weWorkCallbackRedisStore = store.NewRedisStore(store.RedisConfig{
+		if redisStore == nil {
+			redisStore = store.NewRedisStore(store.RedisConfig{
 				Addr: cfg.RedisAddr, Password: cfg.RedisPassword, DB: cfg.RedisDB,
 			})
 		}
-		return weWorkCallbackRedisStore
+		return redisStore
+	}
+	getRedisStore := func() *store.RedisStore {
+		candidate := getOptionalWeWorkCallbackRedisStore()
+		if !redisStorePinged {
+			if err := candidate.Ping(rootCtx); err != nil {
+				fatalf("ping redis: %v", err)
+			}
+			redisStorePinged = true
+		}
+		return candidate
 	}
 	var identityManager *identitysecurity.Manager
 	var identitySessionChecker authjwt.SessionChecker
@@ -3017,110 +3013,110 @@ func main() {
 	workerGroup := taskrunner.New(structuredLogger())
 	if cfg.EnableConversationExportWorker {
 		owner := fmt.Sprintf("conversation-export-%d", os.Getpid())
-		workerGroup.Add("conversation-export-worker", taskrunner.ConfiguredPeriodic(taskrunner.PeriodicConfig{
-			Name: "conversation-export-worker", Interval: cfg.ConversationExportWorkerInterval, RunOnStart: true, Logger: structuredLogger(),
+		workerGroup.AddPeriodic("conversation-export-worker", taskrunner.PeriodicConfig{
+			Name: "conversation-export-worker", Interval: cfg.ConversationExportWorkerInterval, RunOnStart: true, Logger: structuredLogger(), MaxRunDuration: 30 * time.Minute,
 		}, func(ctx context.Context) error {
 			_, err := getMySQLStore().RunWorkMessageExportWorker(ctx, cfg.ConversationExportRoot, owner)
 			return err
-		}))
+		})
 		debugf("go worker enabled: conversation export interval=%s root=%s", cfg.ConversationExportWorkerInterval, cfg.ConversationExportRoot)
 	}
 	if cfg.EnablePullAgentCron {
 		cron := dashboard.NewWorkAgentSyncCron(getMySQLStore(), dashboard.NewRoomWelcomeWeComClient(cfg.WeComAPIBaseURL), log.Default())
-		workerGroup.Add("cron-pull-agent", taskrunner.ConfiguredPeriodic(taskrunner.PeriodicConfig{
+		workerGroup.AddPeriodic("cron-pull-agent", taskrunner.PeriodicConfig{
 			Name:       "cron-pull-agent",
 			Interval:   cfg.PullAgentCronInterval,
 			RunOnStart: cfg.PullAgentCronRunOnStart,
 			Logger:     structuredLogger(),
-		}, cron.RunOnce))
+		}, cron.RunOnce)
 		debugf("go cron enabled: pullAgent 企业微信应用同步 interval=%s run_on_start=%v", cfg.PullAgentCronInterval, cfg.PullAgentCronRunOnStart)
 	}
 	if cfg.EnableEmployeeStatisticCron {
 		cron := dashboard.NewEmployeeStatisticCron(getMySQLStore(), getRedisStore(), dashboard.NewStatisticWeComClient(cfg.WeComAPIBaseURL), log.Default())
-		workerGroup.Add("cron-employee-statistic", taskrunner.ConfiguredPeriodic(taskrunner.PeriodicConfig{
+		workerGroup.AddPeriodic("cron-employee-statistic", taskrunner.PeriodicConfig{
 			Name:       "cron-employee-statistic",
 			Interval:   cfg.EmployeeStatisticCronInterval,
 			RunOnStart: cfg.EmployeeStatisticCronRunOnStart,
 			Logger:     structuredLogger(),
-		}, cron.RunOnce))
+		}, cron.RunOnce)
 		debugf("go cron enabled: employeeStatistic 成员统计拉取 interval=%s run_on_start=%v", cfg.EmployeeStatisticCronInterval, cfg.EmployeeStatisticCronRunOnStart)
 	}
 	if cfg.EnableChannelCodeCron {
 		cron := dashboard.NewChannelCodeCron(getMySQLStore(), dashboard.NewRoomWelcomeWeComClient(cfg.WeComAPIBaseURL), log.Default())
-		workerGroup.Add("cron-channel-code", taskrunner.ConfiguredPeriodic(taskrunner.PeriodicConfig{
+		workerGroup.AddPeriodic("cron-channel-code", taskrunner.PeriodicConfig{
 			Name:       "cron-channel-code",
 			Interval:   cfg.ChannelCodeCronInterval,
 			RunOnStart: cfg.ChannelCodeCronRunOnStart,
 			Logger:     structuredLogger(),
-		}, cron.RunOnce))
+		}, cron.RunOnce)
 		debugf("go cron enabled: channelCode 渠道码联系我方式更新 interval=%s run_on_start=%v", cfg.ChannelCodeCronInterval, cfg.ChannelCodeCronRunOnStart)
 	}
 	if cfg.EnableContactBatchSendCron {
 		contactClient := dashboard.NewRoomWelcomeWeComClient(cfg.WeComAPIBaseURL)
 		legacyContactCron := dashboard.NewContactBatchSendScheduleCron(getMySQLStore(), contactClient, cfg.FileStorageRoot, log.Default())
-		workerGroup.Add("cron-contact-batch-send-legacy", taskrunner.ConfiguredPeriodic(taskrunner.PeriodicConfig{
+		workerGroup.AddPeriodic("cron-contact-batch-send-legacy", taskrunner.PeriodicConfig{
 			Name:       "cron-contact-batch-send-legacy",
 			Interval:   cfg.ContactBatchSendCronInterval,
 			RunOnStart: cfg.ContactBatchSendCronRunOnStart,
 			Logger:     structuredLogger(),
-		}, legacyContactCron.RunOnce))
+		}, legacyContactCron.RunOnce)
 		contactDispatchRunner := dashboard.NewContactBatchDispatchRunner(getMySQLStore(), getMySQLStore(), getMySQLStore(), contactClient)
 		contactDispatchCron := dashboard.NewContactBatchDispatchCron(getMySQLStore(), contactDispatchRunner, cfg.WorkerProcessingTimeout, 50, log.Default())
-		workerGroup.Add("cron-contact-batch-dispatch", taskrunner.ConfiguredPeriodic(taskrunner.PeriodicConfig{
+		workerGroup.AddPeriodic("cron-contact-batch-dispatch", taskrunner.PeriodicConfig{
 			Name:       "cron-contact-batch-dispatch",
 			Interval:   cfg.ContactBatchSendCronInterval,
 			RunOnStart: cfg.ContactBatchSendCronRunOnStart,
 			Logger:     structuredLogger(),
-		}, contactDispatchCron.RunOnce))
+		}, contactDispatchCron.RunOnce)
 		debugf("go cron enabled: durable contact batch dispatch interval=%s run_on_start=%v kind=%s", cfg.ContactBatchSendCronInterval, cfg.ContactBatchSendCronRunOnStart, wecomcapability.DispatchKindContactBatch)
 	}
 	if cfg.EnableRoomBatchSendCron {
 		roomClient := dashboard.NewRoomWelcomeWeComClient(cfg.WeComAPIBaseURL)
 		legacyRoomCron := dashboard.NewRoomBatchSendScheduleCron(getMySQLStore(), roomClient, cfg.FileStorageRoot, log.Default())
-		workerGroup.Add("cron-room-batch-send-legacy", taskrunner.ConfiguredPeriodic(taskrunner.PeriodicConfig{
+		workerGroup.AddPeriodic("cron-room-batch-send-legacy", taskrunner.PeriodicConfig{
 			Name:       "cron-room-batch-send-legacy",
 			Interval:   cfg.RoomBatchSendCronInterval,
 			RunOnStart: cfg.RoomBatchSendCronRunOnStart,
 			Logger:     structuredLogger(),
-		}, legacyRoomCron.RunOnce))
+		}, legacyRoomCron.RunOnce)
 		roomDispatchRunner := dashboard.NewRoomBatchDispatchRunner(getMySQLStore(), getMySQLStore(), getMySQLStore(), roomClient)
 		roomDispatchCron := dashboard.NewRoomBatchDispatchCron(getMySQLStore(), roomDispatchRunner, cfg.WorkerProcessingTimeout, 50, log.Default())
-		workerGroup.Add("cron-room-batch-dispatch", taskrunner.ConfiguredPeriodic(taskrunner.PeriodicConfig{
+		workerGroup.AddPeriodic("cron-room-batch-dispatch", taskrunner.PeriodicConfig{
 			Name:       "cron-room-batch-dispatch",
 			Interval:   cfg.RoomBatchSendCronInterval,
 			RunOnStart: cfg.RoomBatchSendCronRunOnStart,
 			Logger:     structuredLogger(),
-		}, roomDispatchCron.RunOnce))
+		}, roomDispatchCron.RunOnce)
 		debugf("go cron enabled: durable room batch dispatch interval=%s run_on_start=%v kind=%s", cfg.RoomBatchSendCronInterval, cfg.RoomBatchSendCronRunOnStart, wecomcapability.DispatchKindRoomBatch)
 	}
 	if cfg.EnableContactSyncSendResultCron {
 		cron := dashboard.NewContactBatchSendResultCron(getMySQLStore(), dashboard.NewRoomWelcomeWeComClient(cfg.WeComAPIBaseURL), log.Default())
-		workerGroup.Add("cron-contact-sync-send-result", taskrunner.ConfiguredPeriodic(taskrunner.PeriodicConfig{
+		workerGroup.AddPeriodic("cron-contact-sync-send-result", taskrunner.PeriodicConfig{
 			Name:       "cron-contact-sync-send-result",
 			Interval:   cfg.ContactSyncSendResultCronInterval,
 			RunOnStart: cfg.ContactSyncSendResultCronRunOnStart,
 			Logger:     structuredLogger(),
-		}, cron.RunOnce))
+		}, cron.RunOnce)
 		debugf("go cron enabled: ContactSyncSendResultTask 客户群发结果同步 interval=%s run_on_start=%v", cfg.ContactSyncSendResultCronInterval, cfg.ContactSyncSendResultCronRunOnStart)
 	}
 	if cfg.EnableRoomSyncSendResultCron {
 		cron := dashboard.NewRoomBatchSendResultCron(getMySQLStore(), dashboard.NewRoomWelcomeWeComClient(cfg.WeComAPIBaseURL), log.Default())
-		workerGroup.Add("cron-room-sync-send-result", taskrunner.ConfiguredPeriodic(taskrunner.PeriodicConfig{
+		workerGroup.AddPeriodic("cron-room-sync-send-result", taskrunner.PeriodicConfig{
 			Name:       "cron-room-sync-send-result",
 			Interval:   cfg.RoomSyncSendResultCronInterval,
 			RunOnStart: cfg.RoomSyncSendResultCronRunOnStart,
 			Logger:     structuredLogger(),
-		}, cron.RunOnce))
+		}, cron.RunOnce)
 		debugf("go cron enabled: RoomSyncSendResultTask 客户群群发结果同步 interval=%s run_on_start=%v", cfg.RoomSyncSendResultCronInterval, cfg.RoomSyncSendResultCronRunOnStart)
 	}
 	if cfg.EnableRoomTagPullCron {
 		cron := dashboard.NewRoomTagPullCron(getMySQLStore(), dashboard.NewRoomWelcomeWeComClient(cfg.WeComAPIBaseURL), log.Default())
-		workerGroup.Add("cron-room-tag-pull", taskrunner.ConfiguredPeriodic(taskrunner.PeriodicConfig{
+		workerGroup.AddPeriodic("cron-room-tag-pull", taskrunner.PeriodicConfig{
 			Name:       "cron-room-tag-pull",
 			Interval:   cfg.RoomTagPullCronInterval,
 			RunOnStart: cfg.RoomTagPullCronRunOnStart,
 			Logger:     structuredLogger(),
-		}, cron.RunOnce))
+		}, cron.RunOnce)
 		debugf("go cron enabled: RoomTagPull 标签建群结果同步 interval=%s run_on_start=%v", cfg.RoomTagPullCronInterval, cfg.RoomTagPullCronRunOnStart)
 	}
 	var durableBridgeClient *archiveprovider.BridgeArchiveClient
@@ -3139,30 +3135,30 @@ func main() {
 	}
 	if archivePlan.durableWorker {
 		mediaRunner := archiveprovider.NewMediaSyncService(getMySQLStore(), durableBridgeClient, cfg.FileStorageRoot)
-		workerGroup.Add("worker-durable-work-message-archive-sync", taskrunner.ConfiguredPeriodic(taskrunner.PeriodicConfig{
+		workerGroup.AddPeriodic("worker-durable-work-message-archive-sync", taskrunner.PeriodicConfig{
 			Name:       "worker-durable-work-message-archive-sync",
 			Interval:   cfg.WorkMessageArchiveSyncCronInterval,
 			RunOnStart: true,
 			Logger:     structuredLogger(),
-		}, durableRunner.RunPendingOnce))
-		workerGroup.Add("worker-durable-work-message-archive-media", taskrunner.ConfiguredPeriodic(taskrunner.PeriodicConfig{
+		}, durableRunner.RunPendingOnce)
+		workerGroup.AddPeriodic("worker-durable-work-message-archive-media", taskrunner.PeriodicConfig{
 			Name:       "worker-durable-work-message-archive-media",
 			Interval:   cfg.WorkMessageArchiveSyncCronInterval,
 			RunOnStart: true,
 			Logger:     structuredLogger(),
 		}, func(ctx context.Context) error {
 			return runDurableArchiveMediaBatch(ctx, mediaRunner, cfg.WorkMessageArchiveSyncLimit, log.Default())
-		}))
+		})
 		debugf("durable archive workers enabled: automatic_schedule=%t interval=%s schedule_run_on_start=%v limit=%d storage_root=%s",
 			archivePlan.durableScheduler, cfg.WorkMessageArchiveSyncCronInterval, cfg.WorkMessageArchiveSyncCronRunOnStart, cfg.WorkMessageArchiveSyncLimit, cfg.FileStorageRoot)
 	}
 	if archivePlan.durableScheduler {
-		workerGroup.Add("cron-durable-work-message-archive-enqueue", taskrunner.ConfiguredPeriodic(taskrunner.PeriodicConfig{
+		workerGroup.AddPeriodic("cron-durable-work-message-archive-enqueue", taskrunner.PeriodicConfig{
 			Name:       "cron-durable-work-message-archive-enqueue",
 			Interval:   cfg.WorkMessageArchiveSyncCronInterval,
 			RunOnStart: cfg.WorkMessageArchiveSyncCronRunOnStart,
 			Logger:     structuredLogger(),
-		}, durableRunner.EnqueueScheduledOnce))
+		}, durableRunner.EnqueueScheduledOnce)
 	}
 	var workMessageArchiveCron *dashboard.WorkMessageArchiveSyncCron
 	if archivePlan.legacyScheduler {
@@ -3313,62 +3309,62 @@ func main() {
 	}
 	if cfg.EnableCorpDataCron {
 		cron := dashboard.NewCorpDataCron(getMySQLStore(), log.Default())
-		workerGroup.Add("cron-corp-data", taskrunner.ConfiguredPeriodic(taskrunner.PeriodicConfig{
+		workerGroup.AddPeriodic("cron-corp-data", taskrunner.PeriodicConfig{
 			Name:       "cron-corp-data",
 			Interval:   cfg.CorpDataCronInterval,
 			RunOnStart: cfg.CorpDataCronRunOnStart,
 			Logger:     structuredLogger(),
-		}, cron.RunOnce))
+		}, cron.RunOnce)
 		debugf("go cron enabled: corpData 首页数据统计 interval=%s run_on_start=%v", cfg.CorpDataCronInterval, cfg.CorpDataCronRunOnStart)
 	}
 	if cfg.EnableMediaIDUpdateCron {
 		cron := dashboard.NewMediumMediaCron(getMySQLStore(), dashboard.NewRoomWelcomeWeComClient(cfg.WeComAPIBaseURL), cfg.FileStorageRoot, log.Default())
-		workerGroup.Add("cron-media-id-update", taskrunner.ConfiguredPeriodic(taskrunner.PeriodicConfig{
+		workerGroup.AddPeriodic("cron-media-id-update", taskrunner.PeriodicConfig{
 			Name:       "cron-media-id-update",
 			Interval:   cfg.MediaIDUpdateCronInterval,
 			RunOnStart: cfg.MediaIDUpdateCronRunOnStart,
 			Logger:     structuredLogger(),
-		}, cron.RunOnce))
+		}, cron.RunOnce)
 		debugf("go cron enabled: mediaIdUpdate 素材库media_id更新 interval=%s run_on_start=%v", cfg.MediaIDUpdateCronInterval, cfg.MediaIDUpdateCronRunOnStart)
 	}
 	if cfg.EnableTransferStateRefreshCron {
 		cron := dashboard.NewContactTransferStateCron(getMySQLStore(), getRedisStore(), dashboard.NewRoomWelcomeWeComClient(cfg.WeComAPIBaseURL), log.Default())
-		workerGroup.Add("cron-transfer-state-refresh", taskrunner.ConfiguredPeriodic(taskrunner.PeriodicConfig{
+		workerGroup.AddPeriodic("cron-transfer-state-refresh", taskrunner.PeriodicConfig{
 			Name:       "cron-transfer-state-refresh",
 			Interval:   cfg.TransferStateRefreshCronInterval,
 			RunOnStart: cfg.TransferStateRefreshCronRunOnStart,
 			Logger:     structuredLogger(),
-		}, cron.RunOnce))
+		}, cron.RunOnce)
 		debugf("go cron enabled: TransferStateRefresh 分配状态更新 interval=%s run_on_start=%v", cfg.TransferStateRefreshCronInterval, cfg.TransferStateRefreshCronRunOnStart)
 	}
 	if cfg.EnableSOPLogCron {
 		cron := dashboard.NewSOPLogCron(getMySQLStore(), log.Default())
-		workerGroup.Add("cron-sop-log", taskrunner.ConfiguredPeriodic(taskrunner.PeriodicConfig{
+		workerGroup.AddPeriodic("cron-sop-log", taskrunner.PeriodicConfig{
 			Name:       "cron-sop-log",
 			Interval:   cfg.SOPLogCronInterval,
 			RunOnStart: cfg.SOPLogCronRunOnStart,
 			Logger:     structuredLogger(),
-		}, cron.RunOnce))
+		}, cron.RunOnce)
 		debugf("go cron enabled: SOP log 个人/群 SOP 提醒生成 interval=%s run_on_start=%v", cfg.SOPLogCronInterval, cfg.SOPLogCronRunOnStart)
 	}
 	if workMessageArchiveCron != nil {
-		workerGroup.Add("cron-work-message-archive-sync", taskrunner.ConfiguredPeriodic(taskrunner.PeriodicConfig{
+		workerGroup.AddPeriodic("cron-work-message-archive-sync", taskrunner.PeriodicConfig{
 			Name:                "cron-work-message-archive-sync",
 			Interval:            cfg.WorkMessageArchiveSyncCronInterval,
 			RunOnStart:          cfg.WorkMessageArchiveSyncCronRunOnStart,
 			Logger:              structuredLogger(),
 			SuppressOutcomeLogs: true,
-		}, workMessageArchiveCron.RunOnce))
+		}, workMessageArchiveCron.RunOnce)
 		debugf("go cron enabled: workMessageArchive 会话存档同步 interval=%s run_on_start=%v limit=%d bridge_configured=%t", cfg.WorkMessageArchiveSyncCronInterval, cfg.WorkMessageArchiveSyncCronRunOnStart, cfg.WorkMessageArchiveSyncLimit, strings.TrimSpace(cfg.WorkMessageArchiveBridgeBaseURL) != "")
 	}
 	if cfg.EnableSensitiveWordMonitorCron {
 		cron := dashboard.NewSensitiveWordMonitorCron(getMySQLStore(), log.Default())
-		workerGroup.Add("cron-sensitive-word-monitor", taskrunner.ConfiguredPeriodic(taskrunner.PeriodicConfig{
+		workerGroup.AddPeriodic("cron-sensitive-word-monitor", taskrunner.PeriodicConfig{
 			Name:       "cron-sensitive-word-monitor",
 			Interval:   cfg.SensitiveWordMonitorCronInterval,
 			RunOnStart: cfg.SensitiveWordMonitorCronRunOnStart,
 			Logger:     structuredLogger(),
-		}, cron.RunOnce))
+		}, cron.RunOnce)
 		debugf("go cron enabled: sensitiveWordsMonitor 会话存档敏感词监控 interval=%s run_on_start=%v", cfg.SensitiveWordMonitorCronInterval, cfg.SensitiveWordMonitorCronRunOnStart)
 	}
 	if cfg.EnableSaaSStorageReconcileCron {
@@ -3380,24 +3376,24 @@ func main() {
 			debugf("go cron completed: SaaS storage reconcile scanned=%d missing_marked=%d unsafe_marked=%d size_updated=%d counters_refreshed=%d refreshed_tenants=%v", result.Scanned, result.MissingMarked, result.UnsafeMarked, result.SizeUpdated, result.CountersRefreshed, result.RefreshedTenants)
 			return nil
 		}
-		workerGroup.Add("cron-saas-storage-reconcile", taskrunner.ConfiguredPeriodic(taskrunner.PeriodicConfig{
+		workerGroup.AddPeriodic("cron-saas-storage-reconcile", taskrunner.PeriodicConfig{
 			Name:       "cron-saas-storage-reconcile",
 			Interval:   cfg.SaaSStorageReconcileCronInterval,
 			RunOnStart: cfg.SaaSStorageReconcileCronRunOnStart,
 			Logger:     structuredLogger(),
-		}, runOnce))
+		}, runOnce)
 		debugf("go cron enabled: SaaS storage reconcile interval=%s run_on_start=%v storage_root=%s", cfg.SaaSStorageReconcileCronInterval, cfg.SaaSStorageReconcileCronRunOnStart, cfg.FileStorageRoot)
 	}
 	if cfg.EnableSaaSTenantDomainDeliveryCron {
 		if tenantDomainDeliveryProcessor == nil {
 			fatal("SaaS tenant domain delivery cron enabled without a configured bridge")
 		}
-		workerGroup.Add(dashboard.SaaSTenantDomainDeliveryCronTaskName, taskrunner.ConfiguredPeriodic(taskrunner.PeriodicConfig{
+		workerGroup.AddPeriodic(dashboard.SaaSTenantDomainDeliveryCronTaskName, taskrunner.PeriodicConfig{
 			Name:       dashboard.SaaSTenantDomainDeliveryCronTaskName,
 			Interval:   cfg.SaaSTenantDomainDeliveryCronInterval,
 			RunOnStart: cfg.SaaSTenantDomainDeliveryCronRunOnStart,
 			Logger:     structuredLogger(),
-		}, tenantDomainDeliveryProcessor.RunOnce))
+		}, tenantDomainDeliveryProcessor.RunOnce)
 		debugf("go cron enabled: SaaS tenant domain delivery interval=%s run_on_start=%v limit=%d", cfg.SaaSTenantDomainDeliveryCronInterval, cfg.SaaSTenantDomainDeliveryCronRunOnStart, cfg.SaaSTenantDomainDeliveryLimit)
 	}
 	if cfg.EnableSaaSAlertNotificationDispatchCron {
@@ -3408,12 +3404,12 @@ func main() {
 			cfg.SaaSAlertNotificationRetryDelay,
 			log.Default(),
 		)
-		workerGroup.Add("cron-saas-alert-notification-dispatch", taskrunner.ConfiguredPeriodic(taskrunner.PeriodicConfig{
+		workerGroup.AddPeriodic("cron-saas-alert-notification-dispatch", taskrunner.PeriodicConfig{
 			Name:       "cron-saas-alert-notification-dispatch",
 			Interval:   cfg.SaaSAlertNotificationDispatchCronInterval,
 			RunOnStart: cfg.SaaSAlertNotificationDispatchCronRunOnStart,
 			Logger:     structuredLogger(),
-		}, cron.RunOnce))
+		}, cron.RunOnce)
 		debugf("go cron enabled: SaaS alert notification dispatch interval=%s run_on_start=%v limit=%d", cfg.SaaSAlertNotificationDispatchCronInterval, cfg.SaaSAlertNotificationDispatchCronRunOnStart, cfg.SaaSAlertNotificationDispatchLimit)
 	}
 	if cfg.EnableSaaSOperationQueueAssignmentReminderCron {
@@ -3426,12 +3422,12 @@ func main() {
 			cfg.SaaSAlertNotificationMaxAttempts,
 			log.Default(),
 		)
-		workerGroup.Add(dashboard.SaaSAdminOperationQueueAssignmentReminderCronTaskName, taskrunner.ConfiguredPeriodic(taskrunner.PeriodicConfig{
+		workerGroup.AddPeriodic(dashboard.SaaSAdminOperationQueueAssignmentReminderCronTaskName, taskrunner.PeriodicConfig{
 			Name:       dashboard.SaaSAdminOperationQueueAssignmentReminderCronTaskName,
 			Interval:   cfg.SaaSOperationQueueAssignmentReminderCronInterval,
 			RunOnStart: cfg.SaaSOperationQueueAssignmentReminderCronRunOnStart,
 			Logger:     structuredLogger(),
-		}, cron.RunOnce))
+		}, cron.RunOnce)
 		debugf("go cron enabled: SaaS operation queue assignment reminder interval=%s run_on_start=%v limit=%d due_states=overdue,due_soon", cfg.SaaSOperationQueueAssignmentReminderCronInterval, cfg.SaaSOperationQueueAssignmentReminderCronRunOnStart, cfg.SaaSOperationQueueAssignmentReminderLimit)
 	}
 	if cfg.EnableSaaSApprovalReminderCron {
@@ -3439,10 +3435,10 @@ func main() {
 			saasAdminHandler = newSaaSAdminHandler()
 		}
 		cron := dashboard.NewSaaSAdminApprovalReminderCron(saasAdminHandler, cfg.SaaSApprovalReminderLimit, cfg.SaaSAlertNotificationMaxAttempts, log.Default())
-		workerGroup.Add(dashboard.SaaSAdminApprovalReminderCronTaskName, taskrunner.ConfiguredPeriodic(taskrunner.PeriodicConfig{
+		workerGroup.AddPeriodic(dashboard.SaaSAdminApprovalReminderCronTaskName, taskrunner.PeriodicConfig{
 			Name: dashboard.SaaSAdminApprovalReminderCronTaskName, Interval: cfg.SaaSApprovalReminderCronInterval,
 			RunOnStart: cfg.SaaSApprovalReminderCronRunOnStart, Logger: structuredLogger(),
-		}, cron.RunOnce))
+		}, cron.RunOnce)
 		debugf("go cron enabled: SaaS approval reminder interval=%s run_on_start=%v limit=%d", cfg.SaaSApprovalReminderCronInterval, cfg.SaaSApprovalReminderCronRunOnStart, cfg.SaaSApprovalReminderLimit)
 	}
 	if cfg.EnableSaaSBackupCron {
@@ -3450,10 +3446,10 @@ func main() {
 			fatal("SaaS backup cron enabled without backup manager")
 		}
 		cron := saasbackup.NewCron(backupManager, log.Default())
-		workerGroup.Add(saasbackup.CronTaskName, taskrunner.ConfiguredPeriodic(taskrunner.PeriodicConfig{
+		workerGroup.AddPeriodic(saasbackup.CronTaskName, taskrunner.PeriodicConfig{
 			Name: saasbackup.CronTaskName, Interval: cfg.SaaSBackupCronInterval,
 			RunOnStart: cfg.SaaSBackupCronRunOnStart, Logger: structuredLogger(),
-		}, cron.RunOnce))
+		}, cron.RunOnce)
 		debugf("go cron enabled: SaaS encrypted database backup interval=%s run_on_start=%v key_id=%s",
 			cfg.SaaSBackupCronInterval, cfg.SaaSBackupCronRunOnStart, cfg.SaaSBackupEncryptionKeyID)
 	}
@@ -3462,10 +3458,10 @@ func main() {
 			fatal("SaaS compliance cron enabled without compliance manager")
 		}
 		cron := saascompliance.NewCron(complianceManager, saascompliance.Actor{TenantID: cfg.SaaSPlatformAdminTenantID}, 10, log.Default())
-		workerGroup.Add(saascompliance.CronTaskName, taskrunner.ConfiguredPeriodic(taskrunner.PeriodicConfig{
+		workerGroup.AddPeriodic(saascompliance.CronTaskName, taskrunner.PeriodicConfig{
 			Name: saascompliance.CronTaskName, Interval: cfg.SaaSComplianceCronInterval,
 			RunOnStart: cfg.SaaSComplianceCronRunOnStart, Logger: structuredLogger(),
-		}, cron.RunOnce))
+		}, cron.RunOnce)
 		debugf("go cron enabled: SaaS tenant data compliance interval=%s run_on_start=%v key_id=%s",
 			cfg.SaaSComplianceCronInterval, cfg.SaaSComplianceCronRunOnStart, cfg.SaaSComplianceEncryptionKeyID)
 	}
@@ -3474,28 +3470,28 @@ func main() {
 			fatal("SaaS identity cleanup cron enabled without identity security manager")
 		}
 		cron := identitysecurity.NewCron(identityManager, cfg.SaaSIdentityCleanupLimit, log.Default())
-		workerGroup.Add(identitysecurity.CronTaskName, taskrunner.ConfiguredPeriodic(taskrunner.PeriodicConfig{
+		workerGroup.AddPeriodic(identitysecurity.CronTaskName, taskrunner.PeriodicConfig{
 			Name: identitysecurity.CronTaskName, Interval: cfg.SaaSIdentityCleanupCronInterval,
 			RunOnStart: cfg.SaaSIdentityCleanupCronRunOnStart, Logger: structuredLogger(),
-		}, cron.RunOnce))
+		}, cron.RunOnce)
 		debugf("go cron enabled: SaaS identity cleanup interval=%s run_on_start=%v limit=%d",
 			cfg.SaaSIdentityCleanupCronInterval, cfg.SaaSIdentityCleanupCronRunOnStart, cfg.SaaSIdentityCleanupLimit)
 	}
 	if cfg.EnableSaaSServiceAccountUsageAlertCron {
 		cron := dashboard.NewSaaSServiceAccountUsageAlertCron(getMySQLStore(), cfg.SaaSServiceAccountUsageAlertLimit, log.Default())
-		workerGroup.Add(dashboard.SaaSServiceAccountUsageAlertCronTaskName, taskrunner.ConfiguredPeriodic(taskrunner.PeriodicConfig{
+		workerGroup.AddPeriodic(dashboard.SaaSServiceAccountUsageAlertCronTaskName, taskrunner.PeriodicConfig{
 			Name: dashboard.SaaSServiceAccountUsageAlertCronTaskName, Interval: cfg.SaaSServiceAccountUsageAlertCronInterval,
 			RunOnStart: cfg.SaaSServiceAccountUsageAlertCronRunOnStart, Logger: structuredLogger(),
-		}, cron.RunOnce))
+		}, cron.RunOnce)
 		debugf("go cron enabled: SaaS service account usage alert interval=%s run_on_start=%v limit=%d",
 			cfg.SaaSServiceAccountUsageAlertCronInterval, cfg.SaaSServiceAccountUsageAlertCronRunOnStart, cfg.SaaSServiceAccountUsageAlertLimit)
 	}
 	if cfg.EnableSaaSAuditIntegrityCron {
 		cron := dashboard.NewSaaSAdminAuditIntegrityCron(getMySQLStore(), cfg.SaaSAuditIntegrityLimit, log.Default())
-		workerGroup.Add(dashboard.SaaSAdminAuditIntegrityCronTaskName, taskrunner.ConfiguredPeriodic(taskrunner.PeriodicConfig{
+		workerGroup.AddPeriodic(dashboard.SaaSAdminAuditIntegrityCronTaskName, taskrunner.PeriodicConfig{
 			Name: dashboard.SaaSAdminAuditIntegrityCronTaskName, Interval: cfg.SaaSAuditIntegrityCronInterval,
 			RunOnStart: cfg.SaaSAuditIntegrityCronRunOnStart, Logger: structuredLogger(),
-		}, cron.RunOnce))
+		}, cron.RunOnce)
 		debugf("go cron enabled: SaaS audit integrity interval=%s run_on_start=%v limit=%d",
 			cfg.SaaSAuditIntegrityCronInterval, cfg.SaaSAuditIntegrityCronRunOnStart, cfg.SaaSAuditIntegrityLimit)
 	}
@@ -3504,19 +3500,19 @@ func main() {
 			fatal("SaaS audit anchor cron enabled without audit anchor manager")
 		}
 		cron := saasauditanchor.NewCron(auditAnchorManager, cfg.SaaSAuditAnchorLimit, log.Default())
-		workerGroup.Add(saasauditanchor.CronTaskName, taskrunner.ConfiguredPeriodic(taskrunner.PeriodicConfig{
+		workerGroup.AddPeriodic(saasauditanchor.CronTaskName, taskrunner.PeriodicConfig{
 			Name: saasauditanchor.CronTaskName, Interval: cfg.SaaSAuditAnchorCronInterval,
 			RunOnStart: cfg.SaaSAuditAnchorCronRunOnStart, Logger: structuredLogger(),
-		}, cron.RunOnce))
+		}, cron.RunOnce)
 		debugf("go cron enabled: SaaS audit anchor interval=%s run_on_start=%v limit=%d key_id=%s",
 			cfg.SaaSAuditAnchorCronInterval, cfg.SaaSAuditAnchorCronRunOnStart, cfg.SaaSAuditAnchorLimit, cfg.SaaSAuditAnchorHMACKeyID)
 	}
 	if cfg.EnableSaaSServiceAccountUsageCleanupCron {
 		cron := dashboard.NewSaaSServiceAccountUsageCleanupCron(getMySQLStore(), cfg.SaaSServiceAccountUsageCleanupLimit, log.Default())
-		workerGroup.Add(dashboard.SaaSServiceAccountUsageCleanupCronTaskName, taskrunner.ConfiguredPeriodic(taskrunner.PeriodicConfig{
+		workerGroup.AddPeriodic(dashboard.SaaSServiceAccountUsageCleanupCronTaskName, taskrunner.PeriodicConfig{
 			Name: dashboard.SaaSServiceAccountUsageCleanupCronTaskName, Interval: cfg.SaaSServiceAccountUsageCleanupCronInterval,
 			RunOnStart: cfg.SaaSServiceAccountUsageCleanupCronRunOnStart, Logger: structuredLogger(),
-		}, cron.RunOnce))
+		}, cron.RunOnce)
 		debugf("go cron enabled: SaaS service account usage cleanup interval=%s run_on_start=%v limit=%d",
 			cfg.SaaSServiceAccountUsageCleanupCronInterval, cfg.SaaSServiceAccountUsageCleanupCronRunOnStart, cfg.SaaSServiceAccountUsageCleanupLimit)
 	}
@@ -3528,10 +3524,10 @@ func main() {
 			saasAdminHandler, cfg.SaaSSystemHealthFailureWindowHours, cfg.SaaSSystemHealthNotificationStaleMinutes,
 			cfg.SaaSAlertNotificationMaxAttempts, log.Default(),
 		)
-		workerGroup.Add(dashboard.SaaSAdminSystemHealthCronTaskName, taskrunner.ConfiguredPeriodic(taskrunner.PeriodicConfig{
+		workerGroup.AddPeriodic(dashboard.SaaSAdminSystemHealthCronTaskName, taskrunner.PeriodicConfig{
 			Name: dashboard.SaaSAdminSystemHealthCronTaskName, Interval: cfg.SaaSSystemHealthCronInterval,
 			RunOnStart: cfg.SaaSSystemHealthCronRunOnStart, Logger: structuredLogger(),
-		}, cron.RunOnce))
+		}, cron.RunOnce)
 		debugf("go cron enabled: SaaS system health interval=%s run_on_start=%v failure_window_hours=%d notification_stale_minutes=%d",
 			cfg.SaaSSystemHealthCronInterval, cfg.SaaSSystemHealthCronRunOnStart,
 			cfg.SaaSSystemHealthFailureWindowHours, cfg.SaaSSystemHealthNotificationStaleMinutes)
@@ -3546,12 +3542,12 @@ func main() {
 			cfg.SaaSNotificationHealthRecoveryStaleMinutes,
 			log.Default(),
 		)
-		workerGroup.Add(dashboard.SaaSAdminNotificationHealthRecoveryCronTaskName, taskrunner.ConfiguredPeriodic(taskrunner.PeriodicConfig{
+		workerGroup.AddPeriodic(dashboard.SaaSAdminNotificationHealthRecoveryCronTaskName, taskrunner.PeriodicConfig{
 			Name:       dashboard.SaaSAdminNotificationHealthRecoveryCronTaskName,
 			Interval:   cfg.SaaSNotificationHealthRecoveryCronInterval,
 			RunOnStart: cfg.SaaSNotificationHealthRecoveryCronRunOnStart,
 			Logger:     structuredLogger(),
-		}, cron.RunOnce))
+		}, cron.RunOnce)
 		debugf("go cron enabled: SaaS notification health recovery interval=%s run_on_start=%v window_hours=%d stale_minutes=%d", cfg.SaaSNotificationHealthRecoveryCronInterval, cfg.SaaSNotificationHealthRecoveryCronRunOnStart, cfg.SaaSNotificationHealthRecoveryWindowHours, cfg.SaaSNotificationHealthRecoveryStaleMinutes)
 	}
 	if cfg.EnableSaaSSubscriptionReconcileCron {
@@ -3559,12 +3555,12 @@ func main() {
 			saasAdminHandler = newSaaSAdminHandler()
 		}
 		cron := dashboard.NewSaaSAdminSubscriptionReconcileCron(saasAdminHandler, cfg.SaaSSubscriptionReconcileLimit, log.Default())
-		workerGroup.Add(dashboard.SaaSAdminSubscriptionReconcileCronTaskName, taskrunner.ConfiguredPeriodic(taskrunner.PeriodicConfig{
+		workerGroup.AddPeriodic(dashboard.SaaSAdminSubscriptionReconcileCronTaskName, taskrunner.PeriodicConfig{
 			Name:       dashboard.SaaSAdminSubscriptionReconcileCronTaskName,
 			Interval:   cfg.SaaSSubscriptionReconcileCronInterval,
 			RunOnStart: cfg.SaaSSubscriptionReconcileCronRunOnStart,
 			Logger:     structuredLogger(),
-		}, cron.RunOnce))
+		}, cron.RunOnce)
 		debugf("go cron enabled: SaaS subscription reconcile interval=%s run_on_start=%v limit=%d", cfg.SaaSSubscriptionReconcileCronInterval, cfg.SaaSSubscriptionReconcileCronRunOnStart, cfg.SaaSSubscriptionReconcileLimit)
 	}
 	if cfg.EnableSaaSPaymentDunningCron {
@@ -3572,10 +3568,10 @@ func main() {
 			getMySQLStore(), cfg.SaaSPaymentDunningLimit, int(cfg.SaaSPaymentDunningRetryDelay/time.Second),
 			cfg.SaaSAlertNotificationMaxAttempts, cfg.SaaSPlatformAdminTenantID, log.Default(),
 		)
-		workerGroup.Add(dashboard.SaaSPaymentDunningCronTaskName, taskrunner.ConfiguredPeriodic(taskrunner.PeriodicConfig{
+		workerGroup.AddPeriodic(dashboard.SaaSPaymentDunningCronTaskName, taskrunner.PeriodicConfig{
 			Name: dashboard.SaaSPaymentDunningCronTaskName, Interval: cfg.SaaSPaymentDunningCronInterval,
 			RunOnStart: cfg.SaaSPaymentDunningCronRunOnStart, Logger: structuredLogger(),
-		}, cron.RunOnce))
+		}, cron.RunOnce)
 		debugf("go cron enabled: SaaS payment dunning interval=%s run_on_start=%v limit=%d retry_delay=%s", cfg.SaaSPaymentDunningCronInterval, cfg.SaaSPaymentDunningCronRunOnStart, cfg.SaaSPaymentDunningLimit, cfg.SaaSPaymentDunningRetryDelay)
 	}
 	if cfg.EnableSaaSPaymentSettlementSyncCron {
@@ -3583,10 +3579,10 @@ func main() {
 			fatal("SaaS payment settlement sync cron enabled without a configured bridge service")
 		}
 		cron := dashboard.NewSaaSPaymentSettlementSyncCron(paymentSettlementSyncService)
-		workerGroup.Add(dashboard.SaaSPaymentSettlementSyncCronTaskName, taskrunner.ConfiguredPeriodic(taskrunner.PeriodicConfig{
+		workerGroup.AddPeriodic(dashboard.SaaSPaymentSettlementSyncCronTaskName, taskrunner.PeriodicConfig{
 			Name: dashboard.SaaSPaymentSettlementSyncCronTaskName, Interval: cfg.SaaSPaymentSettlementSyncCronInterval,
 			RunOnStart: cfg.SaaSPaymentSettlementSyncCronRunOnStart, Logger: structuredLogger(),
-		}, cron.RunOnce))
+		}, cron.RunOnce)
 		debugf("go cron enabled: SaaS payment settlement sync interval=%s run_on_start=%v providers=%s limit=%d", cfg.SaaSPaymentSettlementSyncCronInterval, cfg.SaaSPaymentSettlementSyncCronRunOnStart, strings.Join(cfg.SaaSPaymentSettlementProviders, ","), cfg.SaaSPaymentSettlementSyncLimit)
 	}
 	if persistentBackgroundRecorderEnabled {
@@ -3600,16 +3596,7 @@ func main() {
 	if err := workerGroup.Start(rootCtx); err != nil {
 		fatalf("start background tasks: %v", err)
 	}
-	defer func() {
-		cancelRoot()
-		waitCtx, cancelWait := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancelWait()
-		if err := workerGroup.Wait(waitCtx); err != nil {
-			structuredLogger().Error("后台任务未在关闭期限内退出",
-				"event", "background_tasks_drain_failed", "component", "runtime", "step", "shutdown",
-				"result", "failed", "error_code", "BACKGROUND_TASKS_DRAIN_TIMEOUT")
-		}
-	}()
+	defer backgroundTaskCleanup(cancelRoot, workerGroup.Wait, 30*time.Second, structuredLogger())()
 	if backgroundTasksEnabled {
 		options = append(options, compatserver.WithBackgroundTasks(workerGroup.Snapshots))
 	}
@@ -3624,13 +3611,16 @@ func main() {
 	modulePrincipalResolver := dashboardModulePrincipalResolver{}
 	moduleRouter, err := newSCRMModuleRouter(cfg, getMySQLStore, modulePrincipalResolver)
 	if err != nil {
-		fatal(err)
+		runtimeErr = err
+		return
 	}
 	if err := registerAIDebtClearanceModules(moduleRouter, cfg, getMySQLStore, modulePrincipalResolver); err != nil {
-		fatal(err)
+		runtimeErr = err
+		return
 	}
 	if err := registerChatMediaModule(moduleRouter, cfg, getMySQLStore, modulePrincipalResolver); err != nil {
-		fatal(err)
+		runtimeErr = err
+		return
 	}
 	dashboardAccessStore := getMySQLStore()
 	dashboardAccessService := dashboard.NewDashboardAccessService(dashboardAccessStore)
@@ -3638,10 +3628,12 @@ func main() {
 	dashboardAccessAdminService := dashboard.NewDashboardAccessAdminService(dashboardAccessStore, dashboardAccessService)
 	dashboardAccessHTTP := dashboard.NewDashboardAccessHTTP(dashboardAccessAdminService)
 	if err := registerDashboardAccessRoutes(moduleRouter, dashboardAccessHTTP); err != nil {
-		fatalf("register Dashboard access administration routes: %v", err)
+		runtimeErr = fmt.Errorf("register Dashboard access administration routes: %w", err)
+		return
 	}
 	if dashboardIdentityGuard == nil {
-		fatal("Dashboard identity request guard is required")
+		runtimeErr = errors.New("Dashboard identity request guard is required")
+		return
 	}
 	dashboardIdentityGuard.WithNext(dashboardAccessGuard)
 	options = append(options, compatserver.WithDashboardRequestGuard(dashboardIdentityGuard))
@@ -3666,12 +3658,7 @@ func main() {
 		readinessProbes = append(readinessProbes, migrationReadinessProbes(migrationRunner)...)
 	}
 	if redisStore != nil {
-		readinessProbes = append(readinessProbes, compatserver.ReadinessProbe{
-			Code: "redis_connection",
-			Check: func(ctx context.Context) error {
-				return redisStore.Ping(ctx)
-			},
-		})
+		readinessProbes = append(readinessProbes, redisReadinessProbe(redisStore))
 	}
 	if backgroundTasksEnabled {
 		readinessProbes = append(readinessProbes, backgroundTasksReadinessProbe(workerGroup.Snapshots))
@@ -3680,7 +3667,8 @@ func main() {
 	options = append(options, compatserver.WithReadinessChecker(readinessChecker))
 	handler, err := compatserver.New(cfg, options...)
 	if err != nil {
-		fatalf("build server: %v", err)
+		runtimeErr = fmt.Errorf("build server: %w", err)
+		return
 	}
 	loggedAPIHandler := withHTTPLogging(handler)
 	serveHandler := frontend.WrapDashboard(loggedAPIHandler, frontend.DashboardConfig{DistDir: cfg.DashboardDist})
