@@ -23,27 +23,38 @@ var weWorkCallbackInboxSchemaSequence atomic.Int64
 
 func TestMySQLStoreWeWorkCallbackInboxConcurrentAcceptanceAndLeaseFencing(t *testing.T) {
 	store, db, runner := newWeWorkCallbackInboxIntegrationStore(t)
-	completed, err := store.WeWorkCallbackLegacyCutoverCompleted(context.Background())
-	if err != nil || completed {
-		t.Fatalf("initial cutover completed=%t err=%v", completed, err)
+	state, err := store.WeWorkCallbackLegacyCutover(context.Background())
+	if err != nil || state.Status == "completed" || state.SourceFingerprint != "" {
+		t.Fatalf("initial cutover state=%+v err=%v", state, err)
 	}
-	if err := store.FailWeWorkCallbackLegacyCutover(context.Background(), 2, "Authorization: Bearer callback-secret-value"); err != nil {
+	sourceA := strings.Repeat("a", 64)
+	sourceB := strings.Repeat("b", 64)
+	if err := store.BeginWeWorkCallbackLegacyCutover(context.Background(), sourceA); err != nil {
 		t.Fatal(err)
 	}
-	var cutoverStatus, cutoverError string
+	if err := store.BeginWeWorkCallbackLegacyCutover(context.Background(), sourceB); !errors.Is(err, dashboard.ErrLegacyWeWorkCallbackSourceMismatch) {
+		t.Fatalf("different source begin error=%v", err)
+	}
+	if err := store.FailWeWorkCallbackLegacyCutover(context.Background(), sourceA, 2, "Authorization: Bearer callback-secret-value"); err != nil {
+		t.Fatal(err)
+	}
+	var cutoverStatus, cutoverSource, cutoverError string
 	var importedCount int
-	if err := db.QueryRow(`SELECT status,imported_count,last_error FROM mochat_go_wework_callback_cutovers WHERE name=?`, dashboard.LegacyWeWorkCallbackCutoverName).Scan(&cutoverStatus, &importedCount, &cutoverError); err != nil {
+	if err := db.QueryRow(`SELECT status,source_fingerprint,imported_count,last_error FROM mochat_go_wework_callback_cutovers WHERE name=?`, dashboard.LegacyWeWorkCallbackCutoverName).Scan(&cutoverStatus, &cutoverSource, &importedCount, &cutoverError); err != nil {
 		t.Fatal(err)
 	}
-	if cutoverStatus != "failed" || importedCount != 2 || strings.Contains(cutoverError, "callback-secret-value") {
-		t.Fatalf("failed cutover status=%q imported=%d error=%q", cutoverStatus, importedCount, cutoverError)
+	if cutoverStatus != "failed" || cutoverSource != sourceA || importedCount != 2 || strings.Contains(cutoverError, "callback-secret-value") {
+		t.Fatalf("failed cutover status=%q source=%q imported=%d error=%q", cutoverStatus, cutoverSource, importedCount, cutoverError)
 	}
-	if err := store.CompleteWeWorkCallbackLegacyCutover(context.Background(), 3); err != nil {
+	if err := store.CompleteWeWorkCallbackLegacyCutover(context.Background(), sourceB, 3); !errors.Is(err, dashboard.ErrLegacyWeWorkCallbackSourceMismatch) {
+		t.Fatalf("different source completion error=%v", err)
+	}
+	if err := store.CompleteWeWorkCallbackLegacyCutover(context.Background(), sourceA, 3); err != nil {
 		t.Fatal(err)
 	}
-	completed, err = store.WeWorkCallbackLegacyCutoverCompleted(context.Background())
-	if err != nil || !completed {
-		t.Fatalf("completed cutover completed=%t err=%v", completed, err)
+	state, err = store.WeWorkCallbackLegacyCutover(context.Background())
+	if err != nil || state.Status != "completed" || state.SourceFingerprint != sourceA || state.ImportedCount != 5 {
+		t.Fatalf("completed cutover state=%+v err=%v", state, err)
 	}
 	event := dashboard.WeWorkCallbackEvent{
 		TenantID: 11, CorpID: 1101, WxCorpID: "wx-corp-1101", EventPath: "event.change_contact.create_user",

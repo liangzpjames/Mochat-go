@@ -46,7 +46,7 @@ func TestWeWorkCallbackWorkerRunsFromDurableInboxWithoutRedis(t *testing.T) {
 		claims: []WeWorkCallbackClaim{{
 			ID: 9, EventKey: strings.Repeat("a", 64), PayloadFingerprint: strings.Repeat("b", 64),
 			LeaseToken: "lease-token", LeaseFence: 4, Attempt: 1,
-			Event: WeWorkCallbackEvent{TenantID: 3, CorpID: 7, EventPath: "event.ignored", Message: map[string]string{}},
+			Event: WeWorkCallbackEvent{TenantID: 3, CorpID: 7, EventPath: "event.msgaudit_notify", Message: map[string]string{}},
 		}},
 		completed: completed,
 	}
@@ -100,7 +100,7 @@ func TestWeWorkCallbackWorkerImportsLegacyBacklogBeforeAcknowledgingRedis(t *tes
 func TestWeWorkCallbackWorkerKeepsLegacyDeliveryWhenDurableAcceptanceFails(t *testing.T) {
 	legacy := &fakeLegacyWeWorkCallbackBacklog{
 		stats:      LegacyWeWorkCallbackBacklogStats{Processing: 1},
-		deliveries: []LegacyWeWorkCallbackDelivery{{Raw: "legacy-raw-db-failure", Event: WeWorkCallbackEvent{TenantID: 21, CorpID: 7, EventPath: "event.ignored", Message: map[string]string{}}}},
+		deliveries: []LegacyWeWorkCallbackDelivery{{Raw: "legacy-raw-db-failure", Event: WeWorkCallbackEvent{TenantID: 21, CorpID: 7, EventPath: "event.msgaudit_notify", Message: map[string]string{}}}},
 	}
 	store := &fakeDurableWeWorkCallbackWorkerStore{fakeWeWorkCallbackWorkerStore: &fakeWeWorkCallbackWorkerStore{}, acceptLegacyErr: errors.New("mysql unavailable")}
 	if _, err := ImportLegacyWeWorkCallbackBacklog(context.Background(), legacy, store, log.Default()); err == nil {
@@ -123,7 +123,7 @@ func TestWeWorkCallbackWorkerKeepsLegacyDeliveryWhenDurableAcceptanceFails(t *te
 }
 
 func TestWeWorkCallbackWorkerLegacyDuplicateImportKeepsOneDurableEvent(t *testing.T) {
-	event := WeWorkCallbackEvent{TenantID: 21, CorpID: 7, WxCorpID: "wx-corp", EventPath: "event.ignored", Message: map[string]string{"MsgId": "legacy-provider-id"}}
+	event := WeWorkCallbackEvent{TenantID: 21, CorpID: 7, WxCorpID: "wx-corp", EventPath: "event.msgaudit_notify", Message: map[string]string{"MsgId": "legacy-provider-id"}}
 	legacy := &fakeLegacyWeWorkCallbackBacklog{
 		stats:      LegacyWeWorkCallbackBacklogStats{Processing: 2},
 		deliveries: []LegacyWeWorkCallbackDelivery{{Raw: "legacy-a", Event: event}, {Raw: "legacy-b", Event: event}},

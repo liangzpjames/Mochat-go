@@ -401,7 +401,7 @@ func validateWorkflow(path string) []string {
 
 func validateDeveloperScripts(files map[string]string) []string {
 	failures := make([]string, 0)
-	build := "go build ./cmd/mochat-go ./cmd/mochat-inventory ./cmd/mochat-migrate ./cmd/mochat-bootstrap ./cmd/mochat-saas-maintenance ./cmd/mochat-architecture"
+	build := "go build ./cmd/mochat-go ./cmd/mochat-inventory ./cmd/mochat-migrate ./cmd/mochat-bootstrap ./cmd/mochat-saas-maintenance ./cmd/mochat-architecture ./cmd/mochat-callback-legacy-cutover"
 	devQuickScripts := literalCommandArguments(files["scripts/dev_check.sh"], "run_go")
 	for _, required := range []string{
 		"sh scripts/test_backend_quality_gate_contract.sh",

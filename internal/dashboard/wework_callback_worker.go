@@ -248,8 +248,9 @@ func (w *WeWorkCallbackWorker) Run(ctx context.Context) error {
 }
 
 // ImportLegacyWeWorkCallbackBacklog is used only by the explicit maintenance
-// cutover command after every legacy producer has been stopped. Ordinary inbox
-// workers never call it and therefore do not depend on Redis availability.
+// cutover command after every legacy producer, consumer, and retry writer has
+// been stopped. Ordinary inbox workers never call it and therefore do not
+// depend on Redis availability.
 func ImportLegacyWeWorkCallbackBacklog(ctx context.Context, legacy LegacyWeWorkCallbackBacklog, store LegacyWeWorkCallbackImportStore, logger *log.Logger) (int, error) {
 	if legacy == nil || store == nil {
 		return 0, errors.New("legacy wework callback cutover dependencies are not configured")

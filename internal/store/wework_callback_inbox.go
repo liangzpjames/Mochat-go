@@ -15,32 +15,70 @@ import (
 	"jiyi/mochat-go/internal/dashboard"
 )
 
-func (s *MySQLStore) WeWorkCallbackLegacyCutoverCompleted(ctx context.Context) (bool, error) {
+func (s *MySQLStore) WeWorkCallbackLegacyCutover(ctx context.Context) (dashboard.LegacyWeWorkCallbackCutover, error) {
 	if s == nil || s.db == nil {
-		return false, errors.New("wework callback inbox store is not configured")
+		return dashboard.LegacyWeWorkCallbackCutover{}, errors.New("wework callback inbox store is not configured")
 	}
-	var status string
+	var state dashboard.LegacyWeWorkCallbackCutover
 	err := s.db.QueryRowContext(ctx, `
-		SELECT status FROM mochat_go_wework_callback_cutovers WHERE name=?
-	`, dashboard.LegacyWeWorkCallbackCutoverName).Scan(&status)
+		SELECT status,source_fingerprint,imported_count
+		FROM mochat_go_wework_callback_cutovers WHERE name=?
+	`, dashboard.LegacyWeWorkCallbackCutoverName).Scan(&state.Status, &state.SourceFingerprint, &state.ImportedCount)
 	if err != nil {
-		return false, err
+		return dashboard.LegacyWeWorkCallbackCutover{}, err
 	}
-	return status == "completed", nil
+	return state, nil
 }
 
-func (s *MySQLStore) CompleteWeWorkCallbackLegacyCutover(ctx context.Context, imported int) error {
+func (s *MySQLStore) BeginWeWorkCallbackLegacyCutover(ctx context.Context, sourceFingerprint string) error {
 	if s == nil || s.db == nil {
 		return errors.New("wework callback inbox store is not configured")
 	}
-	if imported < 0 {
-		return errors.New("legacy callback imported count must not be negative")
+	sourceFingerprint = strings.TrimSpace(sourceFingerprint)
+	if len(sourceFingerprint) != 64 {
+		return errors.New("invalid legacy callback cutover source")
 	}
 	result, err := s.db.ExecContext(ctx, `
 		UPDATE mochat_go_wework_callback_cutovers
-		SET status='completed',imported_count=imported_count+?,last_error='',completed_at=UTC_TIMESTAMP(6)
-		WHERE name=? AND status<>'completed'
-	`, imported, dashboard.LegacyWeWorkCallbackCutoverName)
+		SET status='running',source_fingerprint=?,last_error='',completed_at=NULL
+		WHERE name=? AND status<>'completed' AND (source_fingerprint='' OR source_fingerprint=?)
+	`, sourceFingerprint, dashboard.LegacyWeWorkCallbackCutoverName, sourceFingerprint)
+	if err != nil {
+		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 1 {
+		return nil
+	}
+	state, err := s.WeWorkCallbackLegacyCutover(ctx)
+	if err != nil {
+		return err
+	}
+	if state.SourceFingerprint != "" && state.SourceFingerprint != sourceFingerprint {
+		return dashboard.ErrLegacyWeWorkCallbackSourceMismatch
+	}
+	if state.Status == "completed" {
+		return errors.New("legacy callback cutover is already completed")
+	}
+	return nil
+}
+
+func (s *MySQLStore) CompleteWeWorkCallbackLegacyCutover(ctx context.Context, sourceFingerprint string, imported int) error {
+	if s == nil || s.db == nil {
+		return errors.New("wework callback inbox store is not configured")
+	}
+	sourceFingerprint = strings.TrimSpace(sourceFingerprint)
+	if imported < 0 || len(sourceFingerprint) != 64 {
+		return errors.New("invalid legacy callback cutover completion")
+	}
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE mochat_go_wework_callback_cutovers
+		SET status='completed',source_fingerprint=?,imported_count=imported_count+?,last_error='',completed_at=UTC_TIMESTAMP(6)
+		WHERE name=? AND status<>'completed' AND source_fingerprint=?
+	`, sourceFingerprint, imported, dashboard.LegacyWeWorkCallbackCutoverName, sourceFingerprint)
 	if err != nil {
 		return err
 	}
@@ -49,29 +87,33 @@ func (s *MySQLStore) CompleteWeWorkCallbackLegacyCutover(ctx context.Context, im
 		return err
 	}
 	if rows == 0 {
-		completed, err := s.WeWorkCallbackLegacyCutoverCompleted(ctx)
+		state, err := s.WeWorkCallbackLegacyCutover(ctx)
 		if err != nil {
 			return err
 		}
-		if !completed {
+		if state.SourceFingerprint != "" && state.SourceFingerprint != sourceFingerprint {
+			return dashboard.ErrLegacyWeWorkCallbackSourceMismatch
+		}
+		if state.Status != "completed" {
 			return errors.New("legacy callback cutover marker is missing")
 		}
 	}
 	return nil
 }
 
-func (s *MySQLStore) FailWeWorkCallbackLegacyCutover(ctx context.Context, imported int, reason string) error {
+func (s *MySQLStore) FailWeWorkCallbackLegacyCutover(ctx context.Context, sourceFingerprint string, imported int, reason string) error {
 	if s == nil || s.db == nil {
 		return errors.New("wework callback inbox store is not configured")
 	}
-	if imported < 0 {
-		return errors.New("legacy callback imported count must not be negative")
+	sourceFingerprint = strings.TrimSpace(sourceFingerprint)
+	if imported < 0 || len(sourceFingerprint) != 64 {
+		return errors.New("invalid legacy callback cutover failure")
 	}
 	result, err := s.db.ExecContext(ctx, `
 		UPDATE mochat_go_wework_callback_cutovers
-		SET status='failed',imported_count=imported_count+?,last_error=?,completed_at=NULL
-		WHERE name=? AND status<>'completed'
-	`, imported, truncateWeWorkCallbackError(reason), dashboard.LegacyWeWorkCallbackCutoverName)
+		SET status='failed',source_fingerprint=?,imported_count=imported_count+?,last_error=?,completed_at=NULL
+		WHERE name=? AND status<>'completed' AND source_fingerprint=?
+	`, sourceFingerprint, imported, truncateWeWorkCallbackError(reason), dashboard.LegacyWeWorkCallbackCutoverName, sourceFingerprint)
 	if err != nil {
 		return err
 	}
@@ -80,11 +122,14 @@ func (s *MySQLStore) FailWeWorkCallbackLegacyCutover(ctx context.Context, import
 		return err
 	}
 	if rows == 0 {
-		completed, err := s.WeWorkCallbackLegacyCutoverCompleted(ctx)
+		state, err := s.WeWorkCallbackLegacyCutover(ctx)
 		if err != nil {
 			return err
 		}
-		if !completed {
+		if state.SourceFingerprint != "" && state.SourceFingerprint != sourceFingerprint {
+			return dashboard.ErrLegacyWeWorkCallbackSourceMismatch
+		}
+		if state.Status != "completed" {
 			return errors.New("legacy callback cutover marker is missing")
 		}
 	}

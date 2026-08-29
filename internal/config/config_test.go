@@ -2895,6 +2895,30 @@ func TestWorkDepartmentListWorkerRequiresMySQLAndJWT(t *testing.T) {
 	}
 }
 
+func TestWeWorkCallbackWorkerAllowsNoRedisWhileRedisConsumersFailClosed(t *testing.T) {
+	clearEnv(t)
+	t.Setenv("MOCHAT_GO_ENABLE_WEWORK_CALLBACK_WORKER", "1")
+	t.Setenv("MOCHAT_MYSQL_DSN", "user:pass@tcp(127.0.0.1:3306)/mochat")
+	t.Setenv("MOCHAT_SIMPLE_JWT_SECRET", "worker-secret")
+	t.Setenv("MOCHAT_REDIS_ADDR", " ")
+
+	cfg, err := FromEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.EnableWeWorkCallbackWorker || cfg.RedisAddr != "" {
+		t.Fatalf("callback enabled=%t RedisAddr=%q", cfg.EnableWeWorkCallbackWorker, cfg.RedisAddr)
+	}
+
+	clearEnv(t)
+	t.Setenv("MOCHAT_GO_ENABLE_EMPLOYEE_APPLY_WORKER", "1")
+	t.Setenv("MOCHAT_MYSQL_DSN", "user:pass@tcp(127.0.0.1:3306)/mochat")
+	t.Setenv("MOCHAT_SIMPLE_JWT_SECRET", "worker-secret")
+	t.Setenv("MOCHAT_REDIS_ADDR", " ")
+	_, err = FromEnv()
+	requireErrorContains(t, err, "MOCHAT_REDIS_ADDR")
+}
+
 func TestMediaIDUpdateWorkerRequiresMySQLButNotJWT(t *testing.T) {
 	clearEnv(t)
 	t.Setenv("MOCHAT_GO_ENABLE_MEDIA_ID_UPDATE_WORKER", "1")

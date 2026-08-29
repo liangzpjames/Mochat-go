@@ -16,6 +16,7 @@ var (
 	ErrWeWorkCallbackConflict             = errors.New("wework callback event key conflicts with a different payload")
 	ErrWeWorkCallbackLeaseLost            = errors.New("wework callback lease is no longer owned")
 	ErrLegacyWeWorkCallbackDeadBacklog    = errors.New("legacy wework callback dead-letter backlog requires operator review")
+	ErrLegacyWeWorkCallbackSourceMismatch = errors.New("legacy wework callback source does not match durable cutover marker")
 	weWorkCallbackURLQueryPattern         = regexp.MustCompile(`(?i)(https?://[^\s"'?]+)\?[^\s"']+`)
 	weWorkCallbackQuotedSecretPattern     = regexp.MustCompile(`(?i)("(?:access[_-]?token|token|secret|signature|nonce|authorization|password)"\s*:\s*")[^"]*(")`)
 	weWorkCallbackAuthorizationPattern    = regexp.MustCompile(`(?i)(authorization\s*[:=]\s*["']?)(bearer|basic)\s+[^"'\s,;}]+`)
@@ -77,9 +78,16 @@ type LegacyWeWorkCallbackImportStore interface {
 
 type LegacyWeWorkCallbackCutoverStore interface {
 	LegacyWeWorkCallbackImportStore
-	WeWorkCallbackLegacyCutoverCompleted(ctx context.Context) (bool, error)
-	CompleteWeWorkCallbackLegacyCutover(ctx context.Context, imported int) error
-	FailWeWorkCallbackLegacyCutover(ctx context.Context, imported int, reason string) error
+	WeWorkCallbackLegacyCutover(ctx context.Context) (LegacyWeWorkCallbackCutover, error)
+	BeginWeWorkCallbackLegacyCutover(ctx context.Context, sourceFingerprint string) error
+	CompleteWeWorkCallbackLegacyCutover(ctx context.Context, sourceFingerprint string, imported int) error
+	FailWeWorkCallbackLegacyCutover(ctx context.Context, sourceFingerprint string, imported int, reason string) error
+}
+
+type LegacyWeWorkCallbackCutover struct {
+	Status            string
+	SourceFingerprint string
+	ImportedCount     int
 }
 
 type weWorkCallbackExecutionContextKey struct{}

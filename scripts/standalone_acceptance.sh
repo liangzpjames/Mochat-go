@@ -101,7 +101,7 @@ run_workers() {
   run_step "mark tags worker" ./scripts/smoke_mark_tags_worker.sh
   run_step "media id update worker" ./scripts/smoke_media_id_update_worker.sh
   run_step "message remind worker" ./scripts/smoke_message_remind_worker.sh
-  run_step "WeCom callback worker" ./scripts/smoke_wework_callback_worker.sh
+  run_step "WeCom callback worker" env MOCHAT_CALLBACK_EXTENDED_SIDE_EFFECT_SMOKE=1 ./scripts/smoke_wework_callback_worker.sh
   run_step "work contact sync worker" ./scripts/smoke_work_contact_sync_worker.sh
   run_step "work department list worker" ./scripts/smoke_work_department_list_worker.sh
   run_step "work room sync worker" ./scripts/smoke_work_room_sync_worker.sh

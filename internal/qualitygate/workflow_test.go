@@ -1,6 +1,9 @@
 package qualitygate
 
 import (
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
 	"strings"
@@ -1142,15 +1145,102 @@ func TestWeWorkCallbackQueueGateAndSmokeUseDurableInboxContract(t *testing.T) {
 			t.Fatalf("callback smoke missing durable inbox lifecycle token %q", required)
 		}
 	}
-	main := readRepositoryFile(t, "cmd/mochat-go/main.go")
-	if strings.Contains(main, "LegacyBacklog:       callbackRedis") {
-		t.Fatal("ordinary callback worker still depends on legacy Redis cutover")
+	standaloneAcceptance := readRepositoryFile(t, "scripts/standalone_acceptance.sh")
+	if !strings.Contains(standaloneAcceptance, "MOCHAT_CALLBACK_EXTENDED_SIDE_EFFECT_SMOKE=1 ./scripts/smoke_wework_callback_worker.sh") {
+		t.Fatal("standalone acceptance no longer preserves the full callback side-effect smoke")
 	}
+	assertDurableCallbackWorkerIsRedisOptional(t)
 	cutover := readRepositoryFile(t, "cmd/mochat-callback-legacy-cutover/main.go")
-	for _, required := range []string{"confirm-producers-stopped", "CompleteWeWorkCallbackLegacyCutover", "LegacyWeWorkCallbackCutoverName"} {
+	for _, required := range []string{"confirm-legacy-traffic-stopped", "MOCHAT_GO_WEWORK_CALLBACK_LEGACY_TRAFFIC_STOPPED", "sourceFingerprint", "CompleteWeWorkCallbackLegacyCutover", "LegacyWeWorkCallbackCutoverName"} {
 		if !strings.Contains(cutover, required) {
 			t.Fatalf("controlled legacy cutover command missing %q", required)
 		}
+	}
+	for _, forbidden := range []string{`flag.String("dsn"`, `flag.String("redis-password"`, `flag.String("redis-addr"`} {
+		if strings.Contains(cutover, forbidden) {
+			t.Fatalf("controlled legacy cutover exposes secret-bearing argv flag %q", forbidden)
+		}
+	}
+}
+
+func TestValidateDeveloperScriptsAcceptsCallbackCutoverBuildTarget(t *testing.T) {
+	files := map[string]string{
+		"scripts/dev_check.sh": readRepositoryFile(t, "scripts/dev_check.sh"),
+		"scripts/test.sh":      readRepositoryFile(t, "scripts/test.sh"),
+	}
+	if failures := validateDeveloperScripts(files); len(failures) != 0 {
+		t.Fatalf("developer scripts rejected after adding callback cutover build target: %v", failures)
+	}
+}
+
+func assertDurableCallbackWorkerIsRedisOptional(t *testing.T) {
+	t.Helper()
+	mainPath := filepath.Join("..", "..", "cmd", "mochat-go", "main.go")
+	file, err := parser.ParseFile(token.NewFileSet(), mainPath, nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var callbackBlock *ast.BlockStmt
+	ast.Inspect(file, func(node ast.Node) bool {
+		if statement, ok := node.(*ast.IfStmt); ok {
+			selector, ok := statement.Cond.(*ast.SelectorExpr)
+			if ok && selector.Sel.Name == "EnableWeWorkCallbackWorker" {
+				callbackBlock = statement.Body
+			}
+		}
+		return true
+	})
+	if callbackBlock == nil {
+		t.Fatal("durable callback worker startup block not found")
+	}
+	optionalResolverFound := false
+	ast.Inspect(callbackBlock, func(node ast.Node) bool {
+		call, ok := node.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		if name, ok := call.Fun.(*ast.Ident); ok {
+			switch name.Name {
+			case "getRedisStore", "ImportLegacyWeWorkCallbackBacklog", "executeCutover":
+				t.Fatalf("ordinary durable callback startup calls forbidden dependency %s", name.Name)
+			case "optionalWeWorkCallbackCapabilities":
+				optionalResolverFound = true
+			}
+		}
+		return true
+	})
+	if !optionalResolverFound {
+		t.Fatal("durable callback startup does not resolve Redis as an optional capability")
+	}
+
+	configPath := filepath.Join("..", "..", "internal", "config", "config.go")
+	configFile, err := parser.ParseFile(token.NewFileSet(), configPath, nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	redisGateFound := false
+	ast.Inspect(configFile, func(node ast.Node) bool {
+		assign, ok := node.(*ast.AssignStmt)
+		if !ok || len(assign.Rhs) != 1 {
+			return true
+		}
+		for _, lhs := range assign.Lhs {
+			name, named := lhs.(*ast.Ident)
+			if !named || name.Name != "redisWorkerEnabled" {
+				continue
+			}
+			redisGateFound = true
+			ast.Inspect(assign.Rhs[0], func(child ast.Node) bool {
+				if selector, ok := child.(*ast.SelectorExpr); ok && selector.Sel.Name == "EnableWeWorkCallbackWorker" {
+					t.Fatal("durable callback worker is still part of the Redis-required config gate")
+				}
+				return true
+			})
+		}
+		return true
+	})
+	if !redisGateFound {
+		t.Fatal("Redis-required worker config gate was not found")
 	}
 }
 

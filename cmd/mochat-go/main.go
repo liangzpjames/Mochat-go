@@ -53,6 +53,24 @@ type companyProfileWeComVerifier struct {
 	client *dashboard.RoomWelcomeWeComClient
 }
 
+type weWorkCallbackRedisCapabilities interface {
+	Ping(context.Context) error
+	dashboard.ContactWelcomeEnqueuer
+	dashboard.ContactWelcomeStatusCache
+	dashboard.AutoTagMarkTagsQueue
+}
+
+func optionalWeWorkCallbackCapabilities(ctx context.Context, candidate weWorkCallbackRedisCapabilities) (dashboard.WeWorkCallbackWorkerCapabilities, bool) {
+	if candidate == nil || candidate.Ping(ctx) != nil {
+		return dashboard.WeWorkCallbackWorkerCapabilities{}, false
+	}
+	return dashboard.WeWorkCallbackWorkerCapabilities{
+		ContactWelcomeQueue: candidate,
+		ContactWelcomeCache: candidate,
+		MarkTagsQueue:       candidate,
+	}, true
+}
+
 type dashboardArchiveComponentBridge struct {
 	client *archiveprovider.BridgeArchiveClient
 }
@@ -3129,12 +3147,19 @@ func main() {
 	}
 	if cfg.EnableWeWorkCallbackWorker {
 		callbackRedis := getOptionalWeWorkCallbackRedisStore()
+		capabilityCtx, cancelCapabilityProbe := context.WithTimeout(context.Background(), 2*time.Second)
+		callbackCapabilities, redisCapabilitiesAvailable := optionalWeWorkCallbackCapabilities(capabilityCtx, callbackRedis)
+		cancelCapabilityProbe()
+		if !redisCapabilitiesAvailable {
+			structuredLogger().Warn("durable WeWork callback worker started without optional Redis downstream queues",
+				"event", "wework_callback_redis_capability_degraded",
+				"component", "wework_callback_worker",
+				"dependency", "redis",
+				"result", "degraded",
+			)
+		}
 		worker := dashboard.NewWeWorkCallbackWorker(
-			dashboard.WeWorkCallbackWorkerCapabilities{
-				ContactWelcomeQueue: callbackRedis,
-				ContactWelcomeCache: callbackRedis,
-				MarkTagsQueue:       callbackRedis,
-			},
+			callbackCapabilities,
 			getMySQLStore(),
 			dashboard.NewRoomWelcomeWeComClient(cfg.WeComAPIBaseURL),
 			"",
@@ -3150,17 +3175,19 @@ func main() {
 		workerGroup.Add("wework-callback", worker.Run)
 		debugf("go worker enabled: durable MySQL WeWork callback inbox consumer (Redis only used by optional downstream queues)")
 
-		contactWelcomeWorker := dashboard.NewContactWelcomeWorker(
-			getRedisStore(),
-			getMySQLStore(),
-			dashboard.NewRoomWelcomeWeComClient(cfg.WeComAPIBaseURL),
-			cfg.FileStorageRoot,
-			cfg.APIBaseURL,
-			log.Default(),
-		).WithProcessingTimeout(cfg.WorkerProcessingTimeout).
-			WithSaaSAlertNotifier(saasAlertNotifier)
-		workerGroup.Add("contact-welcome", contactWelcomeWorker.Run)
-		debugf("go worker enabled: ContactWelcome welcome message Redis consumer")
+		if redisCapabilitiesAvailable {
+			contactWelcomeWorker := dashboard.NewContactWelcomeWorker(
+				callbackRedis,
+				getMySQLStore(),
+				dashboard.NewRoomWelcomeWeComClient(cfg.WeComAPIBaseURL),
+				cfg.FileStorageRoot,
+				cfg.APIBaseURL,
+				log.Default(),
+			).WithProcessingTimeout(cfg.WorkerProcessingTimeout).
+				WithSaaSAlertNotifier(saasAlertNotifier)
+			workerGroup.Add("contact-welcome", contactWelcomeWorker.Run)
+			debugf("go worker enabled: optional ContactWelcome Redis consumer")
+		}
 	}
 
 	if cfg.EnableEmployeeApplyWorker {
