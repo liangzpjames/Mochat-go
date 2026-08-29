@@ -122,95 +122,156 @@ func (s *MySQLStore) EvaluateRiskMessage(ctx context.Context, message dashboard.
 	if message.TenantID <= 0 || message.CorpID <= 0 || strings.TrimSpace(message.MessageID) == "" || strings.TrimSpace(message.Content) == "" {
 		return 0, fmt.Errorf("风险消息参数无效")
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
+	occurredAt := time.Now()
+	if strings.TrimSpace(message.OccurredAt) != "" {
+		parsed, err := time.Parse(time.RFC3339, message.OccurredAt)
+		if err != nil {
+			return 0, fmt.Errorf("风险消息发生时间无效: %w", err)
+		}
+		occurredAt = parsed
+	}
+	var highWater int64
+	if err := s.db.QueryRowContext(ctx, `SELECT COALESCE(MAX(id),0) FROM mochat_go_risk_rules WHERE tenant_id=? AND corp_id=?`, message.TenantID, message.CorpID).Scan(&highWater); err != nil {
 		return 0, err
 	}
-	defer tx.Rollback()
-	rules, err := riskRulesForEvaluation(ctx, tx, message.TenantID, message.CorpID)
-	if err != nil {
-		return 0, err
-	}
-	matches := dashboard.MatchRiskStrategies(message, rules)
-	created := 0
-	for _, record := range matches {
-		related, marshalErr := json.Marshal(record.RelatedUser)
-		if marshalErr != nil {
-			return 0, marshalErr
+	const batchSize = 100
+	var cursor int64
+	totalCreated := 0
+	for cursor < highWater {
+		tx, err := s.db.BeginTx(ctx, nil)
+		if err != nil {
+			return totalCreated, err
 		}
-		occurred := time.Now()
-		if parsed, parseErr := time.Parse(time.RFC3339, record.OccurredAt); parseErr == nil {
-			occurred = parsed
+		rules, nextCursor, err := riskRuleBatchForEvaluation(ctx, tx, message.TenantID, message.CorpID, cursor, highWater, batchSize)
+		if err != nil {
+			_ = tx.Rollback()
+			return totalCreated, err
 		}
-		result, execErr := tx.ExecContext(ctx, `INSERT INTO mochat_go_risk_records (tenant_id,corp_id,rule_id,strategy_id,behavior,risk_level,conversation_type,conversation_id,message_id,trigger_message,related_user_json,ai_summary,audit_status,occurred_at,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, record.TenantID, record.CorpID, record.RuleID, record.StrategyID, record.Behavior, record.RiskLevel, record.ConversationType, record.ConversationID, record.MessageID, record.TriggerMessage, related, nil, "pending", occurred, time.Now())
-		if execErr != nil {
-			if isMySQLDuplicateKeyError(execErr) {
-				continue
+		if len(rules) == 0 {
+			if err := tx.Commit(); err != nil {
+				return totalCreated, err
 			}
-			return 0, execErr
+			break
 		}
-		n, affectedErr := result.RowsAffected()
-		if affectedErr != nil {
-			return 0, affectedErr
-		}
-		if n != 1 {
-			return 0, fmt.Errorf("风险记录保存失败")
-		}
-		if n == 1 {
-			created++
+		batchCreated := 0
+		for _, record := range dashboard.MatchRiskStrategies(message, rules) {
+			related, marshalErr := json.Marshal(record.RelatedUser)
+			if marshalErr != nil {
+				_ = tx.Rollback()
+				return totalCreated, marshalErr
+			}
+			result, execErr := tx.ExecContext(ctx, `INSERT INTO mochat_go_risk_records (tenant_id,corp_id,rule_id,strategy_id,behavior,risk_level,conversation_type,conversation_id,message_id,trigger_message,related_user_json,ai_summary,audit_status,occurred_at,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, record.TenantID, record.CorpID, record.RuleID, record.StrategyID, record.Behavior, record.RiskLevel, record.ConversationType, record.ConversationID, record.MessageID, record.TriggerMessage, related, nil, "pending", occurredAt, time.Now())
+			if execErr != nil {
+				if isMySQLDuplicateKeyError(execErr) {
+					continue
+				}
+				_ = tx.Rollback()
+				return totalCreated, execErr
+			}
+			n, affectedErr := result.RowsAffected()
+			if affectedErr != nil {
+				_ = tx.Rollback()
+				return totalCreated, affectedErr
+			}
+			if n != 1 {
+				_ = tx.Rollback()
+				return totalCreated, fmt.Errorf("风险记录保存失败")
+			}
 			countResult, countErr := tx.ExecContext(ctx, `UPDATE mochat_go_risk_rules SET trigger_count=trigger_count+1,updated_at=? WHERE id=? AND tenant_id=? AND corp_id=?`, time.Now(), record.RuleID, message.TenantID, message.CorpID)
 			if countErr != nil {
-				return 0, countErr
+				_ = tx.Rollback()
+				return totalCreated, countErr
 			}
 			countAffected, affectedErr := countResult.RowsAffected()
 			if affectedErr != nil {
-				return 0, affectedErr
+				_ = tx.Rollback()
+				return totalCreated, affectedErr
 			}
 			if countAffected != 1 {
-				return 0, fmt.Errorf("风险规则计数更新失败")
+				_ = tx.Rollback()
+				return totalCreated, fmt.Errorf("风险规则计数更新失败")
 			}
+			batchCreated++
+		}
+		if err := tx.Commit(); err != nil {
+			return totalCreated, err
+		}
+		totalCreated += batchCreated
+		if nextCursor <= cursor {
+			return totalCreated, fmt.Errorf("风险规则游标未推进")
+		}
+		cursor = nextCursor
+		if len(rules) < batchSize {
+			break
 		}
 	}
-	if err := tx.Commit(); err != nil {
-		return 0, err
-	}
-	return created, nil
+	return totalCreated, nil
 }
 
-func riskRulesForEvaluation(ctx context.Context, tx *sql.Tx, tenantID, corpID int) ([]dashboard.RiskRule, error) {
-	rows, err := tx.QueryContext(ctx, `SELECT r.id,r.tenant_id,r.corp_id,r.name,r.status,r.subject,r.whitelist_json,r.ai_insight_enabled,r.trigger_count,s.id,s.behavior,s.pattern,s.notify_type,s.risk_level
-		FROM mochat_go_risk_rules r
-		JOIN mochat_go_risk_rule_strategies s ON s.rule_id=r.id
-		WHERE r.tenant_id=? AND r.corp_id=? AND r.status='enabled'
-		ORDER BY r.id,s.id`, tenantID, corpID)
+func riskRuleBatchForEvaluation(ctx context.Context, tx *sql.Tx, tenantID, corpID int, cursor, highWater int64, limit int) ([]dashboard.RiskRule, int64, error) {
+	rows, err := tx.QueryContext(ctx, `SELECT id,tenant_id,corp_id,name,status,subject,whitelist_json,ai_insight_enabled,trigger_count
+		FROM mochat_go_risk_rules
+		WHERE tenant_id=? AND corp_id=? AND status='enabled' AND id>? AND id<=?
+		ORDER BY id LIMIT ? FOR UPDATE`, tenantID, corpID, cursor, highWater, limit)
 	if err != nil {
-		return nil, err
+		return nil, cursor, err
 	}
-	defer rows.Close()
-	rules := make([]dashboard.RiskRule, 0)
-	var current *dashboard.RiskRule
+	rules := make([]dashboard.RiskRule, 0, limit)
+	ruleIDs := make([]int64, 0, limit)
 	for rows.Next() {
 		var rule dashboard.RiskRule
-		var strategy dashboard.RiskRuleStrategy
 		var whitelist []byte
 		var ai int
-		if err := rows.Scan(&rule.ID, &rule.TenantID, &rule.CorpID, &rule.Name, &rule.Status, &rule.Subject, &whitelist, &ai, &rule.TriggerCount, &strategy.ID, &strategy.Behavior, &strategy.Pattern, &strategy.NotifyType, &strategy.RiskLevel); err != nil {
-			return nil, err
+		if err := rows.Scan(&rule.ID, &rule.TenantID, &rule.CorpID, &rule.Name, &rule.Status, &rule.Subject, &whitelist, &ai, &rule.TriggerCount); err != nil {
+			rows.Close()
+			return nil, cursor, err
 		}
-		if current == nil || current.ID != rule.ID {
-			if err := json.Unmarshal(whitelist, &rule.Whitelist); err != nil {
-				return nil, err
-			}
-			rule.AIInsightEnabled = ai != 0
-			rules = append(rules, rule)
-			current = &rules[len(rules)-1]
+		if err := json.Unmarshal(whitelist, &rule.Whitelist); err != nil {
+			rows.Close()
+			return nil, cursor, err
 		}
-		current.Strategies = append(current.Strategies, strategy)
+		rule.AIInsightEnabled = ai != 0
+		rules = append(rules, rule)
+		ruleIDs = append(ruleIDs, rule.ID)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, err
+		rows.Close()
+		return nil, cursor, err
 	}
-	return rules, nil
+	if err := rows.Close(); err != nil {
+		return nil, cursor, err
+	}
+	if len(rules) == 0 {
+		return rules, cursor, nil
+	}
+	args := make([]any, 0, len(ruleIDs))
+	index := make(map[int64]int, len(ruleIDs))
+	for i, id := range ruleIDs {
+		args = append(args, id)
+		index[id] = i
+	}
+	strategyRows, err := tx.QueryContext(ctx, `SELECT rule_id,id,behavior,pattern,notify_type,risk_level
+		FROM mochat_go_risk_rule_strategies
+		WHERE rule_id IN (`+placeholders(len(ruleIDs))+`)
+		ORDER BY rule_id,id FOR UPDATE`, args...)
+	if err != nil {
+		return nil, cursor, err
+	}
+	defer strategyRows.Close()
+	for strategyRows.Next() {
+		var ruleID int64
+		var strategy dashboard.RiskRuleStrategy
+		if err := strategyRows.Scan(&ruleID, &strategy.ID, &strategy.Behavior, &strategy.Pattern, &strategy.NotifyType, &strategy.RiskLevel); err != nil {
+			return nil, cursor, err
+		}
+		if i, ok := index[ruleID]; ok {
+			rules[i].Strategies = append(rules[i].Strategies, strategy)
+		}
+	}
+	if err := strategyRows.Err(); err != nil {
+		return nil, cursor, err
+	}
+	return rules, ruleIDs[len(ruleIDs)-1], nil
 }
 
 func (s *MySQLStore) RiskRecordPage(ctx context.Context, f dashboard.RiskRecordFilter) (dashboard.RiskRecordPage, error) {
@@ -412,6 +473,13 @@ func (s *MySQLStore) UpdateRiskRule(ctx context.Context, rule dashboard.RiskRule
 		return false, err
 	}
 	defer tx.Rollback()
+	var lockedID int64
+	if err = tx.QueryRowContext(ctx, `SELECT id FROM mochat_go_risk_rules WHERE id=? AND tenant_id=? AND corp_id=? FOR UPDATE`, rule.ID, rule.TenantID, rule.CorpID).Scan(&lockedID); err != nil {
+		if err == sql.ErrNoRows {
+			return false, nil
+		}
+		return false, err
+	}
 	whitelist, err := json.Marshal(rule.Whitelist)
 	if err != nil {
 		return false, err
@@ -424,8 +492,8 @@ func (s *MySQLStore) UpdateRiskRule(ctx context.Context, rule dashboard.RiskRule
 	if err != nil {
 		return false, err
 	}
-	if affected == 0 {
-		return false, nil
+	if affected > 1 {
+		return false, fmt.Errorf("风险规则更新影响了意外的行数")
 	}
 	if _, err = tx.ExecContext(ctx, `DELETE FROM mochat_go_risk_rule_strategies WHERE rule_id=?`, rule.ID); err != nil {
 		return false, err

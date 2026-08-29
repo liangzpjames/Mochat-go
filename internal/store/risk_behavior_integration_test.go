@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	"errors"
 	"fmt"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"jiyi/mochat-go/internal/dashboard"
 
@@ -26,18 +28,18 @@ func TestEvaluateRiskMessageReadsEveryEnabledRuleAndCommitsAtomically(t *testing
 	}
 	defer db.Close()
 
-	rows := sqlmock.NewRows([]string{"rule_id", "tenant_id", "corp_id", "name", "status", "subject", "whitelist_json", "ai_insight_enabled", "trigger_count", "strategy_id", "behavior", "pattern", "notify_type", "risk_level"})
+	values := make([]riskEvaluationRow, 0, 101)
 	for id := 1; id <= 101; id++ {
 		pattern := fmt.Sprintf("never-%03d", id)
 		if id == 101 {
 			pattern = "needle"
 		}
-		rows.AddRow(id, 11, 27, fmt.Sprintf("rule-%03d", id), "enabled", "both", []byte(`[]`), 0, 0, id, "sensitive_word", pattern, "none", "high")
+		values = append(values, riskEvaluationRow{id: id, strategyID: id, pattern: pattern})
 	}
-	mock.ExpectBegin()
-	mock.ExpectQuery(`(?s)FROM mochat_go_risk_rules r.*JOIN mochat_go_risk_rule_strategies s.*r\.tenant_id=\?.*r\.corp_id=\?.*r\.status='enabled'.*ORDER BY r\.id,s\.id`).
-		WithArgs(11, 27).
-		WillReturnRows(rows)
+	expectRiskHighWater(mock, 101)
+	expectRiskEvaluationBatch(mock, 0, 101, values[:100]...)
+	mock.ExpectCommit()
+	expectRiskEvaluationBatch(mock, 100, 101, values[100:]...)
 	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO mochat_go_risk_records")).
 		WillReturnResult(sqlmock.NewResult(901, 1))
 	mock.ExpectExec(`UPDATE mochat_go_risk_rules SET trigger_count=trigger_count\+1.*tenant_id=\?.*corp_id=\?`).
@@ -66,13 +68,11 @@ func TestEvaluateRiskMessageRollsBackEveryRecordWhenLaterInsertFails(t *testing.
 	}
 	defer db.Close()
 
-	mock.ExpectBegin()
-	mock.ExpectQuery(`(?s)FROM mochat_go_risk_rules r.*JOIN mochat_go_risk_rule_strategies s`).
-		WithArgs(11, 27).
-		WillReturnRows(riskEvaluationRows(
-			riskEvaluationRow{id: 1, strategyID: 10, pattern: "needle"},
-			riskEvaluationRow{id: 2, strategyID: 20, pattern: "needle"},
-		))
+	expectRiskHighWater(mock, 2)
+	expectRiskEvaluationBatch(mock, 0, 2,
+		riskEvaluationRow{id: 1, strategyID: 10, pattern: "needle"},
+		riskEvaluationRow{id: 2, strategyID: 20, pattern: "needle"},
+	)
 	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO mochat_go_risk_records")).WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectExec(`UPDATE mochat_go_risk_rules SET trigger_count=trigger_count\+1`).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO mochat_go_risk_records")).WillReturnError(errors.New("injected second record failure"))
@@ -94,10 +94,8 @@ func TestEvaluateRiskMessageRollsBackWhenTriggerCountUpdateFails(t *testing.T) {
 	}
 	defer db.Close()
 
-	mock.ExpectBegin()
-	mock.ExpectQuery(`(?s)FROM mochat_go_risk_rules r.*JOIN mochat_go_risk_rule_strategies s`).
-		WithArgs(11, 27).
-		WillReturnRows(riskEvaluationRows(riskEvaluationRow{id: 1, strategyID: 10, pattern: "needle"}))
+	expectRiskHighWater(mock, 1)
+	expectRiskEvaluationBatch(mock, 0, 1, riskEvaluationRow{id: 1, strategyID: 10, pattern: "needle"})
 	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO mochat_go_risk_records")).WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectExec(`UPDATE mochat_go_risk_rules SET trigger_count=trigger_count\+1`).WillReturnError(errors.New("injected count failure"))
 	mock.ExpectRollback()
@@ -118,10 +116,8 @@ func TestEvaluateRiskMessageDuplicateDoesNotIncrementTriggerCount(t *testing.T) 
 	}
 	defer db.Close()
 
-	mock.ExpectBegin()
-	mock.ExpectQuery(`(?s)FROM mochat_go_risk_rules r.*JOIN mochat_go_risk_rule_strategies s`).
-		WithArgs(11, 27).
-		WillReturnRows(riskEvaluationRows(riskEvaluationRow{id: 1, strategyID: 10, pattern: "needle"}))
+	expectRiskHighWater(mock, 1)
+	expectRiskEvaluationBatch(mock, 0, 1, riskEvaluationRow{id: 1, strategyID: 10, pattern: "needle"})
 	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO mochat_go_risk_records")).WillReturnError(&mysql.MySQLError{Number: 1062, Message: "duplicate risk record"})
 	mock.ExpectCommit()
 
@@ -131,6 +127,55 @@ func TestEvaluateRiskMessageDuplicateDoesNotIncrementTriggerCount(t *testing.T) 
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestRiskRuleBatchForEvaluationUsesBoundedHighWaterKeyset(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	mock.ExpectBegin()
+	mock.ExpectQuery(`(?s)FROM mochat_go_risk_rules.*tenant_id=\?.*corp_id=\?.*status='enabled'.*id>\?.*id<=\?.*ORDER BY id LIMIT \? FOR UPDATE`).
+		WithArgs(11, 27, int64(100), int64(250), 100).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "tenant_id", "corp_id", "name", "status", "subject", "whitelist_json", "ai_insight_enabled", "trigger_count"}).
+			AddRow(101, 11, 27, "rule-101", "enabled", "both", []byte(`[]`), 0, 0).
+			AddRow(102, 11, 27, "rule-102", "enabled", "both", []byte(`[]`), 0, 0))
+	mock.ExpectQuery(`(?s)FROM mochat_go_risk_rule_strategies.*rule_id IN \(\?,\?\).*ORDER BY rule_id,id FOR UPDATE`).
+		WithArgs(int64(101), int64(102)).
+		WillReturnRows(sqlmock.NewRows([]string{"rule_id", "id", "behavior", "pattern", "notify_type", "risk_level"}).
+			AddRow(101, 1001, "sensitive_word", "first", "none", "high").
+			AddRow(102, 1002, "sensitive_word", "second", "none", "high"))
+
+	tx, err := db.BeginTx(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rules, cursor, err := riskRuleBatchForEvaluation(context.Background(), tx, 11, 27, 100, 250, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rules) != 2 || cursor != 102 {
+		t.Fatalf("rules=%d cursor=%d", len(rules), cursor)
+	}
+	_ = tx.Rollback()
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestEvaluateRiskMessageRejectsInvalidOccurredAtBeforeWriting(t *testing.T) {
+	db, _, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	created, err := NewMySQLStore(db).EvaluateRiskMessage(context.Background(), dashboard.RiskMessage{
+		TenantID: 11, CorpID: 27, MessageID: "invalid-time", Content: "needle", OccurredAt: "not-rfc3339",
+	})
+	if err == nil || created != 0 || !strings.Contains(err.Error(), "发生时间") {
+		t.Fatalf("created=%d err=%v", created, err)
 	}
 }
 
@@ -173,15 +218,20 @@ func TestUpdateRiskRuleRequiresTenantAndCorpScope(t *testing.T) {
 	defer db.Close()
 
 	mock.ExpectBegin()
+	mock.ExpectQuery(`SELECT id FROM mochat_go_risk_rules.*FOR UPDATE`).
+		WithArgs(int64(77), int64(11), int64(27)).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(77))
 	mock.ExpectExec(`UPDATE mochat_go_risk_rules SET .* WHERE id=\? AND tenant_id=\? AND corp_id=\?`).
 		WillReturnResult(sqlmock.NewResult(0, 0))
-	mock.ExpectRollback()
+	mock.ExpectExec(`DELETE FROM mochat_go_risk_rule_strategies`).WithArgs(int64(77)).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`INSERT INTO mochat_go_risk_rule_strategies`).WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectCommit()
 
 	updated, err := NewMySQLStore(db).UpdateRiskRule(context.Background(), dashboard.RiskRule{
 		ID: 77, TenantID: 11, CorpID: 27, Name: "scoped", Status: dashboard.RiskRuleEnabled, Subject: dashboard.RiskSubjectBoth,
 		Strategies: []dashboard.RiskRuleStrategy{{Behavior: "sensitive_word", Pattern: "needle", NotifyType: "none", RiskLevel: "high"}},
 	})
-	if err != nil || updated {
+	if err != nil || !updated {
 		t.Fatalf("updated=%v err=%v", updated, err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
@@ -194,12 +244,28 @@ type riskEvaluationRow struct {
 	pattern        string
 }
 
-func riskEvaluationRows(values ...riskEvaluationRow) *sqlmock.Rows {
-	rows := sqlmock.NewRows([]string{"rule_id", "tenant_id", "corp_id", "name", "status", "subject", "whitelist_json", "ai_insight_enabled", "trigger_count", "strategy_id", "behavior", "pattern", "notify_type", "risk_level"})
+func expectRiskHighWater(mock sqlmock.Sqlmock, highWater int64) {
+	mock.ExpectQuery(`SELECT COALESCE\(MAX\(id\),0\) FROM mochat_go_risk_rules`).
+		WithArgs(11, 27).
+		WillReturnRows(sqlmock.NewRows([]string{"high_water"}).AddRow(highWater))
+}
+
+func expectRiskEvaluationBatch(mock sqlmock.Sqlmock, cursor, highWater int64, values ...riskEvaluationRow) {
+	mock.ExpectBegin()
+	ruleRows := sqlmock.NewRows([]string{"id", "tenant_id", "corp_id", "name", "status", "subject", "whitelist_json", "ai_insight_enabled", "trigger_count"})
+	strategyRows := sqlmock.NewRows([]string{"rule_id", "id", "behavior", "pattern", "notify_type", "risk_level"})
+	strategyArgs := make([]driver.Value, 0, len(values))
 	for _, value := range values {
-		rows.AddRow(value.id, 11, 27, fmt.Sprintf("rule-%d", value.id), "enabled", "both", []byte(`[]`), 0, 0, value.strategyID, "sensitive_word", value.pattern, "none", "high")
+		ruleRows.AddRow(value.id, 11, 27, fmt.Sprintf("rule-%d", value.id), "enabled", "both", []byte(`[]`), 0, 0)
+		strategyRows.AddRow(value.id, value.strategyID, "sensitive_word", value.pattern, "none", "high")
+		strategyArgs = append(strategyArgs, int64(value.id))
 	}
-	return rows
+	mock.ExpectQuery(`(?s)FROM mochat_go_risk_rules.*id>\?.*id<=\?.*LIMIT \? FOR UPDATE`).
+		WithArgs(11, 27, cursor, highWater, 100).
+		WillReturnRows(ruleRows)
+	mock.ExpectQuery(`(?s)FROM mochat_go_risk_rule_strategies.*ORDER BY rule_id,id FOR UPDATE`).
+		WithArgs(strategyArgs...).
+		WillReturnRows(strategyRows)
 }
 
 var task6SchemaSequence atomic.Int64
@@ -281,6 +347,115 @@ func TestRiskAndKeywordAtomicityAgainstIsolatedMySQL(t *testing.T) {
 	}
 	if err := db.QueryRow(`SELECT trigger_count FROM mochat_go_risk_rules WHERE id=?`, matchedRule).Scan(&triggerCount); err != nil || triggerCount != 2 {
 		t.Fatalf("concurrent trigger_count=%d err=%v", triggerCount, err)
+	}
+
+	disabledRuleID, _ := insertTask6RiskRule(t, db, "disable-race", "disable-before-evaluate")
+	disableTx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var lockedRuleID int64
+	if err := disableTx.QueryRowContext(ctx, `SELECT id FROM mochat_go_risk_rules WHERE id=? FOR UPDATE`, disabledRuleID).Scan(&lockedRuleID); err != nil {
+		t.Fatal(err)
+	}
+	type evaluationResult struct {
+		created int
+		err     error
+	}
+	disableResult := make(chan evaluationResult, 1)
+	go func() {
+		created, err := store.EvaluateRiskMessage(ctx, dashboard.RiskMessage{TenantID: 11, CorpID: 27, MessageID: "disabled-linearized-first", ConversationType: "single", Content: "disable-before-evaluate"})
+		disableResult <- evaluationResult{created: created, err: err}
+	}()
+	waitForTask6RiskRuleLock(t, db)
+	if _, err := disableTx.ExecContext(ctx, `UPDATE mochat_go_risk_rules SET status='disabled' WHERE id=?`, disabledRuleID); err != nil {
+		t.Fatal(err)
+	}
+	if err := disableTx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	resultAfterDisable := <-disableResult
+	if resultAfterDisable.err != nil || resultAfterDisable.created != 0 {
+		t.Fatalf("disabled rule created=%d err=%v", resultAfterDisable.created, resultAfterDisable.err)
+	}
+	assertTask6RiskRuleNotTriggered(t, db, disabledRuleID, "disabled-linearized-first")
+
+	replacedRuleID, replacedStrategyID := insertTask6RiskRule(t, db, "replace-race", "old-strategy-token")
+	replaceTx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := replaceTx.QueryRowContext(ctx, `SELECT id FROM mochat_go_risk_rules WHERE id=? FOR UPDATE`, replacedRuleID).Scan(&lockedRuleID); err != nil {
+		t.Fatal(err)
+	}
+	replaceResult := make(chan evaluationResult, 1)
+	go func() {
+		created, err := store.EvaluateRiskMessage(ctx, dashboard.RiskMessage{TenantID: 11, CorpID: 27, MessageID: "strategy-linearized-first", ConversationType: "single", Content: "old-strategy-token"})
+		replaceResult <- evaluationResult{created: created, err: err}
+	}()
+	waitForTask6RiskRuleLock(t, db)
+	if _, err := replaceTx.ExecContext(ctx, `UPDATE mochat_go_risk_rule_strategies SET pattern='new-strategy-token' WHERE id=? AND rule_id=?`, replacedStrategyID, replacedRuleID); err != nil {
+		t.Fatal(err)
+	}
+	if err := replaceTx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	resultAfterReplace := <-replaceResult
+	if resultAfterReplace.err != nil || resultAfterReplace.created != 0 {
+		t.Fatalf("replaced strategy created=%d err=%v", resultAfterReplace.created, resultAfterReplace.err)
+	}
+	assertTask6RiskRuleNotTriggered(t, db, replacedRuleID, "strategy-linearized-first")
+}
+
+func insertTask6RiskRule(t *testing.T, db *sql.DB, name, pattern string) (int64, int64) {
+	t.Helper()
+	result, err := db.Exec(`INSERT INTO mochat_go_risk_rules(tenant_id,corp_id,name,status,subject,whitelist_json,ai_insight_enabled,created_at,updated_at) VALUES(11,27,?,'enabled','both','[]',0,NOW(6),NOW(6))`, name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ruleID, err := result.LastInsertId()
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err = db.Exec(`INSERT INTO mochat_go_risk_rule_strategies(rule_id,behavior,pattern,notify_type,risk_level,created_at) VALUES(?,'sensitive_word',?,'none','high',NOW(6))`, ruleID, pattern)
+	if err != nil {
+		t.Fatal(err)
+	}
+	strategyID, err := result.LastInsertId()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ruleID, strategyID
+}
+
+func waitForTask6RiskRuleLock(t *testing.T, db *sql.DB) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		var waiting int
+		err := db.QueryRow(`SELECT COUNT(*) FROM information_schema.PROCESSLIST WHERE ID<>CONNECTION_ID() AND DB=DATABASE() AND COMMAND<>'Sleep' AND INFO LIKE '%FROM mochat_go_risk_rules%' AND INFO LIKE '%FOR UPDATE%'`).Scan(&waiting)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if waiting > 0 {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("risk evaluation did not block on the expected rule lock")
+}
+
+func assertTask6RiskRuleNotTriggered(t *testing.T, db *sql.DB, ruleID int64, messageID string) {
+	t.Helper()
+	var records, triggerCount int64
+	if err := db.QueryRow(`SELECT COUNT(*) FROM mochat_go_risk_records WHERE tenant_id=11 AND corp_id=27 AND rule_id=? AND message_id=?`, ruleID, messageID).Scan(&records); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow(`SELECT trigger_count FROM mochat_go_risk_rules WHERE id=?`, ruleID).Scan(&triggerCount); err != nil {
+		t.Fatal(err)
+	}
+	if records != 0 || triggerCount != 0 {
+		t.Fatalf("rule=%d records=%d trigger_count=%d", ruleID, records, triggerCount)
 	}
 }
 
