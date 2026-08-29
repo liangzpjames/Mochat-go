@@ -275,16 +275,7 @@ func applyIdentityBackfillWithEvidence(t *testing.T, db *sql.DB, requestID strin
 	if err != nil {
 		return err
 	}
-	statements, err := SplitSQLStatements(string(body))
-	if err != nil {
-		return err
-	}
-	for _, statement := range statements {
-		if _, err := conn.ExecContext(context.Background(), statement); err != nil {
-			return err
-		}
-	}
-	return nil
+	return execSQLScriptWithExecutor(context.Background(), conn, string(body))
 }
 
 func assertIdentityBackfillError(t *testing.T, err error, wantMessage string) {

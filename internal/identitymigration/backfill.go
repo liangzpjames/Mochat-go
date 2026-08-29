@@ -815,7 +815,7 @@ func ApplyBackfill(ctx context.Context, db *sql.DB, options DatabaseOptions, upP
 		return BackfillResult{}, phaseFailure("backfill", "script_parse")
 	}
 	for index, statement := range statements {
-		if _, err := conn.ExecContext(ctx, statement); err != nil {
+		if err := sqlscript.ExecuteStatement(ctx, conn, statement); err != nil {
 			return BackfillResult{}, phaseFailureWithCause(statementPhase(statement), statementLabel(statement), index, err)
 		}
 	}

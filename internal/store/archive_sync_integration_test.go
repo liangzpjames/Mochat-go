@@ -15,6 +15,7 @@ import (
 	"jiyi/mochat-go/internal/migration"
 	"jiyi/mochat-go/internal/modules/providers"
 	archiveprovider "jiyi/mochat-go/internal/modules/providers/archive"
+	"jiyi/mochat-go/internal/sqlscript"
 	archivesourcefixture "jiyi/mochat-go/internal/testfixtures/archivesource"
 )
 
@@ -1083,7 +1084,7 @@ func executeArchiveMigrationFileErr(db *sql.DB, name string) error {
 	}
 	defer conn.Close()
 	for _, statement := range statements {
-		if _, err := conn.ExecContext(context.Background(), statement); err != nil {
+		if err := sqlscript.ExecuteStatement(context.Background(), conn, statement); err != nil {
 			return err
 		}
 	}

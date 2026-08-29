@@ -71,7 +71,7 @@ func ApplyCutover(ctx context.Context, db *sql.DB, options DatabaseOptions, upPa
 		return CutoverResult{}, phaseFailure("cutover", "script_parse")
 	}
 	for _, statement := range statements {
-		if _, err := conn.ExecContext(ctx, statement); err != nil {
+		if err := sqlscript.ExecuteStatement(ctx, conn, statement); err != nil {
 			return CutoverResult{}, phaseFailureWithCause("cutover", "statement", 0, err)
 		}
 	}

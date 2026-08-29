@@ -13,6 +13,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"jiyi/mochat-go/internal/sqlscript"
 )
 
 const VersionTable = "mochat_go_schema_migrations"
@@ -548,7 +550,7 @@ func execSQLScriptMySQL57(ctx context.Context, execer migrationQueryExecer, scri
 		if strings.TrimSpace(compatible) == "" {
 			continue
 		}
-		if _, err := execer.ExecContext(ctx, compatible); err != nil {
+		if err := sqlscript.ExecuteStatement(ctx, execer, compatible); err != nil {
 			return fmt.Errorf("%s: %w", compactStatement(compatible), err)
 		}
 	}
@@ -1071,13 +1073,13 @@ func execSQLScript(ctx context.Context, db *sql.DB, script string) error {
 	return execSQLScriptWithExecutor(ctx, conn, script)
 }
 
-func execSQLScriptWithExecutor(ctx context.Context, execer migrationExecer, script string) error {
+func execSQLScriptWithExecutor(ctx context.Context, execer migrationQueryExecer, script string) error {
 	statements, err := SplitSQLStatements(script)
 	if err != nil {
 		return err
 	}
 	for _, statement := range statements {
-		if _, err := execer.ExecContext(ctx, statement); err != nil {
+		if err := sqlscript.ExecuteStatement(ctx, execer, statement); err != nil {
 			return fmt.Errorf("%s: %w", compactStatement(statement), err)
 		}
 	}
