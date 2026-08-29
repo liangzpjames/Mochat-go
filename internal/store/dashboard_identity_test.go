@@ -100,26 +100,38 @@ func TestDashboardIdentityStoreActivationConsumesDigestAndUpdatesOnlyIdentitySta
 func TestDashboardActivationStatusMapsAllStatesWithoutRawToken(t *testing.T) {
 	now := time.Date(2026, 8, 27, 10, 0, 0, 0, time.UTC)
 	tests := []struct {
-		name string
-		row  identityTestRow
-		want dashboardauth.ActivationStatusValue
+		name       string
+		activation identityTestRow
+		identity   identityTestRow
+		tenant     identityTestRow
+		want       dashboardauth.ActivationStatusValue
 	}{
-		{name: "valid", row: identityTestRow{values: []any{"安全租户", "13800138000", now.Add(time.Hour), sql.NullTime{}, sql.NullTime{}, 1, 1, 1}}, want: dashboardauth.ActivationStatusValid},
-		{name: "expired", row: identityTestRow{values: []any{"安全租户", "13800138000", now.Add(-time.Second), sql.NullTime{}, sql.NullTime{}, 1, 1, 1}}, want: dashboardauth.ActivationStatusExpired},
-		{name: "activated", row: identityTestRow{values: []any{"安全租户", "13800138000", now.Add(time.Hour), sql.NullTime{Time: now, Valid: true}, sql.NullTime{Time: now, Valid: true}, 1, 1, 1}}, want: dashboardauth.ActivationStatusActivated},
-		{name: "revoked by resend", row: identityTestRow{values: []any{"安全租户", "13800138000", now.Add(time.Hour), sql.NullTime{Time: now, Valid: true}, sql.NullTime{}, 1, 1, 1}}, want: dashboardauth.ActivationStatusRevoked},
-		{name: "suspended tenant", row: identityTestRow{values: []any{"安全租户", "13800138000", now.Add(time.Hour), sql.NullTime{}, sql.NullTime{}, 1, 1, 2}}, want: dashboardauth.ActivationStatusRevoked},
-		{name: "invalid", row: identityTestRow{err: sql.ErrNoRows}, want: dashboardauth.ActivationStatusInvalid},
+		{name: "valid", activation: identityTestRow{values: []any{7, "13800138000", now.Add(time.Hour), sql.NullTime{}, sql.NullTime{}, 1}}, identity: identityTestRow{values: []any{7, 9, 0, 1, uint64(2)}}, tenant: identityTestRow{values: []any{"安全租户", 1}}, want: dashboardauth.ActivationStatusValid},
+		{name: "expired", activation: identityTestRow{values: []any{7, "13800138000", now.Add(-time.Second), sql.NullTime{}, sql.NullTime{}, 1}}, identity: identityTestRow{values: []any{7, 9, 0, 1, uint64(2)}}, tenant: identityTestRow{values: []any{"安全租户", 1}}, want: dashboardauth.ActivationStatusExpired},
+		{name: "activated", activation: identityTestRow{values: []any{7, "13800138000", now.Add(time.Hour), sql.NullTime{Time: now, Valid: true}, sql.NullTime{Time: now, Valid: true}, 1}}, identity: identityTestRow{values: []any{7, 9, 0, 1, uint64(2)}}, tenant: identityTestRow{values: []any{"安全租户", 1}}, want: dashboardauth.ActivationStatusActivated},
+		{name: "revoked by resend", activation: identityTestRow{values: []any{7, "13800138000", now.Add(time.Hour), sql.NullTime{Time: now, Valid: true}, sql.NullTime{}, 1}}, identity: identityTestRow{values: []any{7, 9, 0, 1, uint64(2)}}, tenant: identityTestRow{values: []any{"安全租户", 1}}, want: dashboardauth.ActivationStatusRevoked},
+		{name: "suspended tenant", activation: identityTestRow{values: []any{7, "13800138000", now.Add(time.Hour), sql.NullTime{}, sql.NullTime{}, 1}}, identity: identityTestRow{values: []any{7, 9, 0, 1, uint64(2)}}, tenant: identityTestRow{values: []any{"安全租户", 2}}, want: dashboardauth.ActivationStatusRevoked},
+		{name: "invalid", activation: identityTestRow{err: sql.ErrNoRows}, want: dashboardauth.ActivationStatusInvalid},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			var gotArg any
 			store := &DashboardIdentityStore{queryRow: func(_ context.Context, query string, args ...any) identityRowScanner {
-				if !strings.Contains(query, "token_digest = ?") || strings.Contains(query, "token = ?") || len(args) != 1 {
-					t.Fatalf("unsafe activation status query: %s args=%d", query, len(args))
+				switch {
+				case strings.Contains(query, "mochat_go_dashboard_identity_activations"):
+					if strings.Contains(query, "mc_user") || !strings.Contains(query, "token_digest = ?") || strings.Contains(query, "token = ?") || len(args) != 1 {
+						t.Fatalf("unsafe activation projection query: %s args=%d", query, len(args))
+					}
+					gotArg = args[0]
+					return test.activation
+				case strings.Contains(query, "FROM mochat_go_dashboard_identities d"):
+					return test.identity
+				case strings.Contains(query, "FROM mc_tenant"):
+					return test.tenant
+				default:
+					t.Fatalf("unexpected activation status query: %s", query)
+					return identityTestRow{err: sql.ErrNoRows}
 				}
-				gotArg = args[0]
-				return test.row
 			}}
 			token := "raw-activation-token-never-query-or-output"
 			status, err := store.DashboardActivationStatus(context.Background(), sha256.Sum256([]byte(token)), now)

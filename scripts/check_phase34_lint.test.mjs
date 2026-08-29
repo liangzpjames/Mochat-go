@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { selectDashboardChangedLintFiles } from './check_phase34_lint.mjs';
+import { partitionLintFiles, selectDashboardChangedLintFiles } from './check_phase34_lint.mjs';
 
 test('selects changed Dashboard TypeScript files and excludes non-lintable paths', () => {
   assert.deepEqual(
@@ -35,4 +35,18 @@ test('accepts slash-normalized paths from Git on Windows', () => {
       'web/apps/dashboard/src/features/phase34/conversion-pages.tsx',
     ],
   );
+});
+
+test('partitions every lint target into stable command-sized batches without omission', () => {
+  const files = Array.from({ length: 17 }, (_, index) => `src/feature-${String(index).padStart(2, '0')}.tsx`);
+  const batches = partitionLintFiles(files, { maxFiles: 4, maxCommandCharacters: 70 });
+
+  assert.deepEqual(batches.flat(), files);
+  assert.ok(batches.every((batch) => batch.length <= 4));
+  assert.ok(batches.every((batch) => batch.reduce((total, file) => total + file.length + 1, 0) <= 70));
+});
+
+test('keeps an individual long lint target instead of silently dropping it', () => {
+  const longFile = `src/${'nested/'.repeat(20)}page.tsx`;
+  assert.deepEqual(partitionLintFiles([longFile], { maxFiles: 8, maxCommandCharacters: 30 }), [[longFile]]);
 });

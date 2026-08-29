@@ -109,11 +109,11 @@ jobs:
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Frontend quick gate
-        run: ./scripts/frontend_check.sh quick
-
       - name: Frontend build gate
         run: ./scripts/frontend_check.sh build
+
+      - name: Frontend quick gate
+        run: ./scripts/frontend_check.sh quick
 
       - name: Go architecture gate
         run: go run ./cmd/mochat-architecture -root .
@@ -136,7 +136,7 @@ jobs:
       - name: Docker info
         run: docker info
 
-      - name: Migration 0098 lifecycle gate
+      - name: Migration registry lifecycle gate
         env:
           MOCHAT_STACK_PROJECT: mochat-go-schema-migrate-ci
           MOCHAT_MYSQL_PORT: "13331"

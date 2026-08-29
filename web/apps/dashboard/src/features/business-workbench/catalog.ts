@@ -20,6 +20,7 @@ export type BusinessRouteConfig = {
 };
 
 export const specializedDashboardRoutes = new Set([
+  '/company-setting/website',
   '/contactField/index',
   '/department/index',
   '/menu/index',

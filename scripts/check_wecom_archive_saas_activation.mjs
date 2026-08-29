@@ -3,7 +3,10 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
 const required = [
-  ['internal/modules/providers/archive/durable_bridge.go', ['ValidateArchivePipelineFlags', 'mutually exclusive']],
+  ['internal/app/runtime/role.go', ['type Responsibilities struct', 'DurableArchiveWorkers', 'ArchiveEnqueuer']],
+  ['cmd/mochat-go/archive_runtime.go', ['responsibilities.DurableArchiveWorkers', 'responsibilities.ArchiveEnqueuer']],
+  ['internal/archivebridge/registrar.go', ['type ProductionBindingSource interface', 'type DriverRegistrar struct', 'RegisterAll', 'closeRegistered']],
+  ['cmd/mochat-archive-bridge/main.go', ['newProductionRegistrar', 'RegisterAll(ctx)', 'registrar.Close()']],
   ['internal/modules/providers/archive/bridge_source.go', ['sanitizeSDKIdentifiers', 'sdkfileid']],
   ['internal/testfixtures/archivesource/fixture.go', ['MOCHAT-LOCAL-ACCEPTANCE-20260827', 'MediaMissing', 'MediaCorrupt']],
   ['cmd/mochat-archive-acceptance/main.go', ['cleanupStatements', 'safeDatasetObjectPath', 'production']],

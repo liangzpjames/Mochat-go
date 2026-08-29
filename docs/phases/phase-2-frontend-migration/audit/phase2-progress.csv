@@ -1,5 +1,5 @@
-app,total,react_routed,legacy_routed,route_migration_percent
-dashboard,104,104,0,100.0
-sidebar,18,18,0,100.0
-operation,13,13,0,100.0
-total,135,135,0,100.0
+app,total,react,legacy,candidate,blocked,percent
+dashboard,103,103,0,0,0,100.0
+sidebar,18,18,0,0,0,100.0
+operation,13,13,0,0,0,100.0
+total,134,134,0,0,0,100.0

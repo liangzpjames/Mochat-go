@@ -10,6 +10,11 @@ const LeadDuplicatesPath = FormalLeadsPath + "/duplicates"
 const AssignmentReleasePath = AssignmentsPath + "/release"
 const AssignmentClaimPath = AssignmentsPath + "/claim"
 const AssignmentBatchClaimPath = AssignmentClaimPath + "/batch"
+const TagItemPath = TagsPath + "/{id}"
+const TagGroupItemPath = TagGroupsPath + "/{id}"
+const TagMovePath = TagItemPath + "/move"
+const TagContactsPath = TagItemPath + "/contacts"
+const TagDeletePreviewPath = TagItemPath + "/delete-preview"
 
 type RouteRegistrar interface {
 	Handle(method, pattern string, handler nethttp.Handler) error
@@ -87,14 +92,14 @@ func RegisterCustomerTagRoutes(registrar RouteRegistrar, handler *CustomerTagHan
 	}{
 		{nethttp.MethodGet, TagsPath, handler.ListCatalog},
 		{nethttp.MethodPost, TagsPath, handler.CreateTag},
-		{nethttp.MethodPut, TagsPath + "/{id}", handler.RenameTag},
+		{nethttp.MethodPut, TagItemPath, handler.RenameTag},
 		{nethttp.MethodGet, TagGroupsPath, handler.ListCatalog},
 		{nethttp.MethodPost, TagGroupsPath, handler.CreateGroup},
-		{nethttp.MethodPut, TagGroupsPath + "/{id}", handler.RenameGroup},
-		{nethttp.MethodPost, TagsPath + "/{id}/move", handler.MoveTag},
-		{nethttp.MethodPut, TagsPath + "/{id}/contacts", handler.MaintainContacts},
-		{nethttp.MethodGet, TagsPath + "/{id}/delete-preview", handler.PreviewDeleteTag},
-		{nethttp.MethodDelete, TagsPath + "/{id}", handler.DeleteTag},
+		{nethttp.MethodPut, TagGroupItemPath, handler.RenameGroup},
+		{nethttp.MethodPost, TagMovePath, handler.MoveTag},
+		{nethttp.MethodPut, TagContactsPath, handler.MaintainContacts},
+		{nethttp.MethodGet, TagDeletePreviewPath, handler.PreviewDeleteTag},
+		{nethttp.MethodDelete, TagItemPath, handler.DeleteTag},
 	} {
 		if err := registrar.Handle(route.method, route.path, route.handler); err != nil {
 			return err

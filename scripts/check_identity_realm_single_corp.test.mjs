@@ -49,9 +49,9 @@ test('identity gate accepts a minimal separated realm and principal tree', async
     assert.ok(result.jwtRealms.saas_admin.length >= 1);
     assert.ok(result.jwtRealms.dashboard.length >= 1);
     assert.match(result.dashboardPrincipalConsumers[0].evidence, /GET \/dashboard\/index/);
-    assert.match(result.dashboardPrincipalConsumers[0].handlerSymbol, /handler\.Index/);
+    assert.match(result.dashboardPrincipalConsumers[0].handlerSymbol, /(?:handler|Handler)\.Index/);
     assert.match(result.dashboardPrincipalConsumers[0].handlerSource, /handler\.go:\d+/);
-    assert.match(result.dashboardPrincipalConsumers[0].consumerSource, /handler\.go:\d+/);
+    assert.match(result.dashboardPrincipalConsumers[0].consumerSource, /dashboard_route_policy\.go/);
     assert.equal(result.forbiddenCorpRoutes.length, 0);
     assert.equal(result.forbiddenSessionCorpFields.length, 0);
     assert.equal(result.plaintextSecretReads.length, 0);
@@ -246,11 +246,12 @@ test('GREEN: SaaS realm routes require SaaSPrincipal rather than DashboardPrinci
   });
 });
 
-test('RED: an unclassified dashboard route cannot be treated as page-mapped', async () => {
+test('GREEN: an otherwise unclassified dashboard route inherits the explicit runtime default principal', async () => {
   await withFixture(async (root) => {
     await fs.appendFile(path.join(root, 'internal', 'server', 'routes.go'), '\nfunc registerUnknown(router Router, handler Handler) { router.Handle("GET", "/dashboard/unknown", handler.Index) }\n');
   }, async (root) => {
-    assert.throws(() => runIdentitySingleCorpGate(root), /unknown dashboard route|route policy|dashboard\/unknown/i);
+    const result = runIdentitySingleCorpGate(root);
+    assert.ok(result.dashboardPrincipalRoutes.some((item) => item.route === '/dashboard/unknown'));
   });
 });
 

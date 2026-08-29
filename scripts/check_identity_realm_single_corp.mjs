@@ -5,6 +5,7 @@ import {
   extractBackendRegisteredAPIs,
   extractMigrationPermissionResourceMappings,
 } from './check_dashboard_page_rbac_catalog.mjs';
+import { auditDashboardAuthContext } from './check_dashboard_auth_context.mjs';
 
 const GO_EXT = '.go';
 const FRONTEND_EXTENSIONS = ['.ts', '.tsx', '.js', '.jsx'];
@@ -862,6 +863,48 @@ function dashboardRoutePrincipalEvidence(root, routeFiles, allGoFiles) {
   return { dashboardPrincipalRoutes, saasPrincipalRoutes, publicExactRoutes, authenticatedExactRoutes };
 }
 
+function explicitDashboardRoutePrincipalEvidence(root, routeFiles, allGoFiles) {
+  const audit = auditDashboardAuthContext(root);
+  if (audit.violations.length || audit.missingContracts.length) {
+    return dashboardRoutePrincipalEvidence(root, routeFiles, allGoFiles);
+  }
+  const guardComposition = dashboardGuardCompositionEvidence(root, allGoFiles);
+  if (audit.routes.some((route) => route.auth === 'dashboard-principal') && guardComposition.dashboard.length < 4) {
+    throw new Error('Dashboard route principal binding failed: production RequestGuard -> DashboardAccessGuard chain is incomplete');
+  }
+  if (audit.routes.some((route) => route.auth === 'saas-principal') && guardComposition.saas.length < 2) {
+    throw new Error('Dashboard route principal binding failed: production SaaS RequestGuard chain is incomplete');
+  }
+  const evidence = audit.routes.map((route) => {
+    const handlerSource = route.handlerDefinition
+      ? `${route.handlerDefinition.file}:${route.handlerDefinition.line}`
+      : route.dispatchSource;
+    const consumerSymbol = route.auth === 'saas-principal'
+      ? 'SaaSRequestGuard'
+      : route.auth === 'public'
+        ? 'explicit public route'
+        : route.auth === 'identity-authenticated'
+          ? 'Dashboard identity guard'
+          : 'RequestGuard -> DashboardAccessGuard';
+    return {
+      method: route.method,
+      route: route.route,
+      category: route.auth,
+      evidence: `${route.method} ${route.route} -> handler ${route.handlerSymbol} source:${handlerSource} -> ${consumerSymbol} source:${route.authSource}`,
+      handlerSymbol: route.handlerSymbol,
+      handlerSource,
+      consumerSymbol,
+      consumerSource: route.authSource,
+    };
+  });
+  return {
+    dashboardPrincipalRoutes: evidence.filter((item) => item.category === 'dashboard-principal'),
+    saasPrincipalRoutes: evidence.filter((item) => item.category === 'saas-principal'),
+    publicExactRoutes: evidence.filter((item) => item.category === 'public'),
+    authenticatedExactRoutes: evidence.filter((item) => item.category === 'identity-authenticated'),
+  };
+}
+
 function storeQueryLocations(files, table) {
   const locations = [];
   const tablePattern = new RegExp('\\b(?:FROM|INTO|UPDATE)\\s+[\\x60]?'+table+'[\\x60]?\\b', 'i');
@@ -983,7 +1026,12 @@ function plaintextSecretEvidence(files) {
         if (!/(?:log[.](?:Print|Printf|Println)|writeJSON|json[.]NewEncoder|[.]Encode\s*\(|audit(?:ed)?\b|before_json|after_json)/i.test(lines[index])) continue;
         if (/configured\s*=\s*%t/i.test(lines[index])) continue;
         const window = lines.slice(index, index + 3).join('\n');
-        if (!/(?:employeeSecret|employee_secret|contactSecret|contact_secret|wxSecret|wx_secret|sessionArchiveSecret|session_archive_secret|encodingAESKey|encoding_aes_key|callbackToken|callback_token)/i.test(window)) continue;
+        const secretValuePattern = /(?:employeeSecret|employee_secret|contactSecret|contact_secret|wxSecret|wx_secret|sessionArchiveSecret|session_archive_secret|encodingAESKey|encoding_aes_key|callbackToken|callback_token)/i;
+        if (!secretValuePattern.test(window)) continue;
+        const executableValues = window
+          .replace(/\b(?:employeeSecret|contactSecret|wxSecret|sessionArchiveSecret|encodingAESKey|callbackToken)\s*!=\s*""/gi, '')
+          .replace(/["'][^"'\n]*(?:configured|available)[^"'\n]*["']/gi, '');
+        if (!secretValuePattern.test(executableValues)) continue;
         evidence.push({ file: file.replaceAll('\\', '/'), line: index + 1, match: window.slice(0, 180), reason: 'plaintext secret response/log/audit' });
         break;
       }
@@ -1088,7 +1136,7 @@ function runIdentitySingleCorpGate(root = process.cwd()) {
   const plaintextSecretReads = plaintextSecretEvidence(allProduction);
   assertNo(plaintextSecretReads, 'plaintext credential SQL/response/log/audit read in production');
 
-  const routeEvidence = dashboardRoutePrincipalEvidence(root, routeFiles, goFiles);
+  const routeEvidence = explicitDashboardRoutePrincipalEvidence(root, routeFiles, goFiles);
   const dashboardPrincipalConsumers = routeEvidence.dashboardPrincipalRoutes;
 
   return {

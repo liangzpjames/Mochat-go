@@ -4,6 +4,11 @@ import migrationRoutes from '../../migration-routes.json';
 import { businessRouteCatalog, specializedDashboardRoutes } from './catalog';
 
 describe('Dashboard business route catalog', () => {
+  it('leaves the unique company-profile route to its dedicated module', () => {
+    expect(specializedDashboardRoutes.has('/company-setting/website')).toBe(true);
+    expect(businessRouteCatalog['/company-setting/website']).toBeUndefined();
+  });
+
   it('defines a route-specific module for every non-specialized route', () => {
     const expected = migrationRoutes
       .map((route) => route.path)

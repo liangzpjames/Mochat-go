@@ -59,6 +59,11 @@ func (h *PageHandler) DeleteCache(w ResponseWriter, r *Request) { h.cache.Delete
 func (h *PageHandler) Unregistered(w ResponseWriter, r *Request) { h.cache.UserCorpCache(r.Context(), 7) }
 func (h *DashboardAuthHandler) Logout(w ResponseWriter, r *Request) { h.cache.DeleteUserCorpCache(r.Context(), 7) }
 `);
+  await fs.writeFile(path.join(root, 'internal', 'dashboard', 'dashboard_route_policy.go'), `package dashboard
+var publicDashboardRouteContracts = []string{"POST /dashboard/auth/logout"}
+var exactExemptDashboardRouteContracts = []string{"POST /dashboard/auth/logout"}
+var saasPrincipalDashboardRouteContracts = []string{}
+`);
   await fs.writeFile(path.join(root, 'internal', 'dashboard', 'page_test.go'), `package dashboard
 func TestProof() { _ = "h.cache.UserCorpCache(r.Context(), 7)" }
 `);
@@ -86,22 +91,15 @@ func (h *SharedHandler) ServeHTTP(w ResponseWriter, r *Request) { h.cache.UserCo
   return root;
 }
 
-test('audits only production handlers reachable from real server dispatch and composition', async (t) => {
+test('exports route to handler and explicit auth metadata for production registrations only', async (t) => {
   const root = await fixture();
   t.after(() => fs.rm(root, { recursive: true, force: true }));
-  const result = auditDashboardAuthContext(root, {
-    exemptions: [{ method: 'POST', route: '/dashboard/auth/logout', handlerSymbol: 'DashboardAuthHandler.Logout', operation: 'DeleteUserCorpCache' }],
-  });
+  const result = auditDashboardAuthContext(root);
   assert.equal(result.routes.length, 9);
-  assert.deepEqual(result.violations.map((item) => [item.route, item.operation]), [
-    ['/dashboard/header', 'Authorization'],
-    ['/dashboard/legacy', 'UserCorpCache'],
-    ['/dashboard/module/constant', 'UserCorpCache'],
-    ['/dashboard/module/one', 'Authorization'],
-    ['/dashboard/module/shared', 'UserCorpCache'],
-    ['/dashboard/module/two', 'Authorization'],
-    ['/dashboard/page/delete-cache', 'DeleteUserCorpCache'],
-  ]);
+  assert.deepEqual(result.violations, []);
+  assert.ok(result.routes.every((route) => route.handlerSymbol && route.auth && route.authSource));
+  assert.equal(result.routes.find((route) => route.route === '/dashboard/auth/logout')?.auth, 'public');
+  assert.equal(result.routes.find((route) => route.route === '/dashboard/legacy')?.auth, 'dashboard-principal');
   assert.equal(result.violations.some((item) => item.handlerSymbol.endsWith('.Unregistered')), false);
   assert.equal(result.violations.some((item) => item.source.endsWith('_test.go')), false);
 });
@@ -114,11 +112,10 @@ test('covers every dashboard contract discovered by the production catalog scann
   assert.equal(result.catalogContracts.length, 9);
 });
 
-test('requires exemption method route symbol and operation to match exactly', async (t) => {
+test('public auth metadata requires the exact method and route contract', async (t) => {
   const root = await fixture();
   t.after(() => fs.rm(root, { recursive: true, force: true }));
-  const result = auditDashboardAuthContext(root, {
-    exemptions: [{ method: 'POST', route: '/dashboard/auth/logout', handlerSymbol: 'WrongHandler.Logout', operation: 'DeleteUserCorpCache' }],
-  });
-  assert.equal(result.violations.some((item) => item.route === '/dashboard/auth/logout' && item.operation === 'DeleteUserCorpCache'), true);
+  const result = auditDashboardAuthContext(root);
+  assert.equal(result.routes.find((route) => route.route === '/dashboard/auth/logout' && route.method === 'POST')?.auth, 'public');
+  assert.notEqual(result.routes.find((route) => route.route === '/dashboard/auth/logout' && route.method === 'GET')?.auth, 'public');
 });

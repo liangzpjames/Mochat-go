@@ -3,9 +3,14 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import { checkRepository } from './check_wecom_archive_saas_activation.mjs';
 
-test('acceptance repository contract covers secrets, pipeline exclusivity, fixtures and isolated compose', async () => {
+test('acceptance repository contract covers runtime responsibilities, production registrar, fixtures and isolated compose', async () => {
   const errors = await checkRepository(process.cwd());
   assert.deepEqual(errors, []);
+});
+
+test('production archive bridge does not register the local acceptance fixture', async () => {
+  const source = await readFile('cmd/mochat-archive-bridge/main.go', 'utf8');
+  assert.doesNotMatch(source, /testfixtures\/archivesource|MOCHAT-LOCAL-ACCEPTANCE/);
 });
 
 test('acceptance compose isolates the SaaS and Dashboard MFA key identities', async () => {

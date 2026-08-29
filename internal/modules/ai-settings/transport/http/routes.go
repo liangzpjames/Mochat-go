@@ -7,8 +7,10 @@ import (
 )
 
 const (
-	KnowledgeBasesPath = "/dashboard/ai-settings/knowledge-bases"
-	AgentsPath         = "/dashboard/ai-settings/agents"
+	KnowledgeBasesPath         = "/dashboard/ai-settings/knowledge-bases"
+	AgentsPath                 = "/dashboard/ai-settings/agents"
+	KnowledgeBaseDocumentsPath = KnowledgeBasesPath + "/{id}/documents"
+	KnowledgeBaseDocumentPath  = KnowledgeBaseDocumentsPath + "/{documentId}"
 )
 
 func RegisterRoutes(registrar appmodules.RouteRegistrar, knowledgeBases *KnowledgeBaseHandler, agents *AgentHandler, documentHandlers ...*DocumentHandler) error {
@@ -31,11 +33,11 @@ func RegisterRoutes(registrar appmodules.RouteRegistrar, knowledgeBases *Knowled
 	if len(documentHandlers) > 0 && documentHandlers[0] != nil {
 		documents := documentHandlers[0]
 		for _, method := range []string{http.MethodGet, http.MethodPost} {
-			if err := registrar.Handle(method, KnowledgeBasesPath+"/{id}/documents", documents); err != nil {
+			if err := registrar.Handle(method, KnowledgeBaseDocumentsPath, documents); err != nil {
 				return err
 			}
 		}
-		if err := registrar.Handle(http.MethodDelete, KnowledgeBasesPath+"/{id}/documents/{documentId}", documents); err != nil {
+		if err := registrar.Handle(http.MethodDelete, KnowledgeBaseDocumentPath, documents); err != nil {
 			return err
 		}
 	}

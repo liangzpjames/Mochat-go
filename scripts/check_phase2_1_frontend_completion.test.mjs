@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 import {
   isAcceptedState,
+  parseCsv,
   validateMatrix,
 } from './check_phase2_1_frontend_completion.mjs';
 
@@ -115,4 +117,18 @@ test('accepts complete rows across applications', () => {
     rows,
     fileExists: () => true,
   }), []);
+});
+
+test('production Phase 2.1 contract uses the unique current company-profile route', () => {
+  const dashboardManifest = JSON.parse(readFileSync('web/apps/dashboard/src/migration-routes.json', 'utf8'));
+  const matrix = parseCsv(readFileSync('docs/phases/phase-2.1-functional-frontend-migration/functional-matrix.csv', 'utf8'));
+  const manifestPaths = new Set(dashboardManifest.map((route) => route.path));
+  const matrixRoutes = new Set(matrix.flatMap((row) => String(row.routes).split(';')));
+
+  assert.equal(manifestPaths.has('/company-setting/website'), true);
+  assert.equal(matrixRoutes.has('/company-setting/website'), true);
+  for (const stale of ['/corp/index', '/corpData/index']) {
+    assert.equal(manifestPaths.has(stale), false);
+    assert.equal(matrixRoutes.has(stale), false);
+  }
 });

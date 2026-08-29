@@ -8210,35 +8210,9 @@ func (s *MySQLStore) RoomWelcomeCorpCredentialByID(ctx context.Context, corpID i
 	}
 	secret, err := s.decodeCorpCredential(item)
 	if err != nil {
-		if simulationSecret, ok := s.localContactTransferSimulationSecret(ctx, item.ID, item.WXCorpID); ok {
-			return dashboard.RoomWelcomeCorpCredential{CorpID: item.ID, WXCorpID: item.WXCorpID, ContactSecret: simulationSecret}, true, nil
-		}
 		return dashboard.RoomWelcomeCorpCredential{}, false, err
 	}
 	return dashboard.RoomWelcomeCorpCredential{CorpID: item.ID, WXCorpID: item.WXCorpID, ContactSecret: secret.ContactSecret}, true, nil
-}
-
-// localContactTransferSimulationSecret is deliberately restricted to the
-// seeded development fixture. Production credentials remain encrypted-only;
-// this fallback exists solely so the local wwSIM enterprise can exercise the
-// transfer workflow without provisioning a real WeCom encryption key.
-func (s *MySQLStore) localContactTransferSimulationSecret(ctx context.Context, corpID int, wxCorpID string) (string, bool) {
-	if s == nil || s.db == nil || !strings.HasPrefix(strings.TrimSpace(wxCorpID), "wwSIM") {
-		return "", false
-	}
-	var secret string
-	if err := s.db.QueryRowContext(ctx, `
-		SELECT COALESCE(contact_secret, '')
-		FROM mc_corp
-		WHERE id = ? AND deleted_at IS NULL
-	`, corpID).Scan(&secret); err != nil {
-		return "", false
-	}
-	secret = strings.TrimSpace(secret)
-	if !strings.HasPrefix(secret, "SIM-") {
-		return "", false
-	}
-	return secret, true
 }
 
 func (s *MySQLStore) RoomWelcomeCorpCredentialByWXCorpID(ctx context.Context, wxCorpID string) (dashboard.RoomWelcomeCorpCredential, bool, error) {

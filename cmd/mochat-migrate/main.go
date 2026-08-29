@@ -35,19 +35,28 @@ func main() {
 		fmt.Fprintln(os.Stderr, "日志配置无效；请检查 MOCHAT_LOG_LEVEL 和 MOCHAT_LOG_FORMAT")
 		os.Exit(1)
 	}
-	action := flag.String("action", "apply", "migration action: apply, status, baseline, baseline-compose-init, rollback")
+	action := flag.String("action", "apply", "migration action: apply, status, baseline, baseline-compose-init, rollback, inventory")
 	dsn := flag.String("dsn", os.Getenv("MOCHAT_MYSQL_DSN"), "MySQL DSN; defaults to MOCHAT_MYSQL_DSN")
 	projectRoot := flag.String("project-root", ".", "project root used to resolve default migrations")
 	timeout := flag.Duration("timeout", 5*time.Minute, "migration timeout")
 	flag.Parse()
 
-	if *dsn == "" {
-		logMigrationSetupFailure(logger, "MIGRATION_DSN_MISSING")
-		os.Exit(1)
-	}
 	root, err := filepath.Abs(*projectRoot)
 	if err != nil {
 		logMigrationSetupFailure(logger, "MIGRATION_PROJECT_ROOT_INVALID")
+		os.Exit(1)
+	}
+	if normalized := strings.ToLower(strings.TrimSpace(*action)); normalized == "inventory" || normalized == "manifest" {
+		items, inventoryErr := migration.DefaultInventory(root)
+		if inventoryErr != nil {
+			logMigrationSetupFailure(logger, "MIGRATION_INVENTORY_INVALID")
+			os.Exit(1)
+		}
+		writeMigrationInventory(os.Stdout, items)
+		return
+	}
+	if *dsn == "" {
+		logMigrationSetupFailure(logger, "MIGRATION_DSN_MISSING")
 		os.Exit(1)
 	}
 	db, err := mysqlconn.Open(*dsn)
@@ -70,6 +79,12 @@ func main() {
 	defer cancel()
 	if err := runMigrationCommand(ctx, migrationCommandOptions{Action: *action}, runner, logger, os.Stdout); err != nil {
 		os.Exit(1)
+	}
+}
+
+func writeMigrationInventory(output io.Writer, items []migration.InventoryItem) {
+	for _, item := range items {
+		fmt.Fprintf(output, "%s\t%s\t%s\t%s\n", item.Version, item.Checksum, item.Kind, item.Description)
 	}
 }
 

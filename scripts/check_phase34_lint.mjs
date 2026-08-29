@@ -1,6 +1,6 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { dirname, relative, resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -12,6 +12,24 @@ export function selectDashboardChangedLintFiles(changedFiles) {
   return [...new Set(changedFiles.map((file) => file.replaceAll('\\', '/').replace(/^\.\//, '')))]
     .filter((file) => file.startsWith(dashboardPrefix) && lintableExtensions.test(file))
     .sort();
+}
+
+export function partitionLintFiles(files, { maxFiles = 40, maxCommandCharacters = 12_000 } = {}) {
+  const batches = [];
+  let current = [];
+  let currentCharacters = 0;
+  for (const file of files) {
+    const nextCharacters = currentCharacters + file.length + 1;
+    if (current.length > 0 && (current.length >= maxFiles || nextCharacters > maxCommandCharacters)) {
+      batches.push(current);
+      current = [];
+      currentCharacters = 0;
+    }
+    current.push(file);
+    currentCharacters += file.length + 1;
+  }
+  if (current.length > 0) batches.push(current);
+  return batches;
 }
 
 function gitFiles(args) {
@@ -49,13 +67,19 @@ function main() {
   }
 
   const pnpm = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
-  const result = spawnSync(pnpm, ['exec', 'eslint', ...relativeFiles], {
-    cwd: dashboardRoot,
-    stdio: 'inherit',
-    shell: process.platform === 'win32',
-  });
-  if (result.error) console.error(`Failed to run ${pnpm}: ${result.error.message}`);
-  process.exitCode = result.status ?? 1;
+  let failed = false;
+  const batches = partitionLintFiles(relativeFiles);
+  for (const [index, batch] of batches.entries()) {
+    console.log(`Phase 3.4 lint batch ${index + 1}/${batches.length}: ${batch.length} file(s).`);
+    const result = spawnSync(pnpm, ['exec', 'eslint', ...batch], {
+      cwd: dashboardRoot,
+      stdio: 'inherit',
+      shell: process.platform === 'win32',
+    });
+    if (result.error) console.error(`Failed to run ${pnpm}: ${result.error.message}`);
+    if (result.error || result.status !== 0) failed = true;
+  }
+  process.exitCode = failed ? 1 : 0;
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1]).href) {

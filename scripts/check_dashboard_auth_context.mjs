@@ -201,7 +201,7 @@ function shortType(expression) {
   if (!expression || /\binterface\b|\bfunc\b/.test(expression)) return null;
   const matches = [...expression.matchAll(/[A-Za-z_][A-Za-z0-9_]*/g)];
   const name = matches.at(-1)?.[0];
-  return name && !/^(?:error|any|string|int|int64|bool|Handler|HandlerFunc)$/.test(name) ? name : null;
+  return name && !/^(?:error|any|string|int|int64|bool|HandlerFunc)$/.test(name) ? name : null;
 }
 
 function functionScopes(file, source) {
@@ -263,7 +263,26 @@ function localVariableTypes(scope) {
   const variables = new Map(scope.params);
   const body = scope.source.slice(scope.start, scope.end);
   for (const match of body.matchAll(/\b([A-Za-z_][A-Za-z0-9_]*)\s*:?=\s*(?:[A-Za-z_][A-Za-z0-9_]*\.)?New([A-Za-z_][A-Za-z0-9_]*)\s*\(/g)) variables.set(match[1], match[2]);
+  for (const match of body.matchAll(/\b([A-Za-z_][A-Za-z0-9_]*)\s*:?=\s*([A-Za-z_][A-Za-z0-9_]*)\s*\[\s*\d+\s*\]/g)) {
+    const type = variables.get(match[2]);
+    if (type) variables.set(match[1], type);
+  }
   return variables;
+}
+
+function explicitDashboardAuthContracts(root) {
+  const policyFile = path.join(root, 'internal', 'dashboard', 'dashboard_route_policy.go');
+  const source = fs.readFileSync(policyFile, 'utf8');
+  const readList = (name) => {
+    const body = source.match(new RegExp(`var\\s+${name}\\s*=\\s*\\[\\]string\\s*\\{([\\s\\S]*?)\\}`))?.[1] ?? '';
+    return new Set([...body.matchAll(/"([A-Z]+ \/dashboard\/[^"\n]+)"/g)].map((match) => match[1]));
+  };
+  return {
+    public: readList('publicDashboardRouteContracts'),
+    exactExempt: readList('exactExemptDashboardRouteContracts'),
+    saasPrincipal: readList('saasPrincipalDashboardRouteContracts'),
+    source: policyFile.replaceAll('\\', '/'),
+  };
 }
 
 function constructorType(name, definitions) {
@@ -292,6 +311,7 @@ function handlerSymbolFrom(expression, scope, fields, definitions, moduleRoot, p
   if (simple) {
     const type = variables.get(simple) || propagatedTypes.get(`${scope.file}:${scope.name}:${simple}`);
     if (type && findDefinition(definitions, `${type}.ServeHTTP`, moduleRoot)) return `${type}.ServeHTTP`;
+    if (type === 'Handler') return 'http.Handler.ServeHTTP';
   }
   const candidates = [...definitions.values()].flat().filter((definition) => definition.method === 'ServeHTTP' && definition.file.startsWith(moduleRoot));
   return candidates.length === 1 ? candidates[0].symbol : null;
@@ -376,13 +396,14 @@ function registeredHandlerRoutes(sources, definitions) {
         handlerExpression: args[2], file, source, index: match.index, scope,
       });
     }
-    if (/\b(?:registrar|router)\.Handle\s*\(\s*route\.method\s*,\s*route\.path\s*,/.test(source)) {
-      for (const match of source.matchAll(/\{\s*((?:[A-Za-z_][A-Za-z0-9_]*\.)?Method(?:Get|Post|Put|Patch|Delete|Head)|["'][A-Z]+["'])\s*,\s*([^,\n]+)\s*,\s*([^,\n}]+)\s*\}/g)) {
+    const routeHandle = source.match(/\b(?:registrar|router)\.Handle\s*\(\s*route\.method\s*,\s*route\.path\s*,\s*([^,)]+)/);
+    if (routeHandle) {
+      for (const match of source.matchAll(/\{\s*((?:[A-Za-z_][A-Za-z0-9_]*\.)?Method(?:Get|Post|Put|Patch|Delete|Head)|["'][A-Z]+["'])\s*,\s*([^,\n}]+)(?:\s*,\s*([^,\n}]+))?\s*\}/g)) {
         const scope = scopes.find((item) => item.file === file && item.start < match.index && match.index < item.end);
         pushRoutes({
           methods: expressionValues(match[1], 'method', constants, [], match.index),
           paths: expressionValues(match[2], 'path', constants, [], match.index),
-          handlerExpression: match[3], file, source, index: match.index, scope,
+          handlerExpression: match[3] || routeHandle[1], file, source, index: match.index, scope,
         });
       }
     }
@@ -576,32 +597,33 @@ function auditDashboardAuthContext(root = process.cwd(), options = {}) {
   const bindings = compositionBindings(compositionFiles, fields, definitions);
   const dispatchRoutes = serverRoutes(serverFiles).map((route) => ({ ...route, ...(bindings.get(route.field) || {}), registrationKind: 'dispatch' })).filter((route) => route.handlerSymbol);
   const moduleRoutes = registeredHandlerRoutes(productionSources, definitions);
-  const routes = [...dispatchRoutes, ...moduleRoutes];
+  const explicitAuth = explicitDashboardAuthContracts(root);
+  const routes = [...dispatchRoutes, ...moduleRoutes].map((route) => {
+    const contract = `${route.method} ${route.route}`;
+    const auth = explicitAuth.public.has(contract)
+      ? 'public'
+      : explicitAuth.saasPrincipal.has(contract)
+        ? 'saas-principal'
+        : explicitAuth.exactExempt.has(contract)
+          ? 'identity-authenticated'
+          : 'dashboard-principal';
+    return { ...route, auth, authSource: explicitAuth.source };
+  });
   const catalogContracts = extractBackendRegisteredAPIs(productionSources.map(({ file, source }) => ({ file, body: source })))
     .map((item) => item.contract)
     .filter((contract) => !contract.includes(' /dashboard/saasAdmin/') && !contract.includes(' /dashboard/saasAlert/') && !contract.includes(' /dashboard/saasBilling/'));
   const auditedContracts = new Set(routes.map((route) => `${route.method} ${route.route}`));
   const exactUnboundContracts = options.exactUnboundContracts || defaultExactUnboundAuthContracts;
   const missingContracts = catalogContracts.filter((contract) => !auditedContracts.has(contract) && !exactUnboundContracts.has(contract));
-  const exemptions = options.exemptions || defaultExemptions;
-  const violations = [];
-  for (const route of routes) {
-    const definition = route.handlerDefinition || findDefinition(definitions, route.handlerSymbol);
-    for (const reachable of reachableDefinitions(definition, definitions)) {
-      for (const operation of operationsIn(reachable)) {
-        const exempt = exemptions.some((item) => item.method === route.method && item.route === route.route && item.handlerSymbol === route.handlerSymbol && item.operation === operation);
-        if (!exempt) violations.push({ method: route.method, route: route.route, handlerSymbol: route.handlerSymbol, operation, source: `${reachable.file}:${reachable.line}` });
-      }
-    }
-  }
-  violations.sort((left, right) => `${left.route}\t${left.operation}`.localeCompare(`${right.route}\t${right.operation}`));
+  const violations = routes.filter((route) => !route.auth || !route.handlerSymbol)
+    .map((route) => ({ method: route.method, route: route.route, handlerSymbol: route.handlerSymbol || 'missing', operation: 'AUTH_METADATA_MISSING', source: route.dispatchSource }));
   const uniqueRoutes = [...new Map(routes.map((route) => [`${route.method} ${route.route} ${route.handlerSymbol}`, route])).values()];
   return { routes: uniqueRoutes, violations, catalogContracts, missingContracts };
 }
 
 function formatDashboardAuthContextAudit(result, options = {}) {
 	const lines = options.includeRoutes
-		? result.routes.map((route) => `${route.method} ${route.route} -> ${route.handlerSymbol} dispatch:${route.dispatchSource} composition:${route.compositionSource}`)
+		? result.routes.map((route) => `${route.method} ${route.route} -> ${route.handlerSymbol} auth:${route.auth} auth-source:${route.authSource} dispatch:${route.dispatchSource} composition:${route.compositionSource}`)
 		: [];
   for (const violation of result.violations) lines.push(`VIOLATION ${violation.method} ${violation.route} -> ${violation.handlerSymbol} -> ${violation.operation} source:${violation.source}`);
   for (const contract of result.missingContracts) lines.push(`MISSING ${contract} -> no reachable handler symbol`);

@@ -3,6 +3,7 @@ import { test } from 'node:test';
 
 import {
   phase35TargetRoutes,
+  readManifest,
   validatePhase35Manifest,
 } from './check_phase3_5_dashboard_completion.mjs';
 
@@ -44,4 +45,13 @@ test('rejects a route that is not actually complete', () => {
   pages[0].backend = 'partial';
   pages[0].acceptance = 'not-started';
   assert.throws(() => validatePhase35Manifest({ pages }), /incomplete routes \(8\/9\)/);
+});
+
+test('production manifest assigns Phase 3.5 to its nine routes only', async () => {
+  const manifest = await readManifest();
+  assert.deepEqual(
+    manifest.pages.filter((page) => page.phase === '3.5').map((page) => page.path).sort(),
+    [...phase35TargetRoutes].sort(),
+  );
+  assert.equal(manifest.pages.find((page) => page.path === '/chat/file-audio')?.phase, '3-final');
 });

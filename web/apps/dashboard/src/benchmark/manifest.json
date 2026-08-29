@@ -178,7 +178,7 @@
       "implementation": "native",
       "backend": "ready",
       "acceptance": "integration-passed",
-      "phase": "3.5",
+      "phase": "3-final",
       "owner": "dashboard",
       "risk": "low",
       "legacyRoutes": [],

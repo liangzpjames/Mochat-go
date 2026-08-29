@@ -68,6 +68,18 @@ func TestRunMigrationCommandEmitsStableControlledPendingCode(t *testing.T) {
 	}
 }
 
+func TestWriteMigrationInventoryEmitsStableTSV(t *testing.T) {
+	items := []migration.InventoryItem{
+		{Version: "0001_initial_schema", Checksum: "aaa", Kind: migration.MigrationAutomatic, Description: "initial schema"},
+		{Version: "0130_identity", Checksum: "bbb", Kind: migration.MigrationControlled, Description: "identity"},
+	}
+	var output bytes.Buffer
+	writeMigrationInventory(&output, items)
+	if got, want := output.String(), "0001_initial_schema\taaa\tautomatic\tinitial schema\n0130_identity\tbbb\tcontrolled\tidentity\n"; got != want {
+		t.Fatalf("inventory output = %q, want %q", got, want)
+	}
+}
+
 type fakeMigrationRunner struct {
 	status []migration.StatusItem
 	err    error
