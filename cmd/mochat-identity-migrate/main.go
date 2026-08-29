@@ -222,14 +222,8 @@ func runMigration(args []string, output io.Writer) error {
 			if pathErr != nil {
 				return errors.New("identity migration path is invalid")
 			}
-			if _, err := identitymigration.PreflightCutover(ctx, db, identitymigration.DatabaseOptions{Schema: options.Schema, PlatformTenantID: options.PlatformTenantID, RequestID: options.RequestID, CredentialManager: manager}); err != nil {
-				return preservePhaseError(err, "identity cutover preflight failed")
-			}
-			if err := executeControlledScript(ctx, db, cutoverPath, options.Schema, options.PlatformTenantID, options.RequestID); err != nil {
-				return err
-			}
-			if err := finalizeIdentityCorpTenantConstraint(ctx, db); err != nil {
-				return err
+			if _, err := identitymigration.ApplyCutover(ctx, db, identitymigration.DatabaseOptions{Schema: options.Schema, PlatformTenantID: options.PlatformTenantID, RequestID: options.RequestID, CredentialManager: manager}, cutoverPath); err != nil {
+				return preservePhaseError(err, "identity cutover did not complete")
 			}
 			if err := migration.RecordControlledMigration(ctx, db, root, "0131_identity_realms_single_corp_cutover", options.RequestID); err != nil {
 				return &identitymigration.PhaseError{Phase: "ledger", Label: "standard_record"}

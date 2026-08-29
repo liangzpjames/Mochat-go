@@ -2,11 +2,15 @@ package identitymigration
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 
+	"jiyi/mochat-go/internal/migration"
 	"jiyi/mochat-go/internal/wecomcredentials"
 )
 
@@ -23,6 +27,80 @@ type CutoverPreflightReport struct {
 	MissingPrerequisiteFacts    []string
 	LegacyPasswordColumnPresent bool
 	AlreadyCompleted            bool
+}
+
+type CutoverResult struct {
+	RequestID  string
+	Idempotent bool
+}
+
+// ApplyCutover executes the immutable 0131 script on one pinned connection so
+// its request, checksum, and target-schema session bindings cannot drift.
+func ApplyCutover(ctx context.Context, db *sql.DB, options DatabaseOptions, upPath string) (CutoverResult, error) {
+	if db == nil {
+		return CutoverResult{}, errors.New("0131 cutover database is required")
+	}
+	if strings.TrimSpace(options.Schema) == "" || options.PlatformTenantID <= 0 || strings.TrimSpace(options.RequestID) == "" {
+		return CutoverResult{}, errors.New("0131 cutover schema, platform tenant, and request are required")
+	}
+	report, err := PreflightCutover(ctx, db, options)
+	if err != nil {
+		return CutoverResult{}, err
+	}
+	if report.AlreadyCompleted {
+		return CutoverResult{RequestID: options.RequestID, Idempotent: true}, nil
+	}
+	body, err := os.ReadFile(upPath)
+	if err != nil {
+		return CutoverResult{}, phaseFailure("cutover", "script_read")
+	}
+	checksum := sha256.Sum256(body)
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		return CutoverResult{}, phaseFailure("cutover", "connection")
+	}
+	defer conn.Close()
+	if err := VerifyTargetSchemaOnConn(ctx, conn, options.Schema); err != nil {
+		return CutoverResult{}, phaseFailure("preflight", "schema_target")
+	}
+	if _, err := conn.ExecContext(ctx, "SET @identity_0131_platform_tenant_id = ?, @identity_0131_request_id = CONVERT(? USING utf8mb4) COLLATE utf8mb4_unicode_ci, @identity_0131_script_checksum = ?", options.PlatformTenantID, options.RequestID, hex.EncodeToString(checksum[:])); err != nil {
+		return CutoverResult{}, phaseFailure("preflight", "session_bind")
+	}
+	statements, err := migration.SplitSQLStatements(string(body))
+	if err != nil {
+		return CutoverResult{}, phaseFailure("cutover", "script_parse")
+	}
+	for _, statement := range statements {
+		if _, err := conn.ExecContext(ctx, statement); err != nil {
+			return CutoverResult{}, phaseFailureWithCause("cutover", "statement", 0, err)
+		}
+	}
+	if err := finalizeCorpTenantConstraint(ctx, conn); err != nil {
+		return CutoverResult{}, err
+	}
+	return CutoverResult{RequestID: options.RequestID}, nil
+}
+
+func finalizeCorpTenantConstraint(ctx context.Context, conn execer) error {
+	var invalid int
+	if err := conn.QueryRowContext(ctx, `SELECT COUNT(*) FROM mc_corp WHERE tenant_id IS NULL`).Scan(&invalid); err != nil {
+		return phaseFailure("cutover", "corp_tenant_validate")
+	}
+	if invalid != 0 {
+		return phaseFailure("cutover", "corp_tenant_incomplete")
+	}
+	if _, err := conn.ExecContext(ctx, `ALTER TABLE mc_corp MODIFY COLUMN tenant_id int(10) unsigned NOT NULL DEFAULT 0`); err != nil {
+		return phaseFailure("cutover", "corp_tenant_constraint")
+	}
+	var compatible int
+	if err := conn.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM information_schema.columns
+		WHERE table_schema=DATABASE() AND table_name='mc_corp' AND column_name='tenant_id'
+		  AND data_type='int' AND numeric_precision=10 AND column_type LIKE '%unsigned%' AND is_nullable='NO'
+	`).Scan(&compatible); err != nil || compatible != 1 {
+		return phaseFailure("verify", "corp_tenant_constraint")
+	}
+	return nil
 }
 
 func (r CutoverPreflightReport) SafeText() string {
