@@ -143,6 +143,18 @@ func controlledMigrationBaselineEvidence(ctx context.Context, db *sql.DB, migrat
 	if count != 1 {
 		return fmt.Errorf("controlled migration %s baseline requires exactly one verified completion for checksum %s; found %d", migration.Version, checksum, count)
 	}
+	if migration.Version == "0131_identity_realms_single_corp_cutover" {
+		var compatible int
+		if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM information_schema.columns
+			WHERE table_schema=DATABASE() AND table_name=? AND column_name=?
+			  AND data_type='int' AND numeric_precision=10 AND column_type LIKE '%unsigned%' AND is_nullable='NO'`,
+			"mc_corp", "tenant_id").Scan(&compatible); err != nil {
+			return fmt.Errorf("inspect controlled migration %s baseline postcondition: %w", migration.Version, err)
+		}
+		if compatible != 1 {
+			return fmt.Errorf("controlled migration %s baseline postcondition requires mc_corp.tenant_id to be unsigned INT NOT NULL; found %d compatible columns", migration.Version, compatible)
+		}
+	}
 	return nil
 }
 
