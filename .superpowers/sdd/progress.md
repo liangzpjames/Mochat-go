@@ -31,3 +31,4 @@ Task 12: in_progress (Docker/browser acceptance, Chinese implementation document
 Plan: docs/superpowers/plans/2026-08-29-p0-local-production-readiness.zh-CN.md
 
 Task 1: complete (commit 22445e1, spec and quality review clean; parent Go and scheduler contract verification pass)
+Task 2: complete (commits b7f1a2e + 55fb4ef + 7491b72, two review fix rounds then clean; parent package and Compose verification pass; real Provider SKIP)
