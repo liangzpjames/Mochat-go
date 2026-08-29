@@ -155,6 +155,12 @@ func (r *Runner) Apply(ctx context.Context) ([]StatusItem, error) {
 				item.State = "checksum_mismatch"
 				return append(result, item), fmt.Errorf("migration %s checksum mismatch: applied=%s current=%s", migration.Version, existing.Checksum, checksum)
 			}
+			if migration.Kind == MigrationControlled {
+				if err := controlledMigrationBaselineEvidence(ctx, r.db, migration, checksum); err != nil {
+					item.State = "controlled_incomplete"
+					return append(result, item), err
+				}
+			}
 			result = append(result, item)
 			continue
 		}
@@ -185,7 +191,7 @@ func (r *Runner) Status(ctx context.Context) ([]StatusItem, error) {
 	if err != nil {
 		return nil, err
 	}
-	return r.statusItems(applied)
+	return r.statusItems(ctx, applied)
 }
 
 // StatusReadOnly inspects migration state without creating or changing the
@@ -205,10 +211,10 @@ func (r *Runner) StatusReadOnly(ctx context.Context) ([]StatusItem, error) {
 			return nil, err
 		}
 	}
-	return r.statusItems(applied)
+	return r.statusItems(ctx, applied)
 }
 
-func (r *Runner) statusItems(applied map[string]AppliedMigration) ([]StatusItem, error) {
+func (r *Runner) statusItems(ctx context.Context, applied map[string]AppliedMigration) ([]StatusItem, error) {
 	result := make([]StatusItem, 0, len(r.migrations))
 	known := make(map[string]struct{}, len(r.migrations))
 	for _, migration := range r.migrations {
@@ -227,6 +233,11 @@ func (r *Runner) statusItems(applied map[string]AppliedMigration) ([]StatusItem,
 			item.State = "applied"
 			if !checksumMatches(existing.Checksum, checksum, migration.ChecksumAliases) {
 				item.State = "checksum_mismatch"
+			} else if migration.Kind == MigrationControlled {
+				if err := controlledMigrationBaselineEvidence(ctx, r.db, migration, checksum); err != nil {
+					item.State = "controlled_incomplete"
+					return append(result, item), err
+				}
 			}
 		}
 		result = append(result, item)
@@ -311,6 +322,12 @@ func (r *Runner) baseline(ctx context.Context, throughVersion string) ([]StatusI
 			if !checksumMatches(existing.Checksum, checksum, migration.ChecksumAliases) {
 				item.State = "checksum_mismatch"
 				return append(result, item), fmt.Errorf("migration %s checksum mismatch: applied=%s current=%s", migration.Version, existing.Checksum, checksum)
+			}
+			if migration.Kind == MigrationControlled {
+				if err := controlledMigrationBaselineEvidence(ctx, r.db, migration, checksum); err != nil {
+					item.State = "controlled_incomplete"
+					return append(result, item), err
+				}
 			}
 			result = append(result, item)
 			continue

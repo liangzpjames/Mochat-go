@@ -170,6 +170,112 @@ func TestAIInsight0165ControlledLifecycleMariaDB(t *testing.T) {
 	}
 }
 
+func TestAIInsight0165LedgerAndVerifiedStatusCommitAtomicallyMariaDB(t *testing.T) {
+	db := openAIInsight0165IntegrationDB(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	resetAIInsight0165Schema(t, ctx, db)
+
+	controller, err := NewAIInsight0165Controller(db, filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := controller.Backup(ctx, "atomic-ledger"); err != nil {
+		t.Fatal(err)
+	}
+	preflight, err := controller.Preflight(ctx, "atomic-ledger")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, `CREATE TRIGGER mochat_0165_test_fail_verified BEFORE UPDATE ON mochat_go_controlled_migration_0165
+		FOR EACH ROW BEGIN IF NEW.status = 'verified' THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'injected verified failure'; END IF; END`); err != nil {
+		t.Fatal(err)
+	}
+	_, applyErr := controller.Apply(ctx, AIInsight0165ApplyRequest{
+		RequestID:           "atomic-ledger",
+		ApprovalToken:       preflight.ApprovalToken,
+		DestructiveApproval: preflight.DestructiveApproval,
+		TrafficStopped:      true,
+	})
+	if applyErr == nil {
+		t.Fatal("injected control verification failure was accepted")
+	}
+	var ledgerRows int
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM mochat_go_schema_migrations WHERE version = ?`, AIInsight0165Version).Scan(&ledgerRows); err != nil {
+		t.Fatal(err)
+	}
+	if ledgerRows != 0 {
+		t.Fatalf("schema ledger escaped failed control verification: rows=%d", ledgerRows)
+	}
+	var status string
+	if err := db.QueryRowContext(ctx, `SELECT status FROM mochat_go_controlled_migration_0165 WHERE request_id = 'atomic-ledger'`).Scan(&status); err != nil {
+		t.Fatal(err)
+	}
+	if status != "applied_unverified" {
+		t.Fatalf("control status after injected failure = %q", status)
+	}
+	if _, err := db.ExecContext(ctx, `DROP TRIGGER mochat_0165_test_fail_verified`); err != nil {
+		t.Fatal(err)
+	}
+	verified, err := controller.Verify(ctx, "atomic-ledger")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !verified.Applied || !verified.Verified {
+		t.Fatalf("recovered verification = %+v", verified)
+	}
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM mochat_go_schema_migrations WHERE version = ?`, AIInsight0165Version).Scan(&ledgerRows); err != nil {
+		t.Fatal(err)
+	}
+	if ledgerRows != 1 {
+		t.Fatalf("recovered schema ledger rows = %d", ledgerRows)
+	}
+}
+
+func TestAIInsight0165VerifyRejectsWrongOrChangedSurvivorMariaDB(t *testing.T) {
+	db := openAIInsight0165IntegrationDB(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+
+	for _, test := range []struct {
+		name    string
+		request string
+		mutate  string
+	}{
+		{name: "non-max id", request: "survivor-id", mutate: `UPDATE mochat_go_ai_conversation_insights SET id = 1 WHERE id = 2`},
+		{name: "content hash drift", request: "survivor-content", mutate: `UPDATE mochat_go_ai_conversation_insights SET summary = 'tampered' WHERE id = 2`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			resetAIInsight0165Schema(t, ctx, db)
+			controller, err := NewAIInsight0165Controller(db, filepath.Join("..", ".."))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := controller.Backup(ctx, test.request); err != nil {
+				t.Fatal(err)
+			}
+			preflight, err := controller.Preflight(ctx, test.request)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := controller.Apply(ctx, AIInsight0165ApplyRequest{
+				RequestID:           test.request,
+				ApprovalToken:       preflight.ApprovalToken,
+				DestructiveApproval: preflight.DestructiveApproval,
+				TrafficStopped:      true,
+			}); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := db.ExecContext(ctx, test.mutate); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := controller.Verify(ctx, test.request); err == nil || !strings.Contains(err.Error(), "survivor") {
+				t.Fatalf("survivor drift was accepted: %v", err)
+			}
+		})
+	}
+}
+
 func TestAIInsight0165RejectsSnapshotAndBackupDrift(t *testing.T) {
 	db := openAIInsight0165IntegrationDB(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
@@ -322,6 +428,7 @@ const aiInsight0165InsertSQL = `INSERT INTO mochat_go_ai_conversation_insights
 func resetAIInsight0165Schema(t *testing.T, ctx context.Context, db *sql.DB) {
 	t.Helper()
 	statements := []string{
+		`DROP TRIGGER IF EXISTS mochat_0165_test_fail_verified`,
 		`DROP TRIGGER IF EXISTS mochat_0165_guard_insight_insert`,
 		`DROP TRIGGER IF EXISTS mochat_0165_guard_insight_update`,
 		`DROP TRIGGER IF EXISTS mochat_0165_guard_insight_delete`,

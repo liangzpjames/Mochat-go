@@ -29,6 +29,7 @@ var (
 	ErrAIInsight0165SnapshotDrift     = errors.New("0165 controlled migration source snapshot changed")
 	ErrAIInsight0165WrongSchema       = errors.New("0165 controlled migration schema is not the expected pre-0165 schema")
 	ErrAIInsight0165ApprovalMismatch  = errors.New("0165 controlled migration approval does not match the verified snapshot")
+	ErrAIInsight0165SurvivorDrift     = errors.New("0165 controlled migration survivor rows changed")
 	ErrAIInsight0165TrafficNotStopped = errors.New("0165 controlled migration requires explicit traffic-stopped confirmation")
 	ErrAIInsight0165ConcurrentRun     = errors.New("0165 controlled migration is already running")
 )
@@ -436,8 +437,8 @@ func (c *AIInsight0165Controller) preflightWith(ctx context.Context, queryer aiI
 	}, nil
 }
 
-func (c *AIInsight0165Controller) verifyAndRecordWith(ctx context.Context, queryer aiInsight0165Queryer, requestID string, executionMS int) (AIInsight0165ApplyResult, error) {
-	manifest, err := loadAIInsight0165Manifest(ctx, queryer, requestID)
+func (c *AIInsight0165Controller) verifyAndRecordWith(ctx context.Context, conn *sql.Conn, requestID string, executionMS int) (AIInsight0165ApplyResult, error) {
+	manifest, err := loadAIInsight0165Manifest(ctx, conn, requestID)
 	if err != nil {
 		return AIInsight0165ApplyResult{}, err
 	}
@@ -450,28 +451,35 @@ func (c *AIInsight0165Controller) verifyAndRecordWith(ctx context.Context, query
 		BackupLegacyRows:     manifest.BackupLegacyRows,
 		MigrationChecksum:    manifest.MigrationChecksum,
 	}
-	if err := validateAIInsight0165PostMigrationSchema(ctx, queryer); err != nil {
+	if err := validateAIInsight0165PostMigrationSchema(ctx, conn); err != nil {
 		return result, err
 	}
 	var retained int64
-	if err := queryer.QueryRowContext(ctx, `SELECT COUNT(*) FROM `+aiInsight0165SourceTable).Scan(&retained); err != nil {
+	if err := conn.QueryRowContext(ctx, `SELECT COUNT(*) FROM `+aiInsight0165SourceTable).Scan(&retained); err != nil {
 		return result, err
 	}
 	if retained != result.RetainedInsightRows {
 		return result, fmt.Errorf("0165 retained row count = %d, want %d", retained, result.RetainedInsightRows)
 	}
-	backupSourceRows, backupSourceDigest, err := aiInsight0165TableDigest(ctx, queryer, aiInsight0165BackupSourceTable)
+	expectedSurvivorRows, expectedSurvivorDigest, actualSurvivorRows, actualSurvivorDigest, err := aiInsight0165SurvivorDigests(ctx, conn)
+	if err != nil {
+		return result, err
+	}
+	if expectedSurvivorRows != result.RetainedInsightRows || actualSurvivorRows != expectedSurvivorRows || actualSurvivorDigest != expectedSurvivorDigest {
+		return result, fmt.Errorf("%w: expected rows=%d digest=%s, actual rows=%d digest=%s", ErrAIInsight0165SurvivorDrift, expectedSurvivorRows, expectedSurvivorDigest, actualSurvivorRows, actualSurvivorDigest)
+	}
+	backupSourceRows, backupSourceDigest, err := aiInsight0165TableDigest(ctx, conn, aiInsight0165BackupSourceTable)
 	if err != nil {
 		return result, err
 	}
 	backupLegacyRows := int64(0)
 	backupLegacyDigest := emptyAIInsight0165Digest()
-	backupLegacyExists, err := aiInsight0165TableExists(ctx, queryer, aiInsight0165BackupLegacyTable)
+	backupLegacyExists, err := aiInsight0165TableExists(ctx, conn, aiInsight0165BackupLegacyTable)
 	if err != nil {
 		return result, err
 	}
 	if backupLegacyExists {
-		backupLegacyRows, backupLegacyDigest, err = aiInsight0165TableDigest(ctx, queryer, aiInsight0165BackupLegacyTable)
+		backupLegacyRows, backupLegacyDigest, err = aiInsight0165TableDigest(ctx, conn, aiInsight0165BackupLegacyTable)
 		if err != nil {
 			return result, err
 		}
@@ -479,11 +487,16 @@ func (c *AIInsight0165Controller) verifyAndRecordWith(ctx context.Context, query
 	if backupSourceRows != manifest.BackupInsightRows || backupSourceDigest != manifest.BackupInsightDigest || backupLegacyRows != manifest.BackupLegacyRows || backupLegacyDigest != manifest.BackupLegacyDigest {
 		return result, ErrAIInsight0165BackupDrift
 	}
+	tx, err := conn.BeginTx(ctx, nil)
+	if err != nil {
+		return result, fmt.Errorf("begin controlled 0165 completion transaction: %w", err)
+	}
+	defer tx.Rollback()
 	var appliedChecksum string
-	err = queryer.QueryRowContext(ctx, `SELECT checksum FROM `+VersionTable+` WHERE version = ?`, AIInsight0165Version).Scan(&appliedChecksum)
+	err = tx.QueryRowContext(ctx, `SELECT checksum FROM `+VersionTable+` WHERE version = ?`, AIInsight0165Version).Scan(&appliedChecksum)
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
-		if err := recordAppliedWith(ctx, queryer, c.migration, c.checksum, executionMS); err != nil {
+		if err := recordAppliedWith(ctx, tx, c.migration, c.checksum, executionMS); err != nil {
 			return result, fmt.Errorf("record controlled 0165 migration: %w", err)
 		}
 	case err != nil:
@@ -491,8 +504,31 @@ func (c *AIInsight0165Controller) verifyAndRecordWith(ctx context.Context, query
 	case appliedChecksum != c.checksum:
 		return result, fmt.Errorf("%w: ledger checksum %s differs from %s", ErrAIInsight0165WrongSchema, appliedChecksum, c.checksum)
 	}
-	if _, err := queryer.ExecContext(ctx, `UPDATE `+aiInsight0165ControlTable+` SET status = 'verified', verified_at = NOW(), updated_at = NOW() WHERE request_id = ?`, requestID); err != nil {
-		return result, err
+	var controlStatus string
+	if err := tx.QueryRowContext(ctx, `SELECT status FROM `+aiInsight0165ControlTable+`
+		WHERE request_id = ? AND migration_checksum = ? FOR UPDATE`, requestID, c.checksum).Scan(&controlStatus); err != nil {
+		return result, fmt.Errorf("lock controlled 0165 completion: %w", err)
+	}
+	switch controlStatus {
+	case "applying", "applied_unverified", "failed", "verified":
+	default:
+		return result, fmt.Errorf("controlled 0165 completion cannot advance from status %q", controlStatus)
+	}
+	updated, err := tx.ExecContext(ctx, `UPDATE `+aiInsight0165ControlTable+`
+		SET status = 'verified', verified_at = NOW(), updated_at = NOW()
+		WHERE request_id = ? AND migration_checksum = ? AND status = ?`, requestID, c.checksum, controlStatus)
+	if err != nil {
+		return result, fmt.Errorf("mark controlled 0165 verified: %w", err)
+	}
+	affected, err := updated.RowsAffected()
+	if err != nil {
+		return result, fmt.Errorf("inspect controlled 0165 verified update: %w", err)
+	}
+	if affected != 1 && !(controlStatus == "verified" && affected == 0) {
+		return result, fmt.Errorf("mark controlled 0165 verified affected %d rows", affected)
+	}
+	if err := tx.Commit(); err != nil {
+		return result, fmt.Errorf("commit controlled 0165 completion: %w", err)
 	}
 	result.Applied = true
 	result.Verified = true
@@ -687,6 +723,74 @@ func aiInsight0165TableDigest(ctx context.Context, queryer aiInsight0165Queryer,
 	if err != nil {
 		return 0, "", fmt.Errorf("digest table %s: %w", table, err)
 	}
+	return aiInsight0165RowsDigest(rows)
+}
+
+func aiInsight0165SurvivorDigests(ctx context.Context, queryer aiInsight0165Queryer) (int64, string, int64, string, error) {
+	rows, err := queryer.QueryContext(ctx, `SELECT column_name
+		FROM information_schema.columns
+		WHERE table_schema = DATABASE() AND table_name = ?
+		ORDER BY ordinal_position`, aiInsight0165BackupSourceTable)
+	if err != nil {
+		return 0, "", 0, "", err
+	}
+	columns := make([]string, 0)
+	for rows.Next() {
+		var column string
+		if err := rows.Scan(&column); err != nil {
+			rows.Close()
+			return 0, "", 0, "", err
+		}
+		// The immutable migration's analysis_date backfill legitimately advances
+		// ON UPDATE updated_at. Every other pre-0165 column must remain byte-stable.
+		if column != "updated_at" {
+			columns = append(columns, column)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return 0, "", 0, "", err
+	}
+	if err := rows.Close(); err != nil {
+		return 0, "", 0, "", err
+	}
+	if len(columns) == 0 {
+		return 0, "", 0, "", fmt.Errorf("%w: backup source columns are missing", ErrAIInsight0165BackupMissing)
+	}
+	backupColumns := make([]string, 0, len(columns))
+	sourceColumns := make([]string, 0, len(columns))
+	for _, column := range columns {
+		quoted := "`" + strings.ReplaceAll(column, "`", "``") + "`"
+		backupColumns = append(backupColumns, "backup."+quoted)
+		sourceColumns = append(sourceColumns, quoted)
+	}
+	expectedQuery := `SELECT ` + strings.Join(backupColumns, ",") + `
+		FROM ` + aiInsight0165BackupSourceTable + ` AS backup
+		INNER JOIN (
+			SELECT MAX(id) AS survivor_id
+			FROM ` + aiInsight0165BackupSourceTable + `
+			GROUP BY tenant_id, corp_id, analysis_type, rule_version_id, conversation_key,
+				COALESCE(DATE(CONVERT_TZ(COALESCE(generated_at, source_ended_at, created_at), '+00:00', '+08:00')),
+					DATE(COALESCE(generated_at, source_ended_at, created_at)), CURDATE())
+		) AS expected ON expected.survivor_id = backup.id
+		ORDER BY backup.id`
+	expectedRows, err := queryer.QueryContext(ctx, expectedQuery)
+	if err != nil {
+		return 0, "", 0, "", fmt.Errorf("digest expected 0165 survivors: %w", err)
+	}
+	expectedCount, expectedDigest, err := aiInsight0165RowsDigest(expectedRows)
+	if err != nil {
+		return 0, "", 0, "", err
+	}
+	actualRows, err := queryer.QueryContext(ctx, `SELECT `+strings.Join(sourceColumns, ",")+` FROM `+aiInsight0165SourceTable+` ORDER BY id`)
+	if err != nil {
+		return 0, "", 0, "", fmt.Errorf("digest actual 0165 survivors: %w", err)
+	}
+	actualCount, actualDigest, err := aiInsight0165RowsDigest(actualRows)
+	return expectedCount, expectedDigest, actualCount, actualDigest, err
+}
+
+func aiInsight0165RowsDigest(rows *sql.Rows) (int64, string, error) {
 	defer rows.Close()
 	columns, err := rows.Columns()
 	if err != nil {
