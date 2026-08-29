@@ -80,13 +80,76 @@ test('disables duplicate submission while pending and preserves fields on failur
   const submit = screen.getByRole('button', { name: '创建订单' });
   fireEvent.click(submit);
   expect((await screen.findByRole('button', { name: '创建中…' })).hasAttribute('disabled')).toBe(true);
+  expect(screen.getByLabelText<HTMLInputElement>('订单标题').disabled).toBe(true);
+  expect(screen.getByLabelText<HTMLSelectElement>('联系人').disabled).toBe(true);
   fireEvent.click(screen.getByRole('button', { name: '创建中…' }));
   expect(api.write).toHaveBeenCalledTimes(1);
-  expect(api.write).toHaveBeenCalledWith('/scrm/orders', expect.not.objectContaining({ id: expect.anything() }), 'POST');
+  expect(api.write).toHaveBeenCalledWith('/scrm/orders', expect.not.objectContaining({ id: expect.anything() }), 'POST', { 'Idempotency-Key': expect.any(String) });
   rejectCreate(new Error('failed'));
   await waitFor(() => expect(screen.getByRole('alert')).not.toBeNull());
   expect(screen.getByLabelText<HTMLInputElement>('订单标题').value).toBe('续费订单');
   expect(screen.getByLabelText<HTMLInputElement>('金额（元）').value).toBe('12.00');
+});
+
+test('reuses one idempotency key for a failed intent and rotates it after success', async () => {
+  const contact = { id: 'c1', name: '张三' };
+  const write = vi.fn()
+    .mockRejectedValueOnce(new Error('lost response'))
+    .mockResolvedValueOnce({ id: 'order-1' })
+    .mockResolvedValueOnce({ id: 'order-2' });
+  const api = {
+    read: vi.fn((endpoint: string) => Promise.resolve(endpoint === '/scrm/contacts' ? { items: [contact] } : { items: [] })),
+    write,
+  };
+  render(<DashboardAccessProvider value={access}><QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })}><OrderPage api={api} /></QueryClientProvider></DashboardAccessProvider>);
+  await screen.findByRole('option', { name: '张三' });
+  fireEvent.change(screen.getByLabelText('联系人'), { target: { value: 'c1' } });
+  fireEvent.change(screen.getByLabelText('订单标题'), { target: { value: '续费订单' } });
+  fireEvent.change(screen.getByLabelText('金额（元）'), { target: { value: '12.00' } });
+
+  fireEvent.click(screen.getByRole('button', { name: '创建订单' }));
+  await screen.findByRole('alert');
+  fireEvent.click(screen.getByRole('button', { name: '创建订单' }));
+  await screen.findByText('订单已创建并回填列表。');
+
+  const firstHeaders = write.mock.calls[0]?.[3] as Record<string, string>;
+  const retryHeaders = write.mock.calls[1]?.[3] as Record<string, string>;
+  expect(firstHeaders['Idempotency-Key']).toBeTruthy();
+  expect(retryHeaders['Idempotency-Key']).toBe(firstHeaders['Idempotency-Key']);
+
+  fireEvent.change(screen.getByLabelText('订单标题'), { target: { value: '第二个订单' } });
+  fireEvent.change(screen.getByLabelText('金额（元）'), { target: { value: '13.00' } });
+  fireEvent.click(screen.getByRole('button', { name: '创建订单' }));
+  await waitFor(() => expect(write).toHaveBeenCalledTimes(3));
+  const nextHeaders = write.mock.calls[2]?.[3] as Record<string, string>;
+  expect(nextHeaders['Idempotency-Key']).not.toBe(firstHeaders['Idempotency-Key']);
+});
+
+test('clears a failed intent key when the user cancels the form', async () => {
+  const contact = { id: 'c1', name: '张三' };
+  const write = vi.fn().mockRejectedValueOnce(new Error('failed')).mockResolvedValueOnce({ id: 'order-2' });
+  const api = {
+    read: vi.fn((endpoint: string) => Promise.resolve(endpoint === '/scrm/contacts' ? { items: [contact] } : { items: [] })),
+    write,
+  };
+  render(<DashboardAccessProvider value={access}><QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })}><OrderPage api={api} /></QueryClientProvider></DashboardAccessProvider>);
+  await screen.findByRole('option', { name: '张三' });
+  fireEvent.change(screen.getByLabelText('联系人'), { target: { value: 'c1' } });
+  fireEvent.change(screen.getByLabelText('订单标题'), { target: { value: '取消前订单' } });
+  fireEvent.change(screen.getByLabelText('金额（元）'), { target: { value: '12.00' } });
+  fireEvent.click(screen.getByRole('button', { name: '创建订单' }));
+  await screen.findByRole('alert');
+  const failedKey = ((write.mock.calls[0]?.[3] as Record<string, string>) ?? {})['Idempotency-Key'];
+
+  fireEvent.click(screen.getByRole('button', { name: '取消填写' }));
+  fireEvent.change(screen.getByLabelText('联系人'), { target: { value: 'c1' } });
+  fireEvent.change(screen.getByLabelText('订单标题'), { target: { value: '取消后订单' } });
+  fireEvent.change(screen.getByLabelText('金额（元）'), { target: { value: '12.00' } });
+  fireEvent.click(screen.getByRole('button', { name: '创建订单' }));
+  await waitFor(() => expect(write).toHaveBeenCalledTimes(2));
+  const nextKey = ((write.mock.calls[1]?.[3] as Record<string, string>) ?? {})['Idempotency-Key'];
+  expect(nextKey).toBeTruthy();
+  expect(nextKey).not.toBe(failedKey);
 });
 
 test('paginates the order list with small phase35 controls', async () => {

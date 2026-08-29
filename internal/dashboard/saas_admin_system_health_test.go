@@ -13,8 +13,8 @@ import (
 )
 
 func TestSaaSAdminSystemHealthMigrationExpectationMatchesRelease(t *testing.T) {
-	if SaaSAdminExpectedMigrationVersion != "0172_wework_callback_inbox" || SaaSAdminExpectedMigrationCount != 172 {
-		t.Fatalf("SaaS admin migration baseline = %q/%d, want 0172_wework_callback_inbox/172", SaaSAdminExpectedMigrationVersion, SaaSAdminExpectedMigrationCount)
+	if SaaSAdminExpectedMigrationVersion != "0173_scrm_order_idempotency" || SaaSAdminExpectedMigrationCount != 173 {
+		t.Fatalf("SaaS admin migration baseline = %q/%d, want 0173_scrm_order_idempotency/173", SaaSAdminExpectedMigrationVersion, SaaSAdminExpectedMigrationCount)
 	}
 	migrations := migration.DefaultMigrations(filepath.Join("..", ".."))
 	if len(migrations) != SaaSAdminExpectedMigrationCount {

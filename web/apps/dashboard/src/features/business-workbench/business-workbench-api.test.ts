@@ -17,5 +17,11 @@ describe('business workbench API', () => {
       method: 'POST',
       body: JSON.stringify({ name: '欢迎语', content: '你好' }),
     }));
+
+    await api.write('/scrm/orders', { title: '续费' }, 'POST', { 'Idempotency-Key': 'intent-1' });
+    expect(request).toHaveBeenLastCalledWith('/scrm/orders', expect.objectContaining({
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Idempotency-Key': 'intent-1' },
+    }));
   });
 });

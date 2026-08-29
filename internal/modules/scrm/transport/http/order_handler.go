@@ -1,8 +1,10 @@
 package http
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"jiyi/mochat-go/internal/modules/scrm/domain"
 	nethttp "net/http"
 	"sort"
@@ -17,21 +19,24 @@ type OrderRepository interface {
 	Transition(string, int64, domain.OrderStatus, int64) (domain.Order, error)
 }
 type orderContextRepository interface {
-	CreateContext(context.Context, domain.Order, int64) (domain.Order, error)
 	ListContext(context.Context, int64, int64, int, int) ([]domain.Order, int, error)
 	TransitionContext(context.Context, string, int64, int64, domain.OrderStatus, int64, int64) (domain.Order, error)
+}
+type orderIdempotentRepository interface {
+	CreateIdempotentContext(context.Context, domain.OrderCreateCommand) (domain.OrderCreateReceipt, error)
 }
 type orderDetailRepository interface {
 	GetContext(context.Context, string, int64, int64) (domain.Order, error)
 	AuditContext(context.Context, string, int64, int64) ([]map[string]any, error)
 }
 type MemoryOrderRepository struct {
-	mu    sync.Mutex
-	items map[string]domain.Order
+	mu       sync.Mutex
+	items    map[string]domain.Order
+	receipts map[string]domain.OrderCreateReceipt
 }
 
 func NewMemoryOrderRepository() *MemoryOrderRepository {
-	return &MemoryOrderRepository{items: map[string]domain.Order{}}
+	return &MemoryOrderRepository{items: map[string]domain.Order{}, receipts: map[string]domain.OrderCreateReceipt{}}
 }
 func (r *MemoryOrderRepository) Create(o domain.Order) (domain.Order, error) {
 	r.mu.Lock()
@@ -41,6 +46,34 @@ func (r *MemoryOrderRepository) Create(o domain.Order) (domain.Order, error) {
 	}
 	r.items[o.ID] = o
 	return o, nil
+}
+func (r *MemoryOrderRepository) CreateIdempotentContext(_ context.Context, command domain.OrderCreateCommand) (domain.OrderCreateReceipt, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	scope := strconv.FormatInt(command.Order.TenantID, 10) + "\x00" + strconv.FormatInt(command.Order.CorpID, 10) + "\x00" + command.IdempotencyKey
+	if receipt, ok := r.receipts[scope]; ok {
+		if receipt.OrderID == "" || command.RequestHash == "" || receipt.ResponseBody == nil || receipt.ResponseStatus == 0 {
+			return domain.OrderCreateReceipt{}, errors.New("incomplete order idempotency receipt")
+		}
+		if receipt.RequestHash != command.RequestHash {
+			return domain.OrderCreateReceipt{}, domain.ErrOrderIdempotencyConflict
+		}
+		receipt.Replayed = true
+		receipt.ResponseBody = append([]byte(nil), receipt.ResponseBody...)
+		return receipt, nil
+	}
+	if _, ok := r.items[command.Order.ID]; ok {
+		return domain.OrderCreateReceipt{}, errors.New("order already exists")
+	}
+	receipt := domain.OrderCreateReceipt{
+		OrderID:        command.Order.ID,
+		RequestHash:    command.RequestHash,
+		ResponseStatus: command.ResponseStatus,
+		ResponseBody:   append([]byte(nil), command.ResponseBody...),
+	}
+	r.items[command.Order.ID] = command.Order
+	r.receipts[scope] = receipt
+	return receipt, nil
 }
 func (r *MemoryOrderRepository) List(t, c int64) []domain.Order {
 	r.mu.Lock()
@@ -204,21 +237,53 @@ func (h *OrderHandler) ServeHTTP(w nethttp.ResponseWriter, r *nethttp.Request) {
 			return
 		}
 	}
+	idempotencyKey := strings.TrimSpace(r.Header.Get("Idempotency-Key"))
+	if idempotencyKey == "" || len(idempotencyKey) > 128 {
+		writeError(w, nethttp.StatusUnprocessableEntity, "Idempotency-Key is required and must not exceed 128 bytes")
+		return
+	}
 	o, e := domain.NewOrder(domain.NewOrderInput{ID: strings.TrimSpace(in.ID), TenantID: inTenantID, CorpID: inCorpID, ContactID: in.ContactID, OpportunityID: in.OpportunityID, Title: in.Title, Note: in.Note, AmountCents: in.AmountCents, Currency: in.Currency, Status: in.Status})
 	if e != nil {
 		nethttp.Error(w, e.Error(), 422)
 		return
 	}
-	if cr, ok := h.repo.(orderContextRepository); ok {
-		o, e = cr.CreateContext(r.Context(), o, p.UserID)
-	} else {
-		o, e = h.repo.Create(o)
-	}
+	requestHash, e := domain.OrderCreateRequestHash(o, in.ID)
 	if e != nil {
-		nethttp.Error(w, e.Error(), 409)
+		writeError(w, nethttp.StatusInternalServerError, "internal server error")
 		return
 	}
-	writeJSON(w, nethttp.StatusOK, map[string]any{"data": o})
+	responseBody, e := encodeOrderCreateResponse(o)
+	if e != nil {
+		writeError(w, nethttp.StatusInternalServerError, "internal server error")
+		return
+	}
+	creator, ok := h.repo.(orderIdempotentRepository)
+	if !ok {
+		writeError(w, nethttp.StatusInternalServerError, "order repository does not support idempotent creation")
+		return
+	}
+	receipt, e := creator.CreateIdempotentContext(r.Context(), domain.OrderCreateCommand{Order: o, ActorID: p.UserID, IdempotencyKey: idempotencyKey, RequestHash: requestHash, ResponseStatus: nethttp.StatusOK, ResponseBody: responseBody})
+	if e != nil {
+		if errors.Is(e, domain.ErrOrderIdempotencyConflict) {
+			writeError(w, nethttp.StatusConflict, "Idempotency-Key already used with a different order payload")
+		} else {
+			writeError(w, nethttp.StatusInternalServerError, "internal server error")
+		}
+		return
+	}
+	writeOrderCreateReceipt(w, receipt)
+}
+
+func encodeOrderCreateResponse(order domain.Order) ([]byte, error) {
+	var buffer bytes.Buffer
+	err := json.NewEncoder(&buffer).Encode(map[string]any{"code": nethttp.StatusOK, "msg": "success", "data": order})
+	return buffer.Bytes(), err
+}
+
+func writeOrderCreateReceipt(w nethttp.ResponseWriter, receipt domain.OrderCreateReceipt) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(receipt.ResponseStatus)
+	_, _ = w.Write(receipt.ResponseBody)
 }
 
 func orderDetailID(path string) string {
