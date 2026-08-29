@@ -83,6 +83,8 @@ type Group struct {
 	snapshot map[string]Snapshot
 	recorder Recorder
 	started  bool
+	wait     sync.WaitGroup
+	done     chan struct{}
 }
 
 var runIDCounter atomic.Uint64
@@ -92,7 +94,7 @@ func New(logger *slog.Logger) *Group {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Group{logger: logger, snapshot: map[string]Snapshot{}}
+	return &Group{logger: logger, snapshot: map[string]Snapshot{}, done: make(chan struct{})}
 }
 
 func (g *Group) WithRecorder(recorder Recorder) *Group {
@@ -122,7 +124,15 @@ func Periodic(cfg PeriodicConfig, run func(context.Context) error) func(context.
 		runOnce := func() {
 			startedAt := time.Now()
 			taskName := periodicTaskName(ctx, cfg.Name)
-			err := run(ctx)
+			var err error
+			func() {
+				defer func() {
+					if recovered := recover(); recovered != nil {
+						err = fmt.Errorf("panic: %v", recovered)
+					}
+				}()
+				err = run(ctx)
+			}()
 			stoppedAt := time.Now()
 			if errors.Is(err, context.Canceled) {
 				return
@@ -214,11 +224,31 @@ func (g *Group) Start(ctx context.Context) error {
 		g.snapshot[task.Name] = Snapshot{Name: task.Name, Status: StatusPending}
 	}
 	g.started = true
+	g.wait.Add(len(g.tasks))
 	for _, task := range g.tasks {
 		task := task
-		go g.run(ctx, task)
+		go func() {
+			defer g.wait.Done()
+			g.run(ctx, task)
+		}()
 	}
+	go func() {
+		g.wait.Wait()
+		close(g.done)
+	}()
 	return nil
+}
+
+func (g *Group) Wait(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	select {
+	case <-g.done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 func (g *Group) Snapshots() []Snapshot {

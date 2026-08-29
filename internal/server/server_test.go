@@ -3,11 +3,13 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -608,6 +610,33 @@ func TestReadyzRejectsWrongUpstream(t *testing.T) {
 	}
 }
 
+func TestReadyzCapsTheWholeProbeBudgetAtTwoSeconds(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, request *http.Request) {
+		<-request.Context().Done()
+	}))
+	defer upstream.Close()
+	srv, err := New(config.Config{
+		ListenAddr:   ":0",
+		PHPUpstream:  upstream.URL,
+		SourceRoot:   t.TempDir(),
+		ManifestPath: writeManifest(t),
+		ProxyTimeout: 5 * time.Second,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	started := time.Now()
+	recorder := httptest.NewRecorder()
+	srv.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/readyz", nil))
+	if elapsed := time.Since(started); elapsed > 2500*time.Millisecond {
+		t.Fatalf("readiness exceeded total budget: %s", elapsed)
+	}
+	if recorder.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
 func TestReadyzStandaloneDoesNotRequireSourceManifestOrPHP(t *testing.T) {
 	srv, err := New(config.Config{
 		ListenAddr:   ":0",
@@ -643,6 +672,84 @@ func TestReadyzStandaloneDoesNotRequireSourceManifestOrPHP(t *testing.T) {
 	}
 	if payload.PHPUpstreamReady {
 		t.Fatalf("PHPUpstreamReady = true")
+	}
+}
+
+func TestHealthzStaysLiveWhileDependencyReadinessRecovers(t *testing.T) {
+	var mysqlDown atomic.Bool
+	var redisDown atomic.Bool
+	var migrationsBehind atomic.Bool
+	mysqlDown.Store(true)
+	redisDown.Store(true)
+	migrationsBehind.Store(true)
+	checker := NewReadinessChecker(
+		ReadinessProbe{Code: "mysql_connection", Check: func(context.Context) error {
+			if mysqlDown.Load() {
+				return errors.New("mysql down dsn=user:secret@tcp(mysql.internal:3306)/mochat")
+			}
+			return nil
+		}},
+		ReadinessProbe{Code: "redis_connection", Check: func(context.Context) error {
+			if redisDown.Load() {
+				return errors.New("redis down at redis.internal:6379 password=secret")
+			}
+			return nil
+		}},
+		ReadinessProbe{Code: "migration_current", Check: func(context.Context) error {
+			if migrationsBehind.Load() {
+				return errors.New("migration 0172 pending")
+			}
+			return nil
+		}},
+	)
+	srv, err := New(config.Config{ListenAddr: ":0", Standalone: true, ProxyTimeout: time.Second}, WithReadinessChecker(checker))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	health := httptest.NewRecorder()
+	srv.ServeHTTP(health, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+	if health.Code != http.StatusOK {
+		t.Fatalf("health status = %d body=%s", health.Code, health.Body.String())
+	}
+	notReady := httptest.NewRecorder()
+	srv.ServeHTTP(notReady, httptest.NewRequest(http.MethodGet, "/readyz", nil))
+	if notReady.Code != http.StatusServiceUnavailable {
+		t.Fatalf("ready status = %d body=%s", notReady.Code, notReady.Body.String())
+	}
+	for _, code := range []string{"mysql_connection", "redis_connection", "migration_current"} {
+		if !strings.Contains(notReady.Body.String(), `"code":"`+code+`"`) {
+			t.Fatalf("readiness body missing code %q: %s", code, notReady.Body.String())
+		}
+	}
+	for _, secret := range []string{"user:secret", "mysql.internal", "redis.internal", "password=secret", "0172"} {
+		if strings.Contains(notReady.Body.String(), secret) {
+			t.Fatalf("readiness leaked %q: %s", secret, notReady.Body.String())
+		}
+	}
+
+	mysqlDown.Store(false)
+	redisDown.Store(false)
+	migrationsBehind.Store(false)
+	ready := httptest.NewRecorder()
+	srv.ServeHTTP(ready, httptest.NewRequest(http.MethodGet, "/readyz", nil))
+	if ready.Code != http.StatusOK {
+		t.Fatalf("recovered ready status = %d body=%s", ready.Code, ready.Body.String())
+	}
+}
+
+func TestReadyzFailsImmediatelyWhenDraining(t *testing.T) {
+	checker := NewReadinessChecker(ReadinessProbe{Code: "mysql_connection", Check: func(context.Context) error { return nil }})
+	srv, err := New(config.Config{ListenAddr: ":0", Standalone: true, ProxyTimeout: time.Second}, WithReadinessChecker(checker))
+	if err != nil {
+		t.Fatal(err)
+	}
+	checker.BeginDrain()
+
+	recorder := httptest.NewRecorder()
+	srv.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/readyz", nil))
+	if recorder.Code != http.StatusServiceUnavailable || !strings.Contains(recorder.Body.String(), `"code":"runtime_draining"`) {
+		t.Fatalf("draining readiness = %d body=%s", recorder.Code, recorder.Body.String())
 	}
 }
 

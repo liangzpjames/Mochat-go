@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"jiyi/mochat-go/internal/config"
@@ -703,6 +704,7 @@ type Server struct {
 	menuStatusUpdate                                http.Handler
 	menuDestroy                                     http.Handler
 	backgroundTasks                                 func() []taskrunner.Snapshot
+	readiness                                       *ReadinessChecker
 }
 
 type statusPayload struct {
@@ -722,6 +724,64 @@ type statusPayload struct {
 	MigratedRoutes        []string              `json:"migrated_routes"`
 	BackgroundTasks       []taskrunner.Snapshot `json:"background_tasks,omitempty"`
 	NextMigrationBoundary string                `json:"next_migration_boundary"`
+	Ready                 *bool                 `json:"ready,omitempty"`
+	ReadinessChecks       []ReadinessCheck      `json:"readiness_checks,omitempty"`
+}
+
+type ReadinessProbe struct {
+	Code  string
+	Check func(context.Context) error
+}
+
+type ReadinessCheck struct {
+	Code  string `json:"code"`
+	Ready bool   `json:"ready"`
+}
+
+// ReadinessChecker runs bounded dependency probes and returns only stable
+// codes. Probe errors are intentionally not serialized because they may carry
+// credentials or internal addresses.
+type ReadinessChecker struct {
+	probes   []ReadinessProbe
+	draining atomic.Bool
+}
+
+func NewReadinessChecker(probes ...ReadinessProbe) *ReadinessChecker {
+	filtered := make([]ReadinessProbe, 0, len(probes))
+	for _, probe := range probes {
+		probe.Code = strings.TrimSpace(probe.Code)
+		if probe.Code == "" || probe.Check == nil {
+			continue
+		}
+		filtered = append(filtered, probe)
+	}
+	return &ReadinessChecker{probes: filtered}
+}
+
+func (c *ReadinessChecker) BeginDrain() {
+	if c != nil {
+		c.draining.Store(true)
+	}
+}
+
+func (c *ReadinessChecker) Check(ctx context.Context) []ReadinessCheck {
+	if c == nil {
+		return nil
+	}
+	if c.draining.Load() {
+		return []ReadinessCheck{{Code: "runtime_draining", Ready: false}}
+	}
+	results := make([]ReadinessCheck, 0, len(c.probes))
+	for _, probe := range c.probes {
+		probeCtx, cancel := context.WithTimeout(ctx, 400*time.Millisecond)
+		err := probe.Check(probeCtx)
+		cancel()
+		results = append(results, ReadinessCheck{Code: probe.Code, Ready: err == nil})
+		if ctx.Err() != nil {
+			break
+		}
+	}
+	return results
 }
 
 var migratedRoutes = []string{
@@ -800,6 +860,12 @@ func WithDashboardAccessHandler(handler http.Handler) Option {
 func WithBackgroundTasks(snapshot func() []taskrunner.Snapshot) Option {
 	return func(server *Server) {
 		server.backgroundTasks = snapshot
+	}
+}
+
+func WithReadinessChecker(checker *ReadinessChecker) Option {
+	return func(server *Server) {
+		server.readiness = checker
 	}
 }
 
@@ -4594,20 +4660,35 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.URL.Path == "/readyz" && r.Method == http.MethodGet:
 		status := http.StatusOK
 		payload := s.status()
+		readyState := true
+		payload.Ready = &readyState
+		checkCtx, cancelChecks := context.WithTimeout(r.Context(), 2*time.Second)
 		if s.cfg.Standalone {
 			payload.PHPUpstreamReady = false
 			payload.PHPUpstreamProbe = "standalone mode: PHP upstream disabled"
 			if len(embeddedCompatManifest) == 0 {
 				status = http.StatusServiceUnavailable
+				readyState = false
 			}
 		} else {
-			ready, probe := s.probePHPUpstream(r.Context())
+			ready, probe := s.probePHPUpstream(checkCtx)
 			payload.PHPUpstreamReady = ready
 			payload.PHPUpstreamProbe = probe
 			if !payload.SourceRootExists || !payload.ManifestExists || !payload.ProxyFallbackEnabled || !payload.PHPUpstreamReady {
 				status = http.StatusServiceUnavailable
+				readyState = false
 			}
 		}
+		if s.readiness != nil {
+			payload.ReadinessChecks = s.readiness.Check(checkCtx)
+			for _, check := range payload.ReadinessChecks {
+				if !check.Ready {
+					status = http.StatusServiceUnavailable
+					readyState = false
+				}
+			}
+		}
+		cancelChecks()
 		writeJSON(w, status, payload)
 	case strings.HasPrefix(r.URL.Path, "/static/") && (r.Method == http.MethodGet || r.Method == http.MethodHead):
 		s.serveStaticUpload(w, r)

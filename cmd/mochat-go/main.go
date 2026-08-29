@@ -27,6 +27,7 @@ import (
 	"jiyi/mochat-go/internal/dashboardprincipal"
 	"jiyi/mochat-go/internal/frontend"
 	"jiyi/mochat-go/internal/identitysecurity"
+	"jiyi/mochat-go/internal/migration"
 	archiveprovider "jiyi/mochat-go/internal/modules/providers/archive"
 	wecomarchiveprovider "jiyi/mochat-go/internal/modules/providers/archive/wecom"
 	audioprovider "jiyi/mochat-go/internal/modules/providers/audio/local"
@@ -34,6 +35,7 @@ import (
 	"jiyi/mochat-go/internal/mysqlconn"
 	"jiyi/mochat-go/internal/outboundhttp"
 	"jiyi/mochat-go/internal/providerstatus"
+	"jiyi/mochat-go/internal/runtimegroup"
 	"jiyi/mochat-go/internal/saasalertcredentials"
 	"jiyi/mochat-go/internal/saasauditanchor"
 	"jiyi/mochat-go/internal/saasauth"
@@ -117,10 +119,20 @@ func (v companyProfileWeComVerifier) Verify(ctx context.Context, request company
 
 func main() {
 	configureLogging()
+	var runtimeErr error
+	defer func() {
+		if runtimeErr != nil {
+			fatal(runtimeErr)
+		}
+	}()
 	cfg, err := config.Load()
 	if err != nil {
 		fatalf("load config: %v", err)
 	}
+	rootCtx, cancelRoot := context.WithCancel(context.Background())
+	defer cancelRoot()
+	shutdownCtx, stopSignals := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stopSignals()
 	archivePlan := archiveRuntimePlanFor(cfg)
 	applicationLocation, err := time.LoadLocation(cfg.Timezone)
 	if err != nil {
@@ -229,7 +241,7 @@ func main() {
 			Password: cfg.RedisPassword,
 			DB:       cfg.RedisDB,
 		})
-		if err := redisStore.Ping(context.Background()); err != nil {
+		if err := redisStore.Ping(rootCtx); err != nil {
 			fatalf("ping redis: %v", err)
 		}
 		return redisStore
@@ -3579,23 +3591,32 @@ func main() {
 	}
 	if persistentBackgroundRecorderEnabled {
 		recorder := taskrunner.NewSQLRecorder(getMySQLStore().DB(), structuredLogger(), taskrunner.WithHistoryRetention(14*24*time.Hour, time.Hour, 10000))
-		if err := recorder.Ensure(context.Background()); err != nil {
+		if err := recorder.Ensure(rootCtx); err != nil {
 			fatalf("ensure background task recorder: %v", err)
 		}
 		workerGroup.WithRecorder(recorder)
 		debugf("background task recorder enabled: mysql tables=mochat_go_background_tasks,mochat_go_background_task_runs,mochat_go_background_task_executions")
 	}
-	if err := workerGroup.Start(context.Background()); err != nil {
+	if err := workerGroup.Start(rootCtx); err != nil {
 		fatalf("start background tasks: %v", err)
 	}
+	defer func() {
+		cancelRoot()
+		waitCtx, cancelWait := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancelWait()
+		if err := workerGroup.Wait(waitCtx); err != nil {
+			structuredLogger().Error("后台任务未在关闭期限内退出",
+				"event", "background_tasks_drain_failed", "component", "runtime", "step", "shutdown",
+				"result", "failed", "error_code", "BACKGROUND_TASKS_DRAIN_TIMEOUT")
+		}
+	}()
 	if backgroundTasksEnabled {
 		options = append(options, compatserver.WithBackgroundTasks(workerGroup.Snapshots))
 	}
 	if !cfg.RuntimeRole.RunsAPI() {
 		debugf("runtime role %s started without HTTP listeners", cfg.RuntimeRole)
-		shutdown := make(chan os.Signal, 1)
-		signal.Notify(shutdown, os.Interrupt, syscall.SIGTERM)
-		<-shutdown
+		<-shutdownCtx.Done()
+		cancelRoot()
 		debugf("runtime role %s stopping after shutdown signal", cfg.RuntimeRole)
 		return
 	}
@@ -3628,6 +3649,63 @@ func main() {
 		compatserver.WithDashboardAccessHandler(dashboardAccessHTTP),
 		compatserver.WithModuleRouter(moduleRouter),
 	)
+	readinessProbes := make([]compatserver.ReadinessProbe, 0, 4)
+	if mysqlStore != nil {
+		db := mysqlStore.DB()
+		readinessProbes = append(readinessProbes, compatserver.ReadinessProbe{
+			Code: "mysql_connection",
+			Check: func(ctx context.Context) error {
+				return db.PingContext(ctx)
+			},
+		})
+		migrationRunner, runnerErr := migration.NewRunner(db, migration.DefaultMigrations("."))
+		if runnerErr != nil {
+			runtimeErr = fmt.Errorf("build readiness migration runner: %w", runnerErr)
+			return
+		}
+		readinessProbes = append(readinessProbes, compatserver.ReadinessProbe{
+			Code: "migration_current",
+			Check: func(ctx context.Context) error {
+				statuses, statusErr := migrationRunner.Status(ctx)
+				if statusErr != nil {
+					return statusErr
+				}
+				for _, item := range statuses {
+					if item.State != "applied" {
+						return errors.New("migration ledger is not current")
+					}
+				}
+				return nil
+			},
+		})
+	}
+	if redisStore != nil {
+		readinessProbes = append(readinessProbes, compatserver.ReadinessProbe{
+			Code: "redis_connection",
+			Check: func(ctx context.Context) error {
+				return redisStore.Ping(ctx)
+			},
+		})
+	}
+	if backgroundTasksEnabled {
+		readinessProbes = append(readinessProbes, compatserver.ReadinessProbe{
+			Code: "background_tasks",
+			Check: func(context.Context) error {
+				snapshots := workerGroup.Snapshots()
+				if len(snapshots) == 0 {
+					return errors.New("required background tasks are not registered")
+				}
+				for _, snapshot := range snapshots {
+					if snapshot.Status != taskrunner.StatusRunning {
+						return errors.New("required background task is not running")
+					}
+				}
+				return nil
+			},
+		})
+	}
+	readinessChecker := compatserver.NewReadinessChecker(readinessProbes...)
+	options = append(options, compatserver.WithReadinessChecker(readinessChecker))
 	handler, err := compatserver.New(cfg, options...)
 	if err != nil {
 		fatalf("build server: %v", err)
@@ -3639,39 +3717,62 @@ func main() {
 	if cfg.EnableSaaSAdminDashboard {
 		serveHandler = frontend.WrapApp(serveHandler, frontend.AppConfig{DistDir: cfg.SaaSAdminDist, MountPath: "/saas-admin/"})
 	}
-	startFrontend := func(name, addr, dist string) {
+	httpServices := runtimegroup.New(readinessChecker, cancelRoot, 30*time.Second)
+	var listeners []net.Listener
+	serviceGroupOwnsListeners := false
+	defer func() {
+		if serviceGroupOwnsListeners {
+			return
+		}
+		for _, listener := range listeners {
+			_ = listener.Close()
+		}
+	}()
+	addFrontend := func(name, addr, dist string) error {
 		addr = strings.TrimSpace(addr)
 		if addr == "" {
-			return
+			return nil
 		}
 		if !frontend.DistAvailable(dist) {
 			debugf("%s frontend skipped: dist not found at %s", name, dist)
-			return
+			return nil
 		}
 		appHandler := frontend.WrapApp(loggedAPIHandler, frontend.AppConfig{DistDir: dist})
 		frontendListener, err := net.Listen("tcp", addr)
 		if err != nil {
-			fatalf("%s frontend listen on %s: %v", name, addr, err)
+			return fmt.Errorf("%s frontend listen on %s: %w", name, addr, err)
 		}
+		listeners = append(listeners, frontendListener)
 		logRuntimeListening(name, frontendListener.Addr().String(), false)
-		go func(listener net.Listener) {
-			debugf("%s frontend listening on %s from %s", name, listener.Addr().String(), dist)
-			if err := http.Serve(listener, appHandler); err != nil {
-				fatalf("%s frontend serve: %v", name, err)
-			}
-		}(frontendListener)
+		debugf("%s frontend listening on %s from %s", name, frontendListener.Addr().String(), dist)
+		return httpServices.Add(name, frontendListener, runtimegroup.NewHTTPServer(rootCtx, appHandler))
 	}
-	startFrontend("sidebar", cfg.SidebarFrontendAddr, cfg.SidebarDist)
-	startFrontend("operation", cfg.OperationFrontendAddr, cfg.OperationDist)
+	if err := addFrontend("sidebar", cfg.SidebarFrontendAddr, cfg.SidebarDist); err != nil {
+		readinessChecker.BeginDrain()
+		runtimeErr = err
+		return
+	}
+	if err := addFrontend("operation", cfg.OperationFrontendAddr, cfg.OperationDist); err != nil {
+		readinessChecker.BeginDrain()
+		runtimeErr = err
+		return
+	}
 
 	listener, err := net.Listen("tcp", cfg.ListenAddr)
 	if err != nil {
-		fatalf("listen on %s: %v", cfg.ListenAddr, err)
+		readinessChecker.BeginDrain()
+		runtimeErr = fmt.Errorf("listen on %s: %w", cfg.ListenAddr, err)
+		return
 	}
+	listeners = append(listeners, listener)
 	logRuntimeListening("main", listener.Addr().String(), strings.TrimSpace(cfg.PHPUpstream) != "")
-	if err := http.Serve(listener, serveHandler); err != nil {
-		fatalf("serve: %v", err)
+	if err := httpServices.Add("main", listener, runtimegroup.NewHTTPServer(rootCtx, serveHandler)); err != nil {
+		readinessChecker.BeginDrain()
+		runtimeErr = err
+		return
 	}
+	serviceGroupOwnsListeners = true
+	runtimeErr = httpServices.Run(shutdownCtx)
 }
 
 type durableArchiveMediaBatchRunner interface {

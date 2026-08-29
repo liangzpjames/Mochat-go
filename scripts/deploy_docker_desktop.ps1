@@ -437,6 +437,8 @@ try {
     Wait-ComposeService -Service 'redis' -TimeoutSeconds 180
     Wait-ComposeService -Service 'app' -TimeoutSeconds 300
 
+    Wait-HttpEndpoint -Name '应用存活状态（迁移前）' -Url "http://127.0.0.1:$DashboardPort/healthz"
+
     if (Test-MigrationLedgerExists) {
         Write-Host '检测到迁移账本，跳过 baseline。'
     } else {

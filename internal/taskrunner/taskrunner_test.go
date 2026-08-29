@@ -36,6 +36,27 @@ func TestGroupStartsAndStopsTask(t *testing.T) {
 	}
 }
 
+func TestGroupWaitIsBoundedByCallerContext(t *testing.T) {
+	block := make(chan struct{})
+	defer close(block)
+	started := make(chan struct{})
+	group := New(slog.Default())
+	group.Add("stuck-worker", func(context.Context) error {
+		close(started)
+		<-block
+		return nil
+	})
+	if err := group.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	<-started
+	waitCtx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	if err := group.Wait(waitCtx); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("wait error = %v", err)
+	}
+}
+
 func TestGroupMarksFailures(t *testing.T) {
 	group := New(slog.Default())
 	group.Add("broken-worker", func(context.Context) error {
@@ -163,6 +184,38 @@ func TestPeriodicContinuesAfterRunError(t *testing.T) {
 	cancel()
 	if err := <-done; !errors.Is(err, context.Canceled) {
 		t.Fatalf("run error = %v", err)
+	}
+}
+
+func TestPeriodicRecoversPanicAtTickBoundaryAndRunsNextTick(t *testing.T) {
+	var output bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&output, nil))
+	ctx, cancel := context.WithCancel(context.Background())
+	recorder := &memoryRecorder{executions: make(chan ExecutionSnapshot, 4)}
+	var calls atomic.Int32
+	run := Periodic(PeriodicConfig{Name: "cron-panic", Interval: time.Millisecond, RunOnStart: true, Logger: logger}, func(context.Context) error {
+		if calls.Add(1) == 1 {
+			panic("tick exploded token=hidden-panic-token")
+		}
+		cancel()
+		return nil
+	})
+	done := make(chan error, 1)
+	go func() { done <- run(withTaskRuntime(ctx, "cron-panic", "run-panic", recorder)) }()
+
+	failed := <-recorder.executions
+	recovered := <-recorder.executions
+	if failed.Status != StatusFailed || !strings.Contains(failed.Error, "panic:") || strings.Contains(failed.Error, "hidden-panic-token") {
+		t.Fatalf("panic execution = %+v", failed)
+	}
+	if recovered.Status != StatusSucceeded || calls.Load() != 2 {
+		t.Fatalf("recovered execution = %+v calls=%d", recovered, calls.Load())
+	}
+	if err := <-done; !errors.Is(err, context.Canceled) {
+		t.Fatalf("run error = %v", err)
+	}
+	if !strings.Contains(output.String(), `"event":"periodic_task_failed"`) || !strings.Contains(output.String(), `"event":"periodic_task_recovered"`) {
+		t.Fatalf("panic failure/recovery logs = %s", output.String())
 	}
 }
 
