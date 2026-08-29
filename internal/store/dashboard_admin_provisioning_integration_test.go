@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -16,7 +15,6 @@ import (
 
 	"jiyi/mochat-go/internal/dashboard"
 	"jiyi/mochat-go/internal/dashboardadmin"
-	"jiyi/mochat-go/internal/migration"
 	"jiyi/mochat-go/internal/saasauth"
 
 	mysqldriver "github.com/go-sql-driver/mysql"
@@ -25,7 +23,7 @@ import (
 var dashboardAdminSchemaSequence atomic.Int64
 
 func TestDashboardAdminApprovalExecutionRealMariaDB(t *testing.T) {
-	db := newDashboardAdminProvisioningDB(t)
+	db := newCurrentStoreIntegrationDB(t)
 	createDashboardAdminProvisioningFixture(t, db)
 	rootUserID := seedDashboardAdminProvisioningPackageAndActor(t, db)
 
@@ -107,7 +105,7 @@ func TestDashboardAdminApprovalExecutionRealMariaDB(t *testing.T) {
 }
 
 func TestDashboardAdminApprovalEffectUpdateFailureRollsBackBusinessTransactionRealMariaDB(t *testing.T) {
-	db := newDashboardAdminProvisioningDB(t)
+	db := newCurrentStoreIntegrationDB(t)
 	createDashboardAdminProvisioningFixture(t, db)
 	rootUserID := seedDashboardAdminProvisioningPackageAndActor(t, db)
 
@@ -392,7 +390,7 @@ func realApprovalResultInt(result map[string]any, key string) (int, bool) {
 }
 
 func TestDashboardAdminProvisioningRealMariaDB(t *testing.T) {
-	db := newDashboardAdminProvisioningDB(t)
+	db := newCurrentStoreIntegrationDB(t)
 	createDashboardAdminProvisioningFixture(t, db)
 	rootUserID := seedDashboardAdminProvisioningPackageAndActor(t, db)
 
@@ -900,55 +898,14 @@ func dashboardAdminSchemaLeftoversWithDB(t *testing.T, admin *sql.DB) int {
 func createDashboardAdminProvisioningFixture(t *testing.T, db *sql.DB) {
 	t.Helper()
 	for _, statement := range []string{
-		`CREATE TABLE mc_tenant (id int(10) unsigned NOT NULL AUTO_INCREMENT, name varchar(255) NOT NULL DEFAULT '', status tinyint NOT NULL DEFAULT 1, created_at timestamp NULL, updated_at timestamp NULL, deleted_at timestamp NULL, PRIMARY KEY (id)) ENGINE=InnoDB`,
-		`CREATE TABLE mc_corp (id int(10) unsigned NOT NULL AUTO_INCREMENT, tenant_id int(11) DEFAULT 0, name varchar(255) NOT NULL DEFAULT '', wx_corpid varchar(255) NOT NULL DEFAULT '', employee_secret varchar(255) NOT NULL DEFAULT '', contact_secret varchar(255) NOT NULL DEFAULT '', token varchar(255) NOT NULL DEFAULT '', encoding_aes_key varchar(255) NOT NULL DEFAULT '', created_at timestamp NULL, updated_at timestamp NULL, deleted_at timestamp NULL, PRIMARY KEY (id)) ENGINE=InnoDB`,
-		`CREATE TABLE mc_user (id int(10) unsigned NOT NULL AUTO_INCREMENT, tenant_id int(11) NOT NULL DEFAULT 1, phone char(11) NOT NULL DEFAULT '', password varchar(255) NOT NULL DEFAULT '', name varchar(255) NOT NULL DEFAULT '', status tinyint unsigned NOT NULL DEFAULT 1, created_at timestamp NULL, updated_at timestamp NULL, deleted_at timestamp NULL, isSuperAdmin tinyint NOT NULL DEFAULT 0, PRIMARY KEY (id)) ENGINE=InnoDB`,
-		`CREATE TABLE mc_rbac_role (id int(11) NOT NULL AUTO_INCREMENT, tenant_id int(11) NOT NULL, data_permission json DEFAULT NULL, deleted_at timestamp NULL, PRIMARY KEY (id)) ENGINE=InnoDB`,
-		`CREATE TABLE mc_rbac_user_role (id int(11) NOT NULL AUTO_INCREMENT, user_id int(11) NOT NULL, role_id int(11) NOT NULL, deleted_at timestamp NULL, PRIMARY KEY (id)) ENGINE=InnoDB`,
 		`INSERT INTO mc_tenant (id, name, status) VALUES (1, 'Fixture tenant 1', 1), (2, 'Fixture tenant 2', 1)`,
 		`INSERT INTO mc_corp (id, tenant_id, name) VALUES (100, 1, 'Fixture corp 1'), (200, 2, 'Fixture corp 2')`,
 		`INSERT INTO mc_user (id, tenant_id, phone, status, deleted_at) VALUES (10, 1, '13800000001', 1, NULL)`,
-		`INSERT INTO mc_rbac_role (id, tenant_id) VALUES (20, 1)`,
+		`INSERT INTO mc_rbac_role (id, tenant_id, operate_id, operate_name) VALUES (20, 1, 10, 'Fixture actor')`,
+		`INSERT INTO mochat_go_tenant_corp_bindings (tenant_id,corp_id,status,verified_corp_name) VALUES (1,100,1,'Fixture corp 1'),(2,200,1,'Fixture corp 2')`,
 	} {
 		if _, err := db.Exec(statement); err != nil {
 			t.Fatalf("base fixture: %v", err)
-		}
-	}
-	root := filepath.Join("..", "..")
-	pageRBAC, err := os.ReadFile(filepath.Join(root, "deploy", "standalone", "migrations", "0127_dashboard_page_rbac.up.sql"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	pageScript := string(pageRBAC)
-	start := strings.Index(pageScript, "ALTER TABLE `mc_user`")
-	end := strings.Index(pageScript, "INSERT INTO `mochat_go_dashboard_permissions`")
-	if start < 0 || end <= start {
-		t.Fatal("0127 DDL boundaries not found")
-	}
-	applyDashboardAdminSQL(t, db, pageScript[start:end])
-	for _, migrationName := range []string{"0003_saas_provisioning.up.sql", "0024_saas_package_extended_limits.up.sql", "0025_saas_radar_limit.up.sql", "0026_saas_lottery_limit.up.sql", "0027_saas_room_infinite_pull_limit.up.sql", "0028_saas_room_fission_limit.up.sql", "0029_saas_room_clock_in_limit.up.sql", "0030_saas_room_operation_limits.up.sql", "0031_saas_sop_limits.up.sql", "0032_saas_sensitive_word_limit.up.sql", "0033_saas_admin_operation_logs.up.sql", "0039_saas_subscription_lifecycle.up.sql", "0045_saas_admin_rbac.up.sql", "0046_saas_admin_approvals.up.sql", "0047_saas_admin_approval_governance.up.sql", "0084_saas_package_definition_guard.up.sql", "0085_saas_tenant_package_assignment_guard.up.sql"} {
-		body, err := os.ReadFile(filepath.Join(root, "deploy", "standalone", "migrations", migrationName))
-		if err != nil {
-			t.Fatal(err)
-		}
-		applyDashboardAdminSQL(t, db, string(body))
-	}
-	body, err := os.ReadFile(filepath.Join(root, "deploy", "standalone", "migrations", "0129_identity_realms_single_corp_schema.up.sql"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	applyDashboardAdminSQL(t, db, string(body))
-}
-
-func applyDashboardAdminSQL(t *testing.T, db *sql.DB, script string) {
-	t.Helper()
-	statements, err := migration.SplitSQLStatements(script)
-	if err != nil {
-		t.Fatalf("split migration SQL: %v", err)
-	}
-	for _, statement := range statements {
-		if _, err := db.Exec(statement); err != nil {
-			t.Fatalf("migration fixture statement: %v", err)
 		}
 	}
 }

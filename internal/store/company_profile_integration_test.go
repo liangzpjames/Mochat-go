@@ -39,7 +39,7 @@ func TestCompanyProfileStoreDoesNotReadLegacyPlaintextCredentialColumns(t *testi
 }
 
 func TestCompanyProfileStoreAllowsGrantedOrdinaryActorOnRealMariaDB(t *testing.T) {
-	db := newDashboardAdminProvisioningDB(t)
+	db := newCurrentStoreIntegrationDB(t)
 	createDashboardAdminProvisioningFixture(t, db)
 	manager := testWeComCredentialManager(t, wecomcredentials.Config{
 		EncryptionKey: testCompanyCredentialKey(18), EncryptionKeyID: "company-ordinary-key",
@@ -67,7 +67,7 @@ func TestCompanyProfileStoreAllowsGrantedOrdinaryActorOnRealMariaDB(t *testing.T
 }
 
 func TestCompanySyncStatusIsIdleBeforeWeComConfigurationOnRealMariaDB(t *testing.T) {
-	db := newDashboardAdminProvisioningDB(t)
+	db := newCurrentStoreIntegrationDB(t)
 	createDashboardAdminProvisioningFixture(t, db)
 	manager := testWeComCredentialManager(t, wecomcredentials.Config{
 		EncryptionKey: testCompanyCredentialKey(28), EncryptionKeyID: "company-unconfigured-key",
@@ -90,7 +90,7 @@ func TestCompanySyncStatusIsIdleBeforeWeComConfigurationOnRealMariaDB(t *testing
 }
 
 func TestCompanyProfileApplicationCallbackAndArchiveConfigurationIsAtomicRealMariaDB(t *testing.T) {
-	db := newDashboardAdminProvisioningDB(t)
+	db := newCurrentStoreIntegrationDB(t)
 	createDashboardAdminProvisioningFixture(t, db)
 	manager := testWeComCredentialManager(t, wecomcredentials.Config{
 		EncryptionKey:       testCompanyCredentialKey(19),
@@ -175,7 +175,7 @@ func TestCompanyProfileApplicationCallbackAndArchiveConfigurationIsAtomicRealMar
 }
 
 func TestConfigureApplicationUpdatesAuthoritativeActiveAgentWhenInputNamesOtherAgentRealMariaDB(t *testing.T) {
-	db := newDashboardAdminProvisioningDB(t)
+	db := newCurrentStoreIntegrationDB(t)
 	createDashboardAdminProvisioningFixture(t, db)
 	manager := testWeComCredentialManager(t, wecomcredentials.Config{
 		EncryptionKey: testCompanyCredentialKey(27), EncryptionKeyID: "company-settings-canonical-agent-key", RequireEncryption: true, DedicatedConfigured: true,
@@ -245,7 +245,7 @@ func TestConfigureApplicationUpdatesAuthoritativeActiveAgentWhenInputNamesOtherA
 }
 
 func TestCompanyProfileRepositoryRotateVerifyAndSyncIsBindingScopedRealMariaDB(t *testing.T) {
-	db := newDashboardAdminProvisioningDB(t)
+	db := newCurrentStoreIntegrationDB(t)
 	createDashboardAdminProvisioningFixture(t, db)
 	manager := testWeComCredentialManager(t, wecomcredentials.Config{
 		EncryptionKey:       testCompanyCredentialKey(17),
@@ -565,7 +565,7 @@ func runEmployeeSyncViaQueue(t *testing.T, store *MySQLStore, ctx context.Contex
 }
 
 func TestEmployeeSyncQueueTicketOrderingFencesDelayedWorkerRealMariaDB(t *testing.T) {
-	db := newDashboardAdminProvisioningDB(t)
+	db := newCurrentStoreIntegrationDB(t)
 	createDashboardAdminProvisioningFixture(t, db)
 	manager := testWeComCredentialManager(t, wecomcredentials.Config{
 		EncryptionKey:       testCompanyCredentialKey(23),
@@ -640,7 +640,7 @@ func TestEmployeeSyncQueueTicketOrderingFencesDelayedWorkerRealMariaDB(t *testin
 }
 
 func TestEmployeeSyncWorkerRecoversMissingMarkerFromRedisTicketRealMariaDB(t *testing.T) {
-	db := newDashboardAdminProvisioningDB(t)
+	db := newCurrentStoreIntegrationDB(t)
 	createDashboardAdminProvisioningFixture(t, db)
 	manager := testWeComCredentialManager(t, wecomcredentials.Config{
 		EncryptionKey:       testCompanyCredentialKey(29),
@@ -694,7 +694,7 @@ func TestEmployeeSyncWorkerRecoversMissingMarkerFromRedisTicketRealMariaDB(t *te
 }
 
 func TestCompanyProfileCredentialRotationScopesVerifiedBindingInvalidationRealMariaDB(t *testing.T) {
-	db := newDashboardAdminProvisioningDB(t)
+	db := newCurrentStoreIntegrationDB(t)
 	createDashboardAdminProvisioningFixture(t, db)
 	manager := testWeComCredentialManager(t, wecomcredentials.Config{
 		EncryptionKey: testCompanyCredentialKey(23), EncryptionKeyID: "rotation-invalidation-key",
@@ -788,7 +788,7 @@ func TestCompanyProfileCredentialRotationScopesVerifiedBindingInvalidationRealMa
 }
 
 func TestCompanyProfileAgentNoopFallbackRequiresFullOwnershipRealMariaDB(t *testing.T) {
-	db := newDashboardAdminProvisioningDB(t)
+	db := newCurrentStoreIntegrationDB(t)
 	createDashboardAdminProvisioningFixture(t, db)
 	manager := testWeComCredentialManager(t, wecomcredentials.Config{
 		EncryptionKey: testCompanyCredentialKey(19), EncryptionKeyID: "task10-agent-fallback-key", RequireEncryption: true, DedicatedConfigured: true,
@@ -867,17 +867,9 @@ func prepareCompanyProfileRepositoryFixture(t *testing.T, db *sql.DB, manager *w
 		t.Fatal(err)
 	}
 	for _, statement := range []string{
-		`ALTER TABLE mc_corp ADD COLUMN chat_secret varchar(255) NOT NULL DEFAULT '', ADD COLUMN wecom_credentials_ciphertext text NULL, ADD COLUMN wecom_credentials_key_id varchar(64) NOT NULL DEFAULT ''`,
-		`ALTER TABLE mochat_go_tenant_corp_bindings ADD COLUMN employee_credential_generation BIGINT UNSIGNED NOT NULL DEFAULT 1, ADD COLUMN contact_credential_generation BIGINT UNSIGNED NOT NULL DEFAULT 1, ADD COLUMN agent_credential_generation BIGINT UNSIGNED NOT NULL DEFAULT 1, ADD COLUMN callback_credential_generation BIGINT UNSIGNED NOT NULL DEFAULT 1`,
-		`CREATE TABLE mc_work_agent (id int(10) unsigned NOT NULL AUTO_INCREMENT, corp_id int(11) NOT NULL, wx_agent_id varchar(255) NOT NULL DEFAULT '', wx_secret varchar(255) NOT NULL DEFAULT '', name varchar(255) NOT NULL DEFAULT '', square_logo_url varchar(255) NOT NULL DEFAULT '', description varchar(255) NOT NULL DEFAULT '', close tinyint NOT NULL DEFAULT 0, redirect_domain varchar(255) NOT NULL DEFAULT '', report_location_flag tinyint NOT NULL DEFAULT 0, is_reportenter tinyint NOT NULL DEFAULT 0, home_url varchar(255) NOT NULL DEFAULT '', created_at timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at timestamp NULL DEFAULT NULL, deleted_at timestamp NULL DEFAULT NULL, wecom_credentials_ciphertext text NULL, wecom_credentials_key_id varchar(64) NOT NULL DEFAULT '', PRIMARY KEY (id)) ENGINE=InnoDB`,
-		`CREATE TABLE mc_work_department (id int(10) unsigned NOT NULL AUTO_INCREMENT, wx_department_id int(10) unsigned NOT NULL DEFAULT 0, corp_id int(10) unsigned NOT NULL, name varchar(255) NOT NULL DEFAULT '', parent_id int(10) unsigned NOT NULL DEFAULT 0, wx_parentid int(10) unsigned NOT NULL DEFAULT 0, ` + "`order`" + ` int(10) unsigned NOT NULL DEFAULT 0, level tinyint NOT NULL DEFAULT 0, path varchar(255) NOT NULL DEFAULT '', created_at timestamp NULL, updated_at timestamp NULL, deleted_at timestamp NULL, PRIMARY KEY (id)) ENGINE=InnoDB`,
-		`CREATE TABLE mc_work_employee (id int(10) unsigned NOT NULL AUTO_INCREMENT, wx_user_id varchar(255) NOT NULL DEFAULT '', corp_id int(11) NOT NULL DEFAULT 0, name varchar(255) NOT NULL DEFAULT '', mobile char(11) NOT NULL DEFAULT '', position varchar(255) NOT NULL DEFAULT '', gender tinyint unsigned NOT NULL DEFAULT 0, email varchar(255) NOT NULL DEFAULT '', avatar varchar(255) NOT NULL DEFAULT '', thumb_avatar varchar(255) NOT NULL DEFAULT '', telephone varchar(255) NOT NULL DEFAULT '', alias varchar(255) NOT NULL DEFAULT '', extattr json DEFAULT NULL, status tinyint unsigned NOT NULL DEFAULT 0, qr_code varchar(255) NOT NULL DEFAULT '', external_profile json DEFAULT NULL, external_position varchar(255) DEFAULT '', address varchar(255) NOT NULL DEFAULT '', open_user_id char(100) NOT NULL DEFAULT '', wx_main_department_id int(10) unsigned NOT NULL DEFAULT 0, main_department_id int(11) NOT NULL DEFAULT 0, log_user_id int(10) unsigned NOT NULL DEFAULT 0, contact_auth tinyint NOT NULL DEFAULT 2, audit_status tinyint NOT NULL DEFAULT 0, created_at timestamp NULL, updated_at timestamp NULL, deleted_at timestamp NULL, PRIMARY KEY (id), KEY idx_company_employee_corp (corp_id, deleted_at)) ENGINE=InnoDB`,
-		`CREATE TABLE mc_work_employee_department (id int(10) unsigned NOT NULL AUTO_INCREMENT, employee_id int(10) unsigned NOT NULL DEFAULT 0, department_id int(10) unsigned NOT NULL DEFAULT 0, is_leader_in_dept tinyint NOT NULL DEFAULT 0, ` + "`order`" + ` int NOT NULL DEFAULT 0, created_at timestamp NULL, updated_at timestamp NULL, deleted_at timestamp NULL, PRIMARY KEY (id), KEY idx_company_employee_department (employee_id, deleted_at, department_id)) ENGINE=InnoDB`,
-		`CREATE TABLE mc_work_update_time (id int(10) unsigned NOT NULL AUTO_INCREMENT, corp_id int(11) NOT NULL DEFAULT 0, type tinyint NOT NULL DEFAULT 0, last_update_time timestamp NULL, error_msg json DEFAULT NULL, created_at timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (id)) ENGINE=InnoDB`,
 		`INSERT INTO mochat_go_dashboard_identities (user_id, login_identifier, password_hash, status, must_rotate_password, auth_version, mfa_required, activated_at) VALUES (10, '13800000001', '!task10-fixture-hash', 1, 0, 1, 0, NOW())`,
 		`UPDATE mc_user SET isSuperAdmin=1 WHERE id=10`,
 		`UPDATE mc_corp SET wx_corpid='ww-candidate', employee_secret='', contact_secret='', token='', encoding_aes_key='', chat_secret='' WHERE id=100`,
-		`INSERT INTO mochat_go_tenant_corp_bindings (tenant_id, corp_id, status, version, verified_wx_corpid, verified_corp_name) VALUES (1, 100, 1, 1, NULL, '')`,
 		`INSERT INTO mc_work_agent (id, corp_id, wx_agent_id, wx_secret, name) VALUES (300, 100, '100001', '', 'Fixture agent')`,
 	} {
 		if _, err := db.Exec(statement); err != nil {

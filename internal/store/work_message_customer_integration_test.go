@@ -17,7 +17,7 @@ func TestCustomerDirectoryMariaDBIntegration(t *testing.T) {
 	if strings.TrimSpace(os.Getenv("MOCHAT_GO_MYSQL_INTEGRATION_DSN")) == "" {
 		t.Skip("SKIP: MOCHAT_GO_MYSQL_INTEGRATION_DSN is not set; isolated MariaDB DSN is required")
 	}
-	db := newDashboardAdminProvisioningDB(t)
+	db := newCurrentStoreIntegrationDB(t)
 	createCustomerDirectoryFixture(t, db)
 	store := NewMySQLStore(db)
 	ctx := context.Background()
@@ -76,12 +76,12 @@ func TestCustomerConversationMariaDBIntegration(t *testing.T) {
 	if strings.TrimSpace(os.Getenv("MOCHAT_GO_MYSQL_INTEGRATION_DSN")) == "" {
 		t.Skip("SKIP: MOCHAT_GO_MYSQL_INTEGRATION_DSN is not set; isolated MariaDB DSN is required")
 	}
-	db := newDashboardAdminProvisioningDB(t)
+	db := newCurrentStoreIntegrationDB(t)
 	createCustomerDirectoryFixture(t, db)
 	base := time.Date(2026, 8, 19, 10, 0, 0, 0, time.UTC)
 	statements := []string{
 		`INSERT INTO mc_work_contact (id,corp_id,name) VALUES (104,28,'跨企业客户')`,
-		`INSERT INTO mc_work_room (id,corp_id,name) VALUES (504,27,'已退群'),(505,27,'无关联群'),(506,27,'员工范围群')`,
+		`INSERT INTO mc_work_room (id,corp_id,name,notice) VALUES (504,27,'已退群',''),(505,27,'无关联群',''),(506,27,'员工范围群','')`,
 		`INSERT INTO mc_work_contact_room (room_id,contact_id,employee_id,deleted_at) VALUES (504,101,9,UTC_TIMESTAMP()),(501,104,9,NULL),(506,102,10,NULL)`,
 	}
 	for _, statement := range statements {
@@ -162,7 +162,7 @@ func TestCustomerDetailMariaDBIntegration(t *testing.T) {
 	if strings.TrimSpace(os.Getenv("MOCHAT_GO_MYSQL_INTEGRATION_DSN")) == "" {
 		t.Skip("SKIP: MOCHAT_GO_MYSQL_INTEGRATION_DSN is not set; isolated MariaDB DSN is required")
 	}
-	db := newDashboardAdminProvisioningDB(t)
+	db := newCurrentStoreIntegrationDB(t)
 	createCustomerDirectoryFixture(t, db)
 	base := time.Date(2026, 8, 19, 11, 0, 0, 0, time.UTC)
 	for index := 1; index <= 52; index++ {
@@ -226,35 +226,18 @@ func TestCustomerDetailMariaDBIntegration(t *testing.T) {
 func createCustomerDirectoryFixture(t *testing.T, db *sql.DB) {
 	t.Helper()
 	statements := []string{
-		`CREATE TABLE mc_corp (id INT UNSIGNED NOT NULL PRIMARY KEY, tenant_id INT UNSIGNED NOT NULL, chat_status TINYINT NOT NULL DEFAULT 1, deleted_at DATETIME NULL) ENGINE=InnoDB`,
-		`CREATE TABLE mochat_go_archive_simulation_batches (id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY, corp_id INT UNSIGNED NOT NULL, status VARCHAR(32) NOT NULL, message_count INT NOT NULL DEFAULT 0) ENGINE=InnoDB`,
-		`CREATE TABLE mc_work_employee (id INT UNSIGNED NOT NULL PRIMARY KEY, corp_id INT UNSIGNED NOT NULL, name VARCHAR(255) NOT NULL DEFAULT '', alias VARCHAR(255) NOT NULL DEFAULT '', avatar VARCHAR(255) NOT NULL DEFAULT '', deleted_at DATETIME NULL) ENGINE=InnoDB`,
-		`CREATE TABLE mc_work_contact (id INT UNSIGNED NOT NULL PRIMARY KEY, corp_id INT UNSIGNED NOT NULL, name VARCHAR(255) NOT NULL DEFAULT '', alias VARCHAR(255) NOT NULL DEFAULT '', avatar VARCHAR(255) NOT NULL DEFAULT '', wx_external_userid VARCHAR(255) NOT NULL DEFAULT '', deleted_at DATETIME NULL) ENGINE=InnoDB`,
-		`CREATE TABLE mc_work_room (id INT UNSIGNED NOT NULL PRIMARY KEY, corp_id INT UNSIGNED NOT NULL, name VARCHAR(255) NOT NULL DEFAULT '', avatar VARCHAR(255) NOT NULL DEFAULT '', wx_chat_id VARCHAR(255) NOT NULL DEFAULT '', deleted_at DATETIME NULL) ENGINE=InnoDB`,
-		`CREATE TABLE mc_work_contact_room (id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY, room_id INT UNSIGNED NOT NULL, contact_id INT UNSIGNED NOT NULL, employee_id INT UNSIGNED NOT NULL DEFAULT 0, deleted_at DATETIME NULL) ENGINE=InnoDB`,
-		`CREATE TABLE mc_work_contact_employee (id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY, contact_id INT UNSIGNED NOT NULL, employee_id INT UNSIGNED NOT NULL, corp_id INT UNSIGNED NOT NULL, status TINYINT NOT NULL, deleted_at DATETIME NULL) ENGINE=InnoDB`,
-		`CREATE TABLE mochat_go_work_message_focus (id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY, tenant_id INT UNSIGNED NOT NULL, corp_id INT UNSIGNED NOT NULL, user_id INT UNSIGNED NOT NULL, work_employee_id INT UNSIGNED NOT NULL, to_user_type TINYINT NOT NULL, to_user_id INT UNSIGNED NOT NULL) ENGINE=InnoDB`,
+		`INSERT INTO mc_tenant (id,name,status) VALUES (11,'Work message tenant',1)`,
 		`INSERT INTO mc_corp (id,tenant_id,chat_status) VALUES (27,11,1)`,
 		`INSERT INTO mc_work_employee (id,corp_id,name) VALUES (9,27,'员工甲'),(10,27,'员工乙')`,
 		`INSERT INTO mc_work_contact (id,corp_id,name,wx_external_userid) VALUES (101,27,'客户甲','wx-101'),(102,27,'客户乙','wx-102')`,
-		`INSERT INTO mc_work_room (id,corp_id,name) VALUES (501,27,'客户甲所在群'),(502,28,'跨企业群'),(503,27,'已删除群')`,
+		`INSERT INTO mc_work_room (id,corp_id,name,notice) VALUES (501,27,'客户甲所在群',''),(502,28,'跨企业群',''),(503,27,'已删除群','')`,
 		`UPDATE mc_work_room SET deleted_at=UTC_TIMESTAMP() WHERE id=503`,
 		`INSERT INTO mc_work_contact_room (room_id,contact_id,employee_id) VALUES (501,101,9),(502,104,9),(503,105,9)`,
-		`INSERT INTO mc_work_contact_employee (contact_id,employee_id,corp_id,status) VALUES (101,9,27,1),(102,10,27,2)`,
+		`INSERT INTO mc_work_contact_employee (contact_id,employee_id,corp_id,status,add_way) VALUES (101,9,27,1,0),(102,10,27,2,0)`,
 		`INSERT INTO mochat_go_work_message_focus (tenant_id,corp_id,user_id,work_employee_id,to_user_type,to_user_id) VALUES (11,27,77,9,1,101)`,
 	}
 	for _, statement := range statements {
 		if _, err := db.Exec(statement); err != nil {
-			t.Fatal(err)
-		}
-	}
-	for index := 1; index <= 10; index++ {
-		if _, err := db.Exec(fmt.Sprintf(`CREATE TABLE mc_work_message_%d (
-			id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY, corp_id INT UNSIGNED NOT NULL, msgid VARCHAR(255) NOT NULL,
-			seq BIGINT NOT NULL, work_employee_id INT UNSIGNED NOT NULL, to_user_type TINYINT NOT NULL, to_user_id INT UNSIGNED NOT NULL,
-			action TINYINT NOT NULL DEFAULT 0, type INT NOT NULL DEFAULT 1, msg_type INT NOT NULL DEFAULT 1, sender_type TINYINT NOT NULL DEFAULT 0,
-			content TEXT NOT NULL DEFAULT '', content_text TEXT NOT NULL DEFAULT '', msg_data_time DATETIME NULL, deleted_at DATETIME NULL
-		) ENGINE=InnoDB`, index)); err != nil {
 			t.Fatal(err)
 		}
 	}
