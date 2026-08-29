@@ -328,3 +328,27 @@ git diff --check
 ```
 
 前三项均已确认退出码 `0`；提交前再次执行 `git diff --check`。真实 Provider、Docker、受控迁移和生产部署仍为 SKIP；未修改 Task 1/Task 3 合同、命名卷或 `docs/PROJECT_PROGRESS.zh-CN.md`。
+
+## Linux CGO race 闭环（2026-08-29）
+
+### RED 与根因
+
+- 在 `golang:1.26.7-bookworm`、`CGO_ENABLED=1` 中执行 `go test -race ./internal/taskrunner -count=1` 稳定失败。race detector 指向 `TestGroupRecoversPanics` 的 `bytes.Buffer.String` 与 `Group.run` panic defer 中的 `slog.JSONHandler.Write` 并发访问。
+- 根因是 panic defer 先把 snapshot 状态置为 `failed`，随后才写 failure log；旧测试只轮询到 `failed` 就读取 buffer，因此状态可见不代表 task goroutine 生命周期已结束。生产状态与日志顺序符合合同，错误在测试同步边界。
+- 审计同文件全部 `bytes.Buffer` 读取：periodic 用例均先同步等待 `run` 返回后再读；只有 `TestGroupRecoversPanics` 以 snapshot 状态替代 goroutine 完成信号。
+
+### GREEN 与验证
+
+- 测试在读取 snapshot/log 前用 1 秒有界 `Group.Wait` 等待对应 goroutine 完全退出，并断言返回 error 为 `nil`。保留原有状态轮询以验证 `failed` 合同，但不再把它误作 logger 完成屏障；没有 sleep、race 禁用或线程安全 buffer 替代。
+- Linux CGO race 复跑退出码 `0`：`ok jiyi/mochat-go/internal/taskrunner`，无 data race。
+- Windows `go test ./internal/taskrunner -count=1` 退出码 `0`，本次未遇到 Defender 阻断；`go test ./... -count=1` 全仓普通回归退出码 `0`。
+
+```text
+docker run --rm -e CGO_ENABLED=1 -v "${PWD}:/src" -w /src golang:1.26.7-bookworm go test -race ./internal/taskrunner -count=1
+go test ./internal/taskrunner -count=1
+go test ./... -count=1
+go vet ./...
+git diff --check
+```
+
+真实 Provider、Compose、命名卷、受控迁移与生产继续 SKIP；Linux Docker 仅挂载当前隔离 worktree 运行 Go race 测试，没有启动服务或修改数据卷。

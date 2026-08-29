@@ -84,6 +84,11 @@ func TestGroupRecoversPanics(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitForStatus(t, group, "panic-worker", StatusFailed)
+	waitCtx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := group.Wait(waitCtx); err != nil {
+		t.Fatalf("wait for panic worker completion: %v", err)
+	}
 	snapshot := snapshotByName(t, group, "panic-worker")
 	if snapshot.Error != "background_task_panicked" || strings.Contains(output.String(), "bare-secret") {
 		t.Fatalf("error = %q", snapshot.Error)
