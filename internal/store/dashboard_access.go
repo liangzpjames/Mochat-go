@@ -262,7 +262,7 @@ func (s *MySQLStore) DashboardEmployeeScope(ctx context.Context, tenantID, userI
 			AND scoped_employee.corp_id = corp.id AND scoped_employee.deleted_at IS NULL
 		WHERE corp.tenant_id = ? AND corp.id = ? AND employee.log_user_id = ?
 			AND corp.deleted_at IS NULL
-		ORDER BY source_department.id ASC, scoped_employee.id ASC
+		ORDER BY scoped_department.id ASC, scoped_employee.id ASC
 	`, tenantID, corpID, userID)
 	if err != nil {
 		return dashboard.DashboardEmployeeScope{}, false, err

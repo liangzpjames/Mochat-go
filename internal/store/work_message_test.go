@@ -435,12 +435,13 @@ func TestWorkMessagePageWindowCanBeQualifiedForRegistryJoins(t *testing.T) {
 	}
 }
 
-func TestWorkMessageConversationRankingUsesDeterministicWindow(t *testing.T) {
-	ranking := workMessageConversationRankingExpression()
+func TestWorkMessageConversationRankingUsesDeterministicMySQL57Predicate(t *testing.T) {
+	ranking := workMessageNewerRowPredicate("newer", "wm")
 	for _, fragment := range []string{
-		"ROW_NUMBER() OVER",
-		"PARTITION BY wm.work_employee_id, wm.to_user_type, wm.to_user_id",
-		"ORDER BY wm.msg_data_time DESC, wm.seq DESC, wm.table_index DESC, wm.id DESC",
+		"COALESCE(newer.msg_data_time",
+		"newer.seq > wm.seq",
+		"newer.table_index > wm.table_index",
+		"newer.id > wm.id",
 	} {
 		if !strings.Contains(ranking, fragment) {
 			t.Fatalf("ranking expression missing %q: %s", fragment, ranking)
