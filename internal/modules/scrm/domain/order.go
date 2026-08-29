@@ -83,11 +83,8 @@ func NewOrder(input NewOrderInput) (Order, error) {
 	return Order{ID: id, TenantID: input.TenantID, CorpID: input.CorpID, ContactID: input.ContactID, OpportunityID: input.OpportunityID, Title: title, Note: note, AmountCents: input.AmountCents, Currency: currency, Status: input.Status, Version: 1}, nil
 }
 
-func OrderCreateRequestHash(order Order, requestedIDs ...string) (string, error) {
-	requestedID := ""
-	if len(requestedIDs) > 0 {
-		requestedID = strings.TrimSpace(requestedIDs[0])
-	}
+func OrderCreateRequestHash(order Order, requestedID string) (string, error) {
+	requestedID = strings.TrimSpace(requestedID)
 	canonical := struct {
 		RequestedID   string      `json:"requestedId,omitempty"`
 		ContactID     string      `json:"contactId"`

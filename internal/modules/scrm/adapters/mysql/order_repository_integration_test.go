@@ -21,6 +21,7 @@ import (
 
 func TestOrderRepositoryRoundTripsProductFieldsContactNameAndAudit(t *testing.T) {
 	_, db, namespace := integrationRepository(t)
+	ensureOrderIdempotencySchema(t, db)
 	repository, err := NewSQLOrderRepository(db)
 	if err != nil {
 		t.Fatal(err)
@@ -31,6 +32,7 @@ func TestOrderRepositoryRoundTripsProductFieldsContactNameAndAudit(t *testing.T)
 	orderID := namespace.id("order")
 	now := time.Now().UTC()
 	cleanup := func() {
+		_, _ = db.Exec("DELETE FROM mochat_go_scrm_order_idempotency_receipts WHERE tenant_id=? AND corp_id=?", namespace.tenantID, corpID)
 		_, _ = db.Exec("DELETE FROM mochat_go_scrm_order_audit WHERE tenant_id=? AND corp_id=?", namespace.tenantID, corpID)
 		_, _ = db.Exec("DELETE FROM mochat_go_scrm_orders WHERE tenant_id=? AND corp_id=?", namespace.tenantID, corpID)
 		_, _ = db.Exec("DELETE FROM mochat_go_scrm_contacts WHERE tenant_id=? AND corp_id=?", namespace.tenantID, corpID)
@@ -40,9 +42,13 @@ func TestOrderRepositoryRoundTripsProductFieldsContactNameAndAudit(t *testing.T)
 	if _, err = db.Exec(`INSERT INTO mochat_go_scrm_contacts(id,tenant_id,corp_id,name,phone,version,created_at,updated_at) VALUES(?,?,?,?,?,1,?,?)`, contactID, namespace.tenantID, corpID, "张三", "", now, now); err != nil {
 		t.Fatal(err)
 	}
-	created, err := repository.CreateContext(ctx, domain.Order{ID: orderID, TenantID: namespace.tenantID, CorpID: corpID, ContactID: contactID, OpportunityID: namespace.id("opp"), Title: "年度续费", Note: "客户确认", AmountCents: 1200, Currency: "CNY", Status: domain.OrderPending, Version: 1}, 7)
+	created := domain.Order{ID: orderID, TenantID: namespace.tenantID, CorpID: corpID, ContactID: contactID, OpportunityID: namespace.id("opp"), Title: "年度续费", Note: "客户确认", AmountCents: 1200, Currency: "CNY", Status: domain.OrderPending, Version: 1}
+	receipt, err := repository.CreateIdempotentContext(ctx, idempotentOrderCommand(t, created, namespace.key("roundtrip-order")))
 	if err != nil {
 		t.Fatal(err)
+	}
+	if receipt.OrderID != created.ID {
+		t.Fatalf("created receipt order ID = %q, want %q", receipt.OrderID, created.ID)
 	}
 	if created.Title != "年度续费" || created.Note != "客户确认" {
 		t.Fatalf("created = %#v", created)
@@ -160,7 +166,7 @@ func TestOrderRepositoryScopesSameIdempotencyKeyByTenantAndCorp(t *testing.T) {
 	}
 }
 
-func TestOrderRepositoryTreatsIdempotencyKeysAsCaseSensitiveOpaqueValues(t *testing.T) {
+func TestOrderRepositoryTreatsIdempotencyKeysAsOpaqueByteSequences(t *testing.T) {
 	_, db, namespace := integrationRepository(t)
 	ensureOrderIdempotencySchema(t, db)
 	repository, err := NewSQLOrderRepository(db)
@@ -179,13 +185,26 @@ func TestOrderRepositoryTreatsIdempotencyKeysAsCaseSensitiveOpaqueValues(t *test
 		_, _ = db.Exec("DELETE FROM mochat_go_scrm_orders WHERE tenant_id=? AND corp_id=?", namespace.tenantID, corpID)
 		_, _ = db.Exec("DELETE FROM mochat_go_scrm_contacts WHERE tenant_id=? AND corp_id=?", namespace.tenantID, corpID)
 	})
-	for index, key := range []string{namespace.key("Intent-Key"), namespace.key("intent-key")} {
+	keys := []string{
+		namespace.key("Intent-Key"),
+		namespace.key("intent-key"),
+		namespace.key("Intent-Key "),
+		namespace.key("Intent-Key\u00a0"),
+		namespace.key("Intent-Key\u3000"),
+	}
+	for index, key := range keys {
 		order := domain.Order{ID: namespace.id(fmt.Sprintf("case-key-order-%d", index)), TenantID: namespace.tenantID, CorpID: corpID, ContactID: contactID, Title: "case-sensitive key", AmountCents: 100, Currency: "CNY", Status: domain.OrderPending, Version: 1}
-		if _, err := repository.CreateIdempotentContext(context.Background(), idempotentOrderCommand(t, order, key)); err != nil {
+		command := idempotentOrderCommand(t, order, key)
+		first, err := repository.CreateIdempotentContext(context.Background(), command)
+		if err != nil {
 			t.Fatalf("create with opaque key %q: %v", key, err)
 		}
+		replayed, err := repository.CreateIdempotentContext(context.Background(), command)
+		if err != nil || !replayed.Replayed || !bytes.Equal(replayed.ResponseBody, first.ResponseBody) {
+			t.Fatalf("exact opaque key replay %q = %#v, err=%v", key, replayed, err)
+		}
 	}
-	assertScopedOrderCounts(t, db, namespace.tenantID, corpID, 2, 2, 2)
+	assertScopedOrderCounts(t, db, namespace.tenantID, corpID, len(keys), len(keys), len(keys))
 }
 
 func TestOrderRepositoryReplaysReceiptAfterOrderChangesOrIsSoftDeleted(t *testing.T) {
@@ -231,7 +250,17 @@ func TestOrderIdempotencyMigrationRunsUpAndDownOnMySQL57OrMariaDB(t *testing.T) 
 	_, db, namespace := integrationRepository(t)
 	table := "mochat_go_scrm_order_idem_" + strings.ReplaceAll(namespace.prefix, "-", "_")
 	corpID := insertParityCorp(t, db, namespace.tenantID, namespace.id("migration-corp"))
-	orderIDs := []string{namespace.id("migration-order-upper"), namespace.id("migration-order-lower")}
+	keys := []string{
+		namespace.key("Downgrade-Key"),
+		namespace.key("downgrade-key"),
+		namespace.key("Downgrade-Key "),
+		namespace.key("Downgrade-Key\u00a0"),
+		namespace.key("Downgrade-Key\u3000"),
+	}
+	orderIDs := make([]string, len(keys))
+	for index := range orderIDs {
+		orderIDs[index] = namespace.id(fmt.Sprintf("migration-order-%d", index))
+	}
 	root := filepath.Join("..", "..", "..", "..", "..", "deploy", "standalone", "migrations")
 	up, err := os.ReadFile(filepath.Join(root, "0173_scrm_order_idempotency.up.sql"))
 	if err != nil {
@@ -247,7 +276,7 @@ func TestOrderIdempotencyMigrationRunsUpAndDownOnMySQL57OrMariaDB(t *testing.T) 
 	_, _ = db.Exec("DROP TABLE IF EXISTS `" + table + "`")
 	t.Cleanup(func() {
 		_, _ = db.Exec("DROP TABLE IF EXISTS `" + table + "`")
-		_, _ = db.Exec("DELETE FROM mochat_go_scrm_orders WHERE id IN (?,?)", orderIDs[0], orderIDs[1])
+		_, _ = db.Exec("DELETE FROM mochat_go_scrm_orders WHERE tenant_id=? AND corp_id=?", namespace.tenantID, corpID)
 	})
 	if err := execOrderMigrationScript(db, rewrite(up)); err != nil {
 		t.Fatalf("apply 0173 up: %v", err)
@@ -256,12 +285,13 @@ func TestOrderIdempotencyMigrationRunsUpAndDownOnMySQL57OrMariaDB(t *testing.T) 
 	if err := db.QueryRow(`SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name=?`, table).Scan(&count); err != nil || count != 1 {
 		t.Fatalf("receipt table after up = %d, err=%v", count, err)
 	}
-	var collation string
-	if err := db.QueryRow(`SELECT collation_name FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='mochat_go_scrm_orders' AND column_name='idempotency_key'`).Scan(&collation); err != nil || collation != "utf8mb4_bin" {
-		t.Fatalf("orders idempotency key collation after up = %q, err=%v", collation, err)
+	var dataType, columnType string
+	var collation sql.NullString
+	if err := db.QueryRow(`SELECT data_type,column_type,collation_name FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='mochat_go_scrm_orders' AND column_name='idempotency_key'`).Scan(&dataType, &columnType, &collation); err != nil || dataType != "varbinary" || columnType != "varbinary(128)" || collation.Valid {
+		t.Fatalf("orders idempotency key type after up = %q/%q collation=%#v, err=%v", dataType, columnType, collation, err)
 	}
 	now := time.Now().UTC()
-	for index, key := range []string{namespace.key("Downgrade-Key"), namespace.key("downgrade-key")} {
+	for index, key := range keys {
 		if _, err := db.Exec(`INSERT INTO mochat_go_scrm_orders (id,tenant_id,corp_id,contact_id,opportunity_id,title,note,amount_cents,currency,status,version,idempotency_key,created_by,created_at,updated_at) VALUES (?,?,?,?,NULL,?,?,?,'CNY','pending',1,?,7,?,?)`, orderIDs[index], namespace.tenantID, corpID, namespace.id("migration-contact"), "migration order", "", 100, key, now, now); err != nil {
 			t.Fatalf("insert post-up case-distinct order %q: %v", key, err)
 		}
@@ -272,11 +302,11 @@ func TestOrderIdempotencyMigrationRunsUpAndDownOnMySQL57OrMariaDB(t *testing.T) 
 	if err := db.QueryRow(`SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name=?`, table).Scan(&count); err != nil || count != 0 {
 		t.Fatalf("receipt table after down = %d, err=%v", count, err)
 	}
-	if err := db.QueryRow(`SELECT COUNT(*) FROM mochat_go_scrm_orders WHERE id IN (?,?)`, orderIDs[0], orderIDs[1]).Scan(&count); err != nil || count != 2 {
-		t.Fatalf("post-up case-distinct orders after down = %d, err=%v", count, err)
+	if err := db.QueryRow(`SELECT COUNT(*) FROM mochat_go_scrm_orders WHERE tenant_id=? AND corp_id=?`, namespace.tenantID, corpID).Scan(&count); err != nil || count != len(keys) {
+		t.Fatalf("post-up byte-distinct orders after down = %d, err=%v", count, err)
 	}
-	if err := db.QueryRow(`SELECT collation_name FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='mochat_go_scrm_orders' AND column_name='idempotency_key'`).Scan(&collation); err != nil || collation != "utf8mb4_bin" {
-		t.Fatalf("orders idempotency key collation after down = %q, err=%v", collation, err)
+	if err := db.QueryRow(`SELECT data_type,column_type,collation_name FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='mochat_go_scrm_orders' AND column_name='idempotency_key'`).Scan(&dataType, &columnType, &collation); err != nil || dataType != "varbinary" || columnType != "varbinary(128)" || collation.Valid {
+		t.Fatalf("orders idempotency key type after down = %q/%q collation=%#v, err=%v", dataType, columnType, collation, err)
 	}
 }
 
@@ -292,6 +322,7 @@ func TestOrderRepositoryRollsBackCreateAndTransitionWhenAuditFails(t *testing.T)
 	contactID := namespace.id("atomic-order-contact")
 	now := time.Now().UTC()
 	cleanup := func() {
+		_, _ = db.Exec("DELETE FROM mochat_go_scrm_order_idempotency_receipts WHERE tenant_id=? AND corp_id=?", namespace.tenantID, corpID)
 		_, _ = db.Exec("DELETE FROM mochat_go_scrm_order_audit WHERE tenant_id=? AND corp_id=?", namespace.tenantID, corpID)
 		_, _ = db.Exec("DELETE FROM mochat_go_scrm_orders WHERE tenant_id=? AND corp_id=?", namespace.tenantID, corpID)
 		_, _ = db.Exec("DELETE FROM mochat_go_scrm_contacts WHERE tenant_id=? AND corp_id=?", namespace.tenantID, corpID)
@@ -325,7 +356,8 @@ func TestOrderRepositoryRollsBackCreateAndTransitionWhenAuditFails(t *testing.T)
 
 	repository.auditFailure = nil
 	transitionOrderID := namespace.id("transition-audit-failure")
-	_, err = repository.CreateContext(ctx, domain.Order{ID: transitionOrderID, TenantID: namespace.tenantID, CorpID: corpID, ContactID: contactID, Title: "failed transition", AmountCents: 100, Currency: "CNY", Status: domain.OrderPending, Version: 1}, 7)
+	transitionOrder := domain.Order{ID: transitionOrderID, TenantID: namespace.tenantID, CorpID: corpID, ContactID: contactID, Title: "failed transition", AmountCents: 100, Currency: "CNY", Status: domain.OrderPending, Version: 1}
+	_, err = repository.CreateIdempotentContext(ctx, idempotentOrderCommand(t, transitionOrder, namespace.key("transition-fixture")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -346,7 +378,7 @@ func TestOrderRepositoryRollsBackCreateAndTransitionWhenAuditFails(t *testing.T)
 
 func idempotentOrderCommand(t *testing.T, order domain.Order, key string) domain.OrderCreateCommand {
 	t.Helper()
-	hash, err := domain.OrderCreateRequestHash(order)
+	hash, err := domain.OrderCreateRequestHash(order, "")
 	if err != nil {
 		t.Fatal(err)
 	}

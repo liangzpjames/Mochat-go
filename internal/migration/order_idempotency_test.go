@@ -24,7 +24,8 @@ func TestOrderIdempotencyMigrationStoresScopedCompletedReceiptsAndIsMySQL57Compa
 		"`tenant_id`", "`corp_id`", "`idempotency_key`", "`request_hash`", "`order_id`",
 		"`response_status`", "`response_body`",
 		"PRIMARY KEY (`tenant_id`,`corp_id`,`idempotency_key`)",
-		"ALTER TABLE `mochat_go_scrm_orders` MODIFY COLUMN `idempotency_key` varchar(128) COLLATE utf8mb4_bin NOT NULL",
+		"ALTER TABLE `mochat_go_scrm_orders` MODIFY COLUMN `idempotency_key` varbinary(128) NOT NULL",
+		"`idempotency_key` varbinary(128) NOT NULL",
 	} {
 		if !strings.Contains(normalizedSource, required) {
 			t.Errorf("0173 up migration missing %q", required)
@@ -39,7 +40,7 @@ func TestOrderIdempotencyMigrationStoresScopedCompletedReceiptsAndIsMySQL57Compa
 	if !strings.Contains(downSource, "DROP TABLE IF EXISTS `mochat_go_scrm_order_idempotency_receipts`") {
 		t.Fatal("0173 down migration does not remove order idempotency receipts")
 	}
-	if strings.Contains(downSource, "utf8mb4_unicode_ci") || strings.Contains(downSource, "ALTER TABLE `mochat_go_scrm_orders`") {
-		t.Fatal("0173 down must preserve binary opaque-key semantics for post-up case-distinct orders")
+	if strings.Contains(downSource, "ALTER TABLE `mochat_go_scrm_orders`") {
+		t.Fatal("0173 down must preserve VARBINARY opaque-key semantics for all post-up byte-distinct orders")
 	}
 }

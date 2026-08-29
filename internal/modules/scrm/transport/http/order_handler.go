@@ -14,16 +14,9 @@ import (
 )
 
 type OrderRepository interface {
-	Create(domain.Order) (domain.Order, error)
-	List(int64, int64) []domain.Order
-	Transition(string, int64, domain.OrderStatus, int64) (domain.Order, error)
-}
-type orderContextRepository interface {
+	CreateIdempotentContext(context.Context, domain.OrderCreateCommand) (domain.OrderCreateReceipt, error)
 	ListContext(context.Context, int64, int64, int, int) ([]domain.Order, int, error)
 	TransitionContext(context.Context, string, int64, int64, domain.OrderStatus, int64, int64) (domain.Order, error)
-}
-type orderIdempotentRepository interface {
-	CreateIdempotentContext(context.Context, domain.OrderCreateCommand) (domain.OrderCreateReceipt, error)
 }
 type orderDetailRepository interface {
 	GetContext(context.Context, string, int64, int64) (domain.Order, error)
@@ -37,15 +30,6 @@ type MemoryOrderRepository struct {
 
 func NewMemoryOrderRepository() *MemoryOrderRepository {
 	return &MemoryOrderRepository{items: map[string]domain.Order{}, receipts: map[string]domain.OrderCreateReceipt{}}
-}
-func (r *MemoryOrderRepository) Create(o domain.Order) (domain.Order, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if _, ok := r.items[o.ID]; ok {
-		return r.items[o.ID], nil
-	}
-	r.items[o.ID] = o
-	return o, nil
 }
 func (r *MemoryOrderRepository) CreateIdempotentContext(_ context.Context, command domain.OrderCreateCommand) (domain.OrderCreateReceipt, error) {
 	r.mu.Lock()
@@ -100,14 +84,14 @@ func (r *MemoryOrderRepository) ListContext(_ context.Context, t, c int64, page,
 	}
 	return all[start:end], total, nil
 }
-func (r *MemoryOrderRepository) Transition(id string, t int64, s domain.OrderStatus, v int64) (domain.Order, error) {
+func (r *MemoryOrderRepository) TransitionContext(_ context.Context, id string, tenantID, corpID int64, status domain.OrderStatus, version, _ int64) (domain.Order, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	o, ok := r.items[id]
-	if !ok {
+	if !ok || o.TenantID != tenantID || o.CorpID != corpID {
 		return domain.Order{}, nethttp.ErrMissingFile
 	}
-	if err := o.Transition(s, v); err != nil {
+	if err := o.Transition(status, version); err != nil {
 		return domain.Order{}, err
 	}
 	r.items[id] = o
@@ -182,38 +166,16 @@ func (h *OrderHandler) ServeHTTP(w nethttp.ResponseWriter, r *nethttp.Request) {
 				pageSize = parsed
 			}
 		}
-		var items []domain.Order
-		var total int
-		if cr, ok := h.repo.(orderContextRepository); ok {
-			var err error
-			items, total, err = cr.ListContext(r.Context(), p.TenantID, corpID, page, pageSize)
-			if err != nil {
-				nethttp.Error(w, err.Error(), 500)
-				return
-			}
-		} else {
-			all := h.repo.List(p.TenantID, corpID)
-			total = len(all)
-			start := (page - 1) * pageSize
-			if start < total {
-				end := start + pageSize
-				if end > total {
-					end = total
-				}
-				items = all[start:end]
-			} else {
-				items = []domain.Order{}
-			}
+		items, total, err := h.repo.ListContext(r.Context(), p.TenantID, corpID, page, pageSize)
+		if err != nil {
+			nethttp.Error(w, err.Error(), 500)
+			return
 		}
 		writeJSON(w, 200, map[string]any{"data": map[string]any{"items": items, "total": total, "page": page, "pageSize": pageSize}})
 		return
 	}
 	if r.Method == nethttp.MethodPatch || r.Method == nethttp.MethodPut {
 		h.transition(w, r, p, corpID)
-		return
-	}
-	if r.Method == nethttp.MethodGet {
-		json.NewEncoder(w).Encode(map[string]any{"data": h.repo.List(1, 1)})
 		return
 	}
 	var in struct {
@@ -237,7 +199,7 @@ func (h *OrderHandler) ServeHTTP(w nethttp.ResponseWriter, r *nethttp.Request) {
 			return
 		}
 	}
-	idempotencyKey := strings.TrimSpace(r.Header.Get("Idempotency-Key"))
+	idempotencyKey := r.Header.Get("Idempotency-Key")
 	if idempotencyKey == "" || len(idempotencyKey) > 128 {
 		writeError(w, nethttp.StatusUnprocessableEntity, "Idempotency-Key is required and must not exceed 128 bytes")
 		return
@@ -257,12 +219,7 @@ func (h *OrderHandler) ServeHTTP(w nethttp.ResponseWriter, r *nethttp.Request) {
 		writeError(w, nethttp.StatusInternalServerError, "internal server error")
 		return
 	}
-	creator, ok := h.repo.(orderIdempotentRepository)
-	if !ok {
-		writeError(w, nethttp.StatusInternalServerError, "order repository does not support idempotent creation")
-		return
-	}
-	receipt, e := creator.CreateIdempotentContext(r.Context(), domain.OrderCreateCommand{Order: o, ActorID: p.UserID, IdempotencyKey: idempotencyKey, RequestHash: requestHash, ResponseStatus: nethttp.StatusOK, ResponseBody: responseBody})
+	receipt, e := h.repo.CreateIdempotentContext(r.Context(), domain.OrderCreateCommand{Order: o, ActorID: p.UserID, IdempotencyKey: idempotencyKey, RequestHash: requestHash, ResponseStatus: nethttp.StatusOK, ResponseBody: responseBody})
 	if e != nil {
 		if errors.Is(e, domain.ErrOrderIdempotencyConflict) {
 			writeError(w, nethttp.StatusConflict, "Idempotency-Key already used with a different order payload")
@@ -313,12 +270,7 @@ func (h *OrderHandler) transition(w nethttp.ResponseWriter, r *nethttp.Request, 
 			return
 		}
 	}
-	var o domain.Order
-	if cr, ok := h.repo.(orderContextRepository); ok {
-		o, err = cr.TransitionContext(r.Context(), id, p.TenantID, corp, in.Status, in.Version, p.UserID)
-	} else {
-		o, err = h.repo.Transition(id, p.TenantID, in.Status, in.Version)
-	}
+	o, err := h.repo.TransitionContext(r.Context(), id, p.TenantID, corp, in.Status, in.Version, p.UserID)
 	if err != nil {
 		nethttp.Error(w, err.Error(), 409)
 		return

@@ -190,6 +190,36 @@ func TestOrderHandlerReplaysExactFirstResponseAfterClientLosesIt(t *testing.T) {
 	}
 }
 
+func TestOrderHandlerTreatsIdempotencyKeyAsOpaqueBytes(t *testing.T) {
+	repo := NewMemoryOrderRepository()
+	h := NewOrderHandler(repo, routingPrincipalResolver{corpID: 1})
+	keys := []string{
+		"opaque-key",
+		"opaque-key ",
+		"opaque-key\u00a0",
+		"opaque-key\u3000",
+		"Opaque-Key",
+	}
+	for _, key := range keys {
+		response := httptest.NewRecorder()
+		h.ServeHTTP(response, createOrderRequest(key, `{"contactId":"c1","title":"renewal","amountCents":100,"status":"pending"}`))
+		if response.Code != http.StatusOK {
+			t.Fatalf("key %q status = %d, body = %q", key, response.Code, response.Body.String())
+		}
+	}
+	if got := len(repo.List(7, 1)); got != len(keys) {
+		t.Fatalf("orders = %d, want %d distinct opaque keys", got, len(keys))
+	}
+	first := httptest.NewRecorder()
+	replayKey := "exact-key \u00a0\u3000"
+	h.ServeHTTP(first, createOrderRequest(replayKey, `{"contactId":"c1","title":"exact replay","amountCents":200,"status":"pending"}`))
+	retry := httptest.NewRecorder()
+	h.ServeHTTP(retry, createOrderRequest(replayKey, `{"status":"pending","amountCents":200,"title":"exact replay","contactId":"c1"}`))
+	if first.Code != http.StatusOK || retry.Code != first.Code || retry.Body.String() != first.Body.String() {
+		t.Fatalf("exact opaque replay = first:%d/%q retry:%d/%q", first.Code, first.Body.String(), retry.Code, retry.Body.String())
+	}
+}
+
 func TestOrderHandlerRejectsSameKeyWithDifferentPayload(t *testing.T) {
 	h := NewOrderHandler(NewMemoryOrderRepository(), routingPrincipalResolver{corpID: 1})
 	first := httptest.NewRecorder()
@@ -268,12 +298,24 @@ func createOrderRequest(key, body string) *http.Request {
 	return request
 }
 
-func TestOrderHandlerTransitionUsesDashboardEnvelope(t *testing.T) {
-	repo := NewMemoryOrderRepository()
-	_, err := repo.Create(domain.Order{ID: "o-transition", TenantID: 7, CorpID: 1536612155, ContactID: "c1", Status: domain.OrderPending, Version: 1})
+func seedMemoryOrder(t *testing.T, repo *MemoryOrderRepository, order domain.Order) {
+	t.Helper()
+	hash, err := domain.OrderCreateRequestHash(order, "")
 	if err != nil {
 		t.Fatal(err)
 	}
+	body, err := encodeOrderCreateResponse(order)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.CreateIdempotentContext(context.Background(), domain.OrderCreateCommand{Order: order, ActorID: 1, IdempotencyKey: "fixture-" + order.ID, RequestHash: hash, ResponseStatus: http.StatusOK, ResponseBody: body}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestOrderHandlerTransitionUsesDashboardEnvelope(t *testing.T) {
+	repo := NewMemoryOrderRepository()
+	seedMemoryOrder(t, repo, domain.Order{ID: "o-transition", TenantID: 7, CorpID: 1536612155, ContactID: "c1", Status: domain.OrderPending, Version: 1})
 	h := NewOrderHandler(repo, routingPrincipalResolver{})
 	req := httptest.NewRequest(http.MethodPatch, "/dashboard/scrm/orders/o-transition/transition?corpId=1536612155", strings.NewReader(`{"status":"paid","version":1}`))
 	rec := httptest.NewRecorder()
@@ -334,20 +376,8 @@ type routingOrderRepository struct {
 	gotDetailID  string
 }
 
-func (r *routingOrderRepository) Create(order domain.Order) (domain.Order, error) {
-	return order, nil
-}
-
-func (r *routingOrderRepository) List(int64, int64) []domain.Order {
-	panic("legacy List must not be used when ListContext is available")
-}
-
-func (r *routingOrderRepository) Transition(string, int64, domain.OrderStatus, int64) (domain.Order, error) {
-	return domain.Order{}, nil
-}
-
-func (r *routingOrderRepository) CreateContext(context.Context, domain.Order, int64) (domain.Order, error) {
-	return domain.Order{}, nil
+func (r *routingOrderRepository) CreateIdempotentContext(_ context.Context, command domain.OrderCreateCommand) (domain.OrderCreateReceipt, error) {
+	return domain.OrderCreateReceipt{OrderID: command.Order.ID, RequestHash: command.RequestHash, ResponseStatus: command.ResponseStatus, ResponseBody: command.ResponseBody}, nil
 }
 
 func (r *routingOrderRepository) ListContext(_ context.Context, _ int64, _ int64, page, pageSize int) ([]domain.Order, int, error) {

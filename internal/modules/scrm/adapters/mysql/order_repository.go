@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	mysqldriver "github.com/go-sql-driver/mysql"
@@ -55,28 +54,8 @@ func NewSQLOrderRepository(db *sql.DB) (*SQLOrderRepository, error) {
 	return &SQLOrderRepository{db: db}, nil
 }
 
-func (r *SQLOrderRepository) CreateContext(ctx context.Context, order domain.Order, actorID int64) (domain.Order, error) {
-	tx, err := r.db.BeginTx(ctx, nil)
-	if err != nil {
-		return domain.Order{}, err
-	}
-	defer tx.Rollback()
-	now := time.Now().UTC()
-	_, err = tx.ExecContext(ctx, `INSERT INTO mochat_go_scrm_orders (id,tenant_id,corp_id,contact_id,opportunity_id,title,note,amount_cents,currency,status,version,idempotency_key,created_by,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, order.ID, order.TenantID, order.CorpID, order.ContactID, order.OpportunityID, order.Title, order.Note, order.AmountCents, order.Currency, order.Status, order.Version, order.ID, actorID, now, now)
-	if err != nil {
-		return domain.Order{}, err
-	}
-	if err := r.audit(ctx, tx, order, "created", 0, order.Version, actorID); err != nil {
-		return domain.Order{}, err
-	}
-	if err := tx.Commit(); err != nil {
-		return domain.Order{}, err
-	}
-	return order, nil
-}
-
 func (r *SQLOrderRepository) CreateIdempotentContext(ctx context.Context, command domain.OrderCreateCommand) (domain.OrderCreateReceipt, error) {
-	if command.Order.TenantID <= 0 || command.Order.CorpID <= 0 || command.ActorID <= 0 || strings.TrimSpace(command.IdempotencyKey) == "" || len(command.IdempotencyKey) > 128 || len(command.RequestHash) != 64 || command.ResponseStatus < 200 || command.ResponseStatus > 599 || len(command.ResponseBody) == 0 {
+	if command.Order.TenantID <= 0 || command.Order.CorpID <= 0 || command.ActorID <= 0 || command.IdempotencyKey == "" || len(command.IdempotencyKey) > 128 || len(command.RequestHash) != 64 || command.ResponseStatus < 200 || command.ResponseStatus > 599 || len(command.ResponseBody) == 0 {
 		return domain.OrderCreateReceipt{}, errors.New("invalid idempotent order create command")
 	}
 	tx, err := r.db.BeginTx(ctx, nil)
@@ -206,15 +185,4 @@ func (r *SQLOrderRepository) audit(ctx context.Context, executor orderExecutor, 
 	}
 	_, err := executor.ExecContext(ctx, `INSERT INTO mochat_go_scrm_order_audit (id,tenant_id,corp_id,order_id,action,actor_id,from_version,to_version,payload_json,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)`, uuid.NewString(), o.TenantID, o.CorpID, o.ID, action, actor, from, to, `{}`, time.Now().UTC())
 	return err
-}
-
-func (r *SQLOrderRepository) Create(o domain.Order) (domain.Order, error) {
-	return r.CreateContext(context.Background(), o, 0)
-}
-func (r *SQLOrderRepository) List(t, c int64) []domain.Order {
-	v, _, _ := r.ListContext(context.Background(), t, c, 1, 200)
-	return v
-}
-func (r *SQLOrderRepository) Transition(id string, t int64, s domain.OrderStatus, v int64) (domain.Order, error) {
-	return r.TransitionContext(context.Background(), id, t, 0, s, v, 0)
 }
