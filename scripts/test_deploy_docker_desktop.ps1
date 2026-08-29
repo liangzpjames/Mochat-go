@@ -5,6 +5,7 @@ $deployScript = Join-Path $PSScriptRoot 'deploy_docker_desktop.ps1'
 $simulatorScript = Join-Path $PSScriptRoot 'run_archive_simulator.ps1'
 $dockerIgnore = Join-Path $repositoryRoot '.dockerignore'
 $dockerfile = Join-Path $repositoryRoot 'Dockerfile'
+$composeFile = Join-Path $repositoryRoot 'deploy\standalone\docker-compose.yml'
 
 if (-not (Test-Path -LiteralPath $deployScript)) {
     throw "部署脚本不存在：$deployScript"
@@ -77,6 +78,56 @@ try {
 } finally {
     $ErrorActionPreference = $previousPreference
 }
+
+function Get-FreeTCPPort {
+    $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0)
+    $listener.Start()
+    try {
+        return ([System.Net.IPEndPoint]$listener.LocalEndpoint).Port
+    } finally {
+        $listener.Stop()
+    }
+}
+
+function Start-FakeHTTPServer {
+    param(
+        [int]$Port,
+        [string]$FailurePath,
+        [string]$ReadyFile
+    )
+
+    return Start-Job -ArgumentList $Port, $FailurePath, $ReadyFile -ScriptBlock {
+        param($Port, $FailurePath, $ReadyFile)
+        $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, $Port)
+        $listener.Start()
+        [System.IO.File]::WriteAllText($ReadyFile, 'ready')
+        try {
+            $deadline = (Get-Date).AddSeconds(30)
+            while ((Get-Date) -lt $deadline) {
+                if (-not $listener.Pending()) {
+                    Start-Sleep -Milliseconds 20
+                    continue
+                }
+                $client = $listener.AcceptTcpClient()
+                try {
+                    $stream = $client.GetStream()
+                    $reader = [System.IO.StreamReader]::new($stream, [System.Text.Encoding]::ASCII, $false, 1024, $true)
+                    $requestLine = $reader.ReadLine()
+                    while ($reader.ReadLine()) {}
+                    $path = if ($requestLine) { ($requestLine -split ' ')[1] } else { '' }
+                    $status = if ($path -eq $FailurePath) { '503 Service Unavailable' } else { '204 No Content' }
+                    $payload = [System.Text.Encoding]::ASCII.GetBytes("HTTP/1.1 $status`r`nContent-Length: 0`r`nConnection: close`r`n`r`n")
+                    $stream.Write($payload, 0, $payload.Length)
+                    $stream.Flush()
+                } finally {
+                    $client.Dispose()
+                }
+            }
+        } finally {
+            $listener.Stop()
+        }
+    }
+}
 if ($LASTEXITCODE -eq 0) {
     throw "controlled_pending 预览必须停在维护检查点：`n$controlledPendingOutput"
 }
@@ -100,7 +151,7 @@ Assert-Matches $defaultOutput 'up -d --build --force-recreate --remove-orphans' 
 Assert-Matches $defaultOutput '仅在迁移账本不存在时执行 baseline' '未声明安全的条件基线策略'
 Assert-Matches $defaultOutput 'exec -T app mochat-migrate -action up -project-root /app' '未执行数据库迁移'
 Assert-Matches $controlledPendingOutput '受控迁移维护检查点' 'controlled_pending 未输出明确维护检查点'
-Assert-Matches $controlledPendingOutput 'stop app' 'controlled_pending 未实际停止 app'
+Assert-Matches $controlledPendingOutput 'stop --timeout 70 app' 'controlled_pending 未给 HTTP/worker drain 足够的停止期限'
 Assert-Matches $controlledPendingOutput '已确认服务停止：app' 'controlled_pending 未确认 app 已停止'
 Assert-Matches $controlledPendingOutput '-ApproveControlledMigrations' '维护检查点缺少可复制的显式恢复命令'
 Assert-Matches $controlledResumeOutput 'run --rm --no-deps --entrypoint /usr/local/bin/mochat-saas-maintenance app -action backup-create' '显式恢复缺少容器内备份创建'
@@ -116,7 +167,7 @@ if ($controlledPendingOutput -match 'mochat-saas-maintenance app -action backup-
     throw "未授权 controlled_pending 路径执行或展开了受控写入命令：`n$controlledPendingOutput"
 }
 $controlledOrder = @(
-    'stop app',
+    'stop --timeout 70 app',
     'mochat-saas-maintenance app -action backup-create',
     'mochat-saas-maintenance app -action backup-verify',
     'mochat-identity-preflight app',
@@ -149,6 +200,8 @@ $deploySource = Get-Content -LiteralPath $deployScript -Raw
 $simulatorSource = Get-Content -LiteralPath $simulatorScript -Raw
 $dockerIgnoreSource = Get-Content -LiteralPath $dockerIgnore -Raw
 $dockerfileSource = Get-Content -LiteralPath $dockerfile -Raw
+$composeSource = Get-Content -LiteralPath $composeFile -Raw
+Assert-Matches $composeSource '(?ms)^\s{2}app:.*?^\s{4}stop_grace_period:\s*70s\s*$' 'Compose app 未声明至少 70 秒的优雅停止期限'
 Assert-Matches $dockerIgnoreSource '(?m)^\.worktrees/\r?$' 'Docker 构建上下文仍包含多 GB 工作树'
 Assert-Matches $dockerIgnoreSource '(?m)^\.tmp\*/\r?$' 'Docker 构建上下文仍包含临时 Go 缓存'
 Assert-Matches $dockerIgnoreSource '(?m)^web/saas-admin/\r?$' 'Docker 构建上下文仍包含旧的未跟踪 SaaS 构建目录'
@@ -193,11 +246,12 @@ $previousBackupEncryptionKey = $env:MOCHAT_GO_SAAS_BACKUP_ENCRYPTION_KEY
 $env:MOCHAT_DOCKER_DESKTOP_SECRET_DIR = Join-Path $fakeRoot 'secrets'
 $env:MOCHAT_TEST_COMPOSE_FILE = Join-Path $repositoryRoot 'deploy\standalone\docker-compose.yml'
 $env:MOCHAT_TEST_STOP_STATE = Join-Path $fakeRoot 'app-stopped'
+$env:MOCHAT_TEST_MAINTENANCE_STATE = Join-Path $fakeRoot 'maintenance-files'
 Remove-Item Env:MOCHAT_GO_SAAS_BACKUP_ENCRYPTION_KEY -ErrorAction SilentlyContinue
 try {
 @'
 @echo off
-setlocal
+setlocal EnableDelayedExpansion
 echo docker progress 1>&2
 if "%1"=="info" (
   echo identity=%MOCHAT_GO_ENABLE_SAAS_IDENTITY_SECURITY% 1>&2
@@ -212,10 +266,14 @@ if "%1"=="inspect" (
     echo exited^|
     exit /b 0
   )
+  if "!MOCHAT_TEST_FAIL_STAGE!"=="service-health" (
+    echo running^|unhealthy
+    exit /b 0
+  )
   echo running^|healthy
   exit /b 0
 )
-echo %* | findstr /C:" stop app" >nul
+echo %* | findstr /C:" stop --timeout 70 app" >nul
 if not errorlevel 1 (
   type nul > "%MOCHAT_TEST_STOP_STATE%"
   echo app_stop=done 1>&2
@@ -223,8 +281,22 @@ if not errorlevel 1 (
 )
 echo %* | findstr /C:" up -d app" >nul
 if not errorlevel 1 (
+  if "!MOCHAT_TEST_FAIL_STAGE!"=="start" goto fail_start
   del /q "%MOCHAT_TEST_STOP_STATE%" >nul 2>&1
   echo app_start=done 1>&2
+  exit /b 0
+)
+echo %* | findstr /C:"umask 077" >nul
+if not errorlevel 1 (
+  type nul > "%MOCHAT_TEST_MAINTENANCE_STATE%"
+  echo maintenance_files=created 1>&2
+  exit /b 0
+)
+echo %* | findstr /C:"rm -f /app/storage/identity-maintenance" >nul
+if not errorlevel 1 (
+  if "!MOCHAT_TEST_FAIL_STAGE!"=="cleanup" goto fail_cleanup
+  del /q "%MOCHAT_TEST_MAINTENANCE_STATE%" >nul 2>&1
+  echo maintenance_cleanup=done 1>&2
   exit /b 0
 )
 echo %* | findstr /C:"/bin/sh app -c" | findstr /C:"MOCHAT_GO_SAAS_BACKUP_ENCRYPTION_KEY" >nul
@@ -249,6 +321,28 @@ if not errorlevel 1 (
   echo verification_status passed
   exit /b 0
 )
+echo %* | findstr /C:"mochat-identity-preflight app" >nul
+if not errorlevel 1 (
+  if "!MOCHAT_TEST_FAIL_STAGE!"=="preflight" (
+    goto fail_preflight
+  )
+  exit /b 0
+)
+echo %* | findstr /C:"mochat-identity-migrate app up" >nul
+if not errorlevel 1 (
+  if "!MOCHAT_TEST_FAIL_STAGE!"=="identity-up" goto fail_identity_up
+  exit /b 0
+)
+echo %* | findstr /C:"mochat-identity-migrate app cutover" >nul
+if not errorlevel 1 (
+  if "!MOCHAT_TEST_FAIL_STAGE!"=="cutover" goto fail_cutover
+  exit /b 0
+)
+echo %* | findstr /C:"/usr/local/bin/mochat-migrate app -action up" >nul
+if not errorlevel 1 (
+  if "!MOCHAT_TEST_FAIL_STAGE!"=="automatic-up" goto fail_automatic_up
+  exit /b 0
+)
 if "%MOCHAT_TEST_CONTROLLED_PENDING%"=="1" (
   echo %* | findstr /C:"mochat-migrate -action up" >nul
   if not errorlevel 1 (
@@ -262,8 +356,18 @@ if "%9"=="-q" (
 )
 echo 1
 exit /b 0
-echo docker progress 1>&2
-exit /b 0
+:fail_start
+exit /b 61
+:fail_preflight
+exit /b 62
+:fail_identity_up
+exit /b 63
+:fail_cutover
+exit /b 64
+:fail_automatic_up
+exit /b 65
+:fail_cleanup
+exit /b 69
 '@ | Set-Content -LiteralPath $fakeDocker -Encoding Ascii
 
     $previousPreference = $ErrorActionPreference
@@ -336,7 +440,7 @@ exit /b 0
         throw '部署、检查点或显式恢复输出泄露了备份加密密钥值'
     }
     $fakeControlledOrder = @(
-        'stop app',
+        'stop --timeout 70 app',
         'mochat-saas-maintenance app -action backup-create',
         'mochat-saas-maintenance app -action backup-verify',
         'mochat-identity-preflight app',
@@ -344,6 +448,7 @@ exit /b 0
         'mochat-identity-migrate app encrypt-credentials',
         'mochat-identity-migrate app cutover',
         'mochat-migrate app -action up',
+        'maintenance_cleanup=done',
         'up -d app',
         '/healthz',
         '/readyz'
@@ -355,6 +460,101 @@ exit /b 0
             throw "fake Docker 受控维护链不完整或错序（$step）：`n$fakeResumeOutput"
         }
         $previousFakeIndex = $stepIndex
+    }
+    if (Test-Path -LiteralPath $env:MOCHAT_TEST_MAINTENANCE_STATE) {
+        throw '显式受控迁移成功后命名卷仍残留 maintenance 临时秘密文件'
+    }
+
+    foreach ($failureStage in @('preflight', 'identity-up', 'cutover', 'automatic-up', 'start', 'service-health')) {
+        Remove-Item -LiteralPath $env:MOCHAT_TEST_STOP_STATE -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $env:MOCHAT_TEST_MAINTENANCE_STATE -Force -ErrorAction SilentlyContinue
+        $env:MOCHAT_TEST_FAIL_STAGE = $failureStage
+        $ErrorActionPreference = 'Continue'
+        try {
+            $failureOutput = & powershell -NoProfile -ExecutionPolicy Bypass -File $deployScript `
+                -DockerCommand $fakeDocker `
+                -SkipHttpCheck `
+                -ApproveControlledMigrations `
+                -ControlledRequestID 'approved-test-request' `
+                -ControlledMaintenanceConfirmationFile $confirmationFile 2>&1 | Out-String
+            $failureExitCode = $LASTEXITCODE
+        } finally {
+            $ErrorActionPreference = $previousPreference
+            Remove-Item Env:MOCHAT_TEST_FAIL_STAGE -ErrorAction SilentlyContinue
+        }
+        if ($failureExitCode -eq 0) {
+            throw "受控维护故障注入 $failureStage 必须非零退出：`n$failureOutput"
+        }
+        if (Test-Path -LiteralPath $env:MOCHAT_TEST_MAINTENANCE_STATE) {
+            throw "受控维护故障 $failureStage 后命名卷残留 maintenance 临时秘密文件：`n$failureOutput"
+        }
+        if (-not (Test-Path -LiteralPath $env:MOCHAT_TEST_STOP_STATE)) {
+            throw "受控维护故障 $failureStage 后 app 未保持停止：`n$failureOutput"
+        }
+        if ([regex]::Matches($failureOutput, 'stop --timeout 70 app').Count -lt 2) {
+            throw "受控维护故障 $failureStage 后未再次执行 70 秒优雅停服：`n$failureOutput"
+        }
+        Assert-Matches $failureOutput 'maintenance_cleanup=done' "受控维护故障 $failureStage 后未执行 finally 临时秘密清理"
+    }
+
+    Remove-Item -LiteralPath $env:MOCHAT_TEST_STOP_STATE -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $env:MOCHAT_TEST_MAINTENANCE_STATE -Force -ErrorAction SilentlyContinue
+    $env:MOCHAT_TEST_FAIL_STAGE = 'cleanup'
+    $ErrorActionPreference = 'Continue'
+    try {
+        $cleanupFailureOutput = & powershell -NoProfile -ExecutionPolicy Bypass -File $deployScript `
+            -DockerCommand $fakeDocker `
+            -SkipHttpCheck `
+            -ApproveControlledMigrations `
+            -ControlledRequestID 'approved-test-request' `
+            -ControlledMaintenanceConfirmationFile $confirmationFile 2>&1 | Out-String
+        $cleanupFailureExitCode = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $previousPreference
+        Remove-Item Env:MOCHAT_TEST_FAIL_STAGE -ErrorAction SilentlyContinue
+    }
+    if ($cleanupFailureExitCode -eq 0 -or -not (Test-Path -LiteralPath $env:MOCHAT_TEST_STOP_STATE)) {
+        throw "临时秘密清理失败必须报告并保持 app 停止：`n$cleanupFailureOutput"
+    }
+    Assert-Matches $cleanupFailureOutput '临时秘密清理失败' '临时秘密清理失败没有进入最终错误报告'
+
+    foreach ($httpFailurePath in @('/healthz', '/readyz')) {
+        Remove-Item -LiteralPath $env:MOCHAT_TEST_STOP_STATE -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $env:MOCHAT_TEST_MAINTENANCE_STATE -Force -ErrorAction SilentlyContinue
+        $httpPort = Get-FreeTCPPort
+        $readyFile = Join-Path $fakeRoot ("http-ready-" + ($httpFailurePath.Trim('/')))
+        $httpJob = Start-FakeHTTPServer -Port $httpPort -FailurePath $httpFailurePath -ReadyFile $readyFile
+        try {
+            $deadline = (Get-Date).AddSeconds(10)
+            while (-not (Test-Path -LiteralPath $readyFile) -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 50 }
+            if (-not (Test-Path -LiteralPath $readyFile)) { throw "fake HTTP server 未启动：$httpFailurePath" }
+            $ErrorActionPreference = 'Continue'
+            try {
+                $httpFailureOutput = & powershell -NoProfile -ExecutionPolicy Bypass -File $deployScript `
+                    -DockerCommand $fakeDocker `
+                    -DashboardPort $httpPort `
+                    -HttpCheckTimeoutSeconds 1 `
+                    -ApproveControlledMigrations `
+                    -ControlledRequestID 'approved-test-request' `
+                    -ControlledMaintenanceConfirmationFile $confirmationFile 2>&1 | Out-String
+                $httpFailureExitCode = $LASTEXITCODE
+            } finally {
+                $ErrorActionPreference = $previousPreference
+            }
+        } finally {
+            Stop-Job -Job $httpJob -ErrorAction SilentlyContinue
+            Remove-Job -Job $httpJob -Force -ErrorAction SilentlyContinue
+        }
+        if ($httpFailureExitCode -eq 0) {
+            throw "受控维护 $httpFailurePath 故障必须非零退出：`n$httpFailureOutput"
+        }
+        if (Test-Path -LiteralPath $env:MOCHAT_TEST_MAINTENANCE_STATE) {
+            throw "受控维护 $httpFailurePath 故障后仍残留临时秘密：`n$httpFailureOutput"
+        }
+        if (-not (Test-Path -LiteralPath $env:MOCHAT_TEST_STOP_STATE) -or [regex]::Matches($httpFailureOutput, 'stop --timeout 70 app').Count -lt 2) {
+            throw "受控维护 $httpFailurePath 故障后未再次优雅停服并确认 stopped：`n$httpFailureOutput"
+        }
+        Assert-Matches $httpFailureOutput 'maintenance_cleanup=done' "受控维护 $httpFailurePath 故障后未清理临时秘密"
     }
 
     [System.IO.File]::WriteAllText($backupKeyFile, '', [System.Text.Encoding]::ASCII)
@@ -377,6 +577,8 @@ exit /b 0
 	$env:MOCHAT_TEST_COMPOSE_FILE = $previousFakeComposeFile
     $env:MOCHAT_GO_SAAS_BACKUP_ENCRYPTION_KEY = $previousBackupEncryptionKey
     Remove-Item Env:MOCHAT_TEST_STOP_STATE -ErrorAction SilentlyContinue
+    Remove-Item Env:MOCHAT_TEST_MAINTENANCE_STATE -ErrorAction SilentlyContinue
+    Remove-Item Env:MOCHAT_TEST_FAIL_STAGE -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath $fakeRoot -Recurse -Force -ErrorAction SilentlyContinue
 }
 

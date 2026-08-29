@@ -13,6 +13,7 @@ secrets:
 services:
   app:
     logging: *mochat-logging
+    stop_grace_period: 70s
     profiles:
       - app
     build:

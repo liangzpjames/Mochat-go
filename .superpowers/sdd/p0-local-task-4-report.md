@@ -274,3 +274,32 @@ git diff --check
 - 真实 0130/0131、真实备份创建/恢复验证与真实维护窗口：SKIP，缺少生产授权和审批工件。
 - 真实 Docker image/Compose、真实 MySQL/Redis 故障与恢复：SKIP；本轮使用无副作用 DryRun 和隔离 fake Docker 状态机验证控制流。
 - 真实 Provider、浏览器、生产部署与命名卷操作：SKIP，均超出 Task 4 授权范围。
+
+## Reviewer 第四轮复审修复（2026-08-29）
+
+### RED 与根因
+
+- quiesce RED：部署测试要求 `stop --timeout 70 app` 时，旧输出仍是 `stop app`。根因是 Compose 默认 stop 期限只有 10 秒，小于 HTTP drain 30 秒与 worker wait 30 秒之和，维护窗口可能在优雅关闭完成前强杀进程。
+- finally cleanup RED：fake Docker 在 preflight 失败后保留 maintenance 状态文件，证明旧线性流程跳过了 DSN、WeCom key 与 confirmation 清理。
+- HTTP 失败注入 RED：测试以 `-HttpCheckTimeoutSeconds 1` 运行时参数不存在；旧路径也没有可在短时测试中证明 `/healthz`、`/readyz` 失败后再次停服的入口。
+- 启动前清理顺序 RED：fake 链最初观察到 `up -d app` 早于 `maintenance_cleanup=done`，说明临时秘密会一直保留到 health/ready 结束。
+
+### GREEN、故障注入与失败状态
+
+- Compose app 新增 `stop_grace_period: 70s`；普通 controlled checkpoint、显式 resume 首次 quiesce 与失败回收统一调用 `docker compose stop --timeout 70 app`，随后用 inspect 确认 stopped。70 秒覆盖 HTTP 30 秒 drain、worker 30 秒等待及调度余量。
+- resume 改为单一 `try/catch/finally` 状态机。维护步骤错误记录为 operation failure；finally 无条件以一次性 app 容器执行 `rm -f` 清理三个临时文件。成功路径在启动 app 前先清理一次，finally 再幂等清理，避免 ready 检查期间保留秘密。
+- `up -d app` 后直到 container health、`/healthz`、`/readyz` 全部通过前都不标记 completed。任一失败或 cleanup 失败，finally 都再次执行 70 秒 stop 并确认 stopped，再向外返回非零错误；cleanup/stop 自身错误会进入最终错误报告，不被原始错误吞掉。
+- fake Docker 维护独立的 app stopped 与 maintenance-files 状态，逐项注入 preflight、0130、0131、automatic up、app start、container health 失败；每项都断言非零退出、临时文件无残留、至少两次 70 秒 stop 且最终 stopped。cleanup 自身失败单独断言会报告并保持 app 停止。
+- 测试使用隔离本地 TCP HTTP server 分别返回 `/healthz=503`、`/readyz=503`，证明两个 HTTP 失败点都会清理并再次停服；`HttpCheckTimeoutSeconds` 仅用于缩短确定性的部署检查预算，生产默认仍为 90 秒。
+- 现有备份 key/DSN 防泄露断言继续覆盖全部新增输出；清理命令只包含固定卷内路径，不输出临时文件内容。
+
+### 最终验证与边界
+
+```text
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/test_deploy_docker_desktop.ps1
+go test ./... -count=1
+go vet ./...
+git diff --check
+```
+
+结果全部退出码 `0`。真实 controlled migration、真实备份恢复、真实 Docker Compose 与生产维护窗口继续 SKIP；测试仅使用 DryRun、fake Docker 和本地临时 HTTP server，未触碰命名卷、真实 Provider 或生产数据。Task 1/Task 3 合同未改写，`docs/PROJECT_PROGRESS.zh-CN.md` 未修改。
