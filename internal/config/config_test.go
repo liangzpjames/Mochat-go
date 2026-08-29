@@ -282,6 +282,23 @@ func TestStandaloneComposeFailsClosedForArchiveSecretsAndFixtures(t *testing.T) 
 			t.Fatalf("compose contains public suite callback fixture credential %q", value)
 		}
 	}
+	bridgeStart := strings.Index(text, "  archive-bridge:")
+	bridgeEnd := strings.Index(text, "  archive-simulator:")
+	if bridgeStart < 0 || bridgeEnd <= bridgeStart {
+		t.Fatal("archive bridge compose service block is missing")
+	}
+	bridge := text[bridgeStart:bridgeEnd]
+	for _, fragment := range []string{
+		`MOCHAT_MYSQL_DSN: "${MOCHAT_MYSQL_USER:-mochat}:${MOCHAT_MYSQL_PASSWORD:-mochat_pass}@tcp(mysql:3306)/${MOCHAT_MYSQL_DATABASE:-mochat}?parseTime=true&loc=Local"`,
+		`MOCHAT_GO_WECOM_CREDENTIAL_ENCRYPTION_KEY: "${MOCHAT_GO_WECOM_CREDENTIAL_ENCRYPTION_KEY:?MOCHAT_GO_WECOM_CREDENTIAL_ENCRYPTION_KEY must be set}"`,
+		`MOCHAT_ARCHIVE_BRIDGE_STATE_ROOT: "/app/storage/archive-bridge/finance"`,
+		`WECOM_FINANCE_SDK_PATH: "/opt/wecom-sdk/libWeWorkFinanceSdk_C.so"`,
+		`"${MOCHAT_WECOM_FINANCE_SDK_DIR:-./wecom-sdk}:/opt/wecom-sdk:ro"`,
+	} {
+		if !strings.Contains(bridge, fragment) {
+			t.Fatalf("archive bridge production bootstrap is missing %q", fragment)
+		}
+	}
 }
 
 func TestLoadProvidesIndependentRealmTokenConfiguration(t *testing.T) {

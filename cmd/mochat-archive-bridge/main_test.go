@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -12,6 +14,8 @@ import (
 
 	"jiyi/mochat-go/internal/archivebridge"
 	"jiyi/mochat-go/internal/wecomarchivedemo"
+
+	"github.com/DATA-DOG/go-sqlmock"
 )
 
 func TestLoadConfigRequiresLongIndependentTokensForFixtureMode(t *testing.T) {
@@ -115,6 +119,48 @@ func TestRunProductionSDKModeRejectsNilRegistrar(t *testing.T) {
 	}
 }
 
+func TestProductionRegistrarBootstrapSelectsProtectedMySQLSource(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.MonitorPingsOption(true))
+	if err != nil {
+		t.Fatal(err)
+	}
+	mock.ExpectPing()
+	mock.ExpectClose()
+	env := map[string]string{
+		"MOCHAT_MYSQL_DSN":                             "protected-dsn-reference",
+		"MOCHAT_GO_WECOM_CREDENTIAL_ENCRYPTION_KEY":    base64.StdEncoding.EncodeToString([]byte("0123456789abcdef0123456789abcdef")),
+		"MOCHAT_GO_WECOM_CREDENTIAL_ENCRYPTION_KEY_ID": "archive-production-v1",
+		"MOCHAT_ARCHIVE_BRIDGE_STATE_ROOT":             t.TempDir(),
+	}
+	openerCalled := false
+	registrar, err := newProductionRegistrar(func(key string) string { return env[key] }, func(dsn string) (*sql.DB, error) {
+		openerCalled = true
+		if dsn != "protected-dsn-reference" {
+			t.Fatalf("dsn=%q", dsn)
+		}
+		return db, nil
+	}, archivebridge.NewStore())
+	if err != nil || registrar == nil || !openerCalled {
+		t.Fatalf("registrar=%v opener=%t err=%v", registrar, openerCalled, err)
+	}
+	if err := registrar.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestProductionRegistrarBootstrapFailsClosedWithoutProtectedSource(t *testing.T) {
+	registrar, err := newProductionRegistrar(func(string) string { return "" }, func(string) (*sql.DB, error) {
+		t.Fatal("database opener must not run without protected configuration")
+		return nil, nil
+	}, archivebridge.NewStore())
+	if registrar != nil || archivebridge.ErrorCode(err) != "ARCHIVE_DRIVER_UNAVAILABLE" {
+		t.Fatalf("registrar=%v error=%v code=%s", registrar, err, archivebridge.ErrorCode(err))
+	}
+}
+
 type mainFinanceDriver struct{}
 
 func (mainFinanceDriver) FetchPage(context.Context, uint64, uint32) (wecomarchivedemo.ArchivePage, error) {
@@ -177,9 +223,11 @@ func (l *eventLog) joined() string {
 }
 
 type fakeBridgeServer struct {
-	events  *eventLog
-	started chan struct{}
-	stopped chan struct{}
+	events      *eventLog
+	started     chan struct{}
+	stopped     chan struct{}
+	stopOnce    sync.Once
+	shutdownErr error
 }
 
 func (s *fakeBridgeServer) ListenAndServe() error {
@@ -191,7 +239,14 @@ func (s *fakeBridgeServer) ListenAndServe() error {
 
 func (s *fakeBridgeServer) Shutdown(context.Context) error {
 	s.events.add("drain")
-	close(s.stopped)
+	s.stopOnce.Do(func() { close(s.stopped) })
+	return s.shutdownErr
+
+}
+
+func (s *fakeBridgeServer) Close() error {
+	s.events.add("force-close")
+	s.stopOnce.Do(func() { close(s.stopped) })
 	return nil
 }
 
@@ -210,5 +265,52 @@ func TestServeDrainsHTTPBeforeRegistrarCloseAndReturnsCloseFailure(t *testing.T)
 	}
 	if !strings.Contains(err.Error(), "controlled close failure") {
 		t.Fatalf("serve error=%v", err)
+	}
+}
+
+type listenerErrorServer struct {
+	events *eventLog
+	err    error
+}
+
+func (s *listenerErrorServer) ListenAndServe() error {
+	s.events.add("listen")
+	return s.err
+}
+
+func (s *listenerErrorServer) Shutdown(context.Context) error {
+	s.events.add("unexpected-drain")
+	return nil
+}
+
+func (s *listenerErrorServer) Close() error {
+	s.events.add("force-close")
+	return nil
+}
+
+func TestServeForceClosesHTTPBeforeRegistrarOnListenerError(t *testing.T) {
+	events := &eventLog{}
+	listenErr := errors.New("controlled listener failure")
+	server := &listenerErrorServer{events: events, err: listenErr}
+	registrar := &fakeRegistrar{events: events}
+	err := serve(context.Background(), server, registrar)
+	if !errors.Is(err, listenErr) || events.joined() != "listen,force-close,close" {
+		t.Fatalf("error=%v events=%s", err, events.joined())
+	}
+}
+
+func TestServeForceClosesHTTPBeforeRegistrarWhenDrainFails(t *testing.T) {
+	events := &eventLog{}
+	drainErr := errors.New("controlled drain timeout")
+	server := &fakeBridgeServer{events: events, started: make(chan struct{}), stopped: make(chan struct{}), shutdownErr: drainErr}
+	registrar := &fakeRegistrar{events: events}
+	ctx, cancel := context.WithCancel(context.Background())
+	result := make(chan error, 1)
+	go func() { result <- serve(ctx, server, registrar) }()
+	<-server.started
+	cancel()
+	err := <-result
+	if !errors.Is(err, drainErr) || events.joined() != "listen,drain,force-close,close" {
+		t.Fatalf("error=%v events=%s", err, events.joined())
 	}
 }

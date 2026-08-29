@@ -81,6 +81,21 @@ type fakeDriverFactory struct {
 	dataZoneErr error
 }
 
+type errorAndCloserFactory struct {
+	driver   FinanceDriver
+	buildErr error
+	closeErr error
+	closed   *[]string
+}
+
+func (f errorAndCloserFactory) NewFinanceDriver(context.Context, Binding) (FinanceDriver, io.Closer, error) {
+	return f.driver, &recordingCloser{id: "factory-finance", closed: f.closed, err: f.closeErr}, f.buildErr
+}
+
+func (errorAndCloserFactory) NewDataZoneDriver(context.Context, Binding) (DataZoneDriver, io.Closer, error) {
+	return nil, nil, errors.New("not used")
+}
+
 func (f fakeDriverFactory) NewFinanceDriver(context.Context, Binding) (FinanceDriver, io.Closer, error) {
 	if f.financeErr != nil {
 		return nil, nil, f.financeErr
@@ -215,5 +230,49 @@ func TestDriverRegistrarCloseAttemptsEveryDriverAndReturnsControlledError(t *tes
 	}
 	if strings.Join(closed, ",") != "data-zone,finance" {
 		t.Fatalf("close order=%v", closed)
+	}
+}
+
+func TestDriverRegistrarPreservesFactoryErrorAndCloserFailure(t *testing.T) {
+	binding := Binding{TenantID: 11, CorpID: 27, WXCorpID: "ww-self", IntegrationMode: ModeSelfBuilt}
+	buildErr := errors.New("controlled factory initialization failure")
+	closeErr := errors.New("controlled factory closer failure")
+	closed := []string{}
+	registrar, err := NewDriverRegistrar(fakeProductionBindingSource{bindings: []Binding{binding}}, errorAndCloserFactory{
+		buildErr: buildErr, closeErr: closeErr, closed: &closed,
+	}, NewStore())
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = registrar.RegisterAll(context.Background())
+	if ErrorCode(err) != "ARCHIVE_DRIVER_INITIALIZATION_FAILED" || !errors.Is(err, buildErr) || !errors.Is(err, closeErr) {
+		t.Fatalf("error=%v code=%s build=%t close=%t", err, ErrorCode(err), errors.Is(err, buildErr), errors.Is(err, closeErr))
+	}
+	if strings.Join(closed, ",") != "factory-finance" {
+		t.Fatalf("closed=%v", closed)
+	}
+}
+
+func TestDriverRegistrarPreservesStoreConflictAndCloserFailure(t *testing.T) {
+	existing := Binding{TenantID: 11, CorpID: 27, WXCorpID: "ww-existing", IntegrationMode: ModeSelfBuilt}
+	incoming := Binding{TenantID: 11, CorpID: 27, WXCorpID: "ww-incoming", IntegrationMode: ModeSelfBuilt}
+	store := NewStore()
+	if err := store.RegisterFinance(existing, &registrarFinanceDriver{}); err != nil {
+		t.Fatal(err)
+	}
+	closeErr := errors.New("controlled store-conflict closer failure")
+	closed := []string{}
+	registrar, err := NewDriverRegistrar(fakeProductionBindingSource{bindings: []Binding{incoming}}, errorAndCloserFactory{
+		driver: &registrarFinanceDriver{}, closeErr: closeErr, closed: &closed,
+	}, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = registrar.RegisterAll(context.Background())
+	if ErrorCode(err) != "ARCHIVE_BINDING_CONFLICT" || !errors.Is(err, closeErr) {
+		t.Fatalf("error=%v code=%s close=%t", err, ErrorCode(err), errors.Is(err, closeErr))
+	}
+	if strings.Join(closed, ",") != "factory-finance" {
+		t.Fatalf("closed=%v", closed)
 	}
 }

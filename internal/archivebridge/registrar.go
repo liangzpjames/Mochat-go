@@ -110,10 +110,13 @@ func (r *DriverRegistrar) registerOne(ctx context.Context, binding Binding) (io.
 	if err == nil {
 		return closer, nil
 	}
+	primaryErr := preserveBridgeError(err, "ARCHIVE_DRIVER_INITIALIZATION_FAILED")
 	if closer != nil {
-		_ = closer.Close()
+		if closeErr := closer.Close(); closeErr != nil {
+			return nil, errors.Join(primaryErr, &BridgeError{Code: "ARCHIVE_DRIVER_CLOSE_FAILED", Cause: closeErr})
+		}
 	}
-	return nil, preserveBridgeError(err, "ARCHIVE_DRIVER_INITIALIZATION_FAILED")
+	return nil, primaryErr
 }
 
 func (r *DriverRegistrar) Close() error {

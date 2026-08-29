@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"log"
@@ -10,11 +11,14 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
 	"jiyi/mochat-go/internal/archivebridge"
+	"jiyi/mochat-go/internal/mysqlconn"
 	"jiyi/mochat-go/internal/observability"
+	"jiyi/mochat-go/internal/wecomcredentials"
 )
 
 type commandConfig struct {
@@ -36,6 +40,36 @@ type registrarFactory func(*archivebridge.Store) (driverRegistrar, error)
 type bridgeServer interface {
 	ListenAndServe() error
 	Shutdown(context.Context) error
+	Close() error
+}
+
+type databaseOpener func(string) (*sql.DB, error)
+
+type managedProductionRegistrar struct {
+	driverRegistrar
+	db        *sql.DB
+	closeOnce sync.Once
+	closeErr  error
+}
+
+func (r *managedProductionRegistrar) Close() error {
+	if r == nil {
+		return nil
+	}
+	r.closeOnce.Do(func() {
+		var driverErr error
+		if r.driverRegistrar != nil {
+			driverErr = r.driverRegistrar.Close()
+		}
+		var dbErr error
+		if r.db != nil {
+			if err := r.db.Close(); err != nil {
+				dbErr = &archivebridge.BridgeError{Code: "ARCHIVE_DRIVER_CLOSE_FAILED", Cause: err}
+			}
+		}
+		r.closeErr = errors.Join(driverErr, dbErr)
+	})
+	return r.closeErr
 }
 
 func main() {
@@ -57,11 +91,60 @@ func main() {
 }
 
 func defaultRegistrarFactory(store *archivebridge.Store) (driverRegistrar, error) {
-	return archivebridge.NewDriverRegistrar(
-		archivebridge.UnavailableProductionBindingSource{},
-		archivebridge.UnavailableDriverFactory{},
-		store,
+	return newProductionRegistrar(os.Getenv, mysqlconn.Open, store)
+}
+
+func newProductionRegistrar(getenv func(string) string, openDatabase databaseOpener, bridgeStore *archivebridge.Store) (driverRegistrar, error) {
+	if getenv == nil || openDatabase == nil || bridgeStore == nil {
+		return nil, &archivebridge.BridgeError{Code: "ARCHIVE_DRIVER_UNAVAILABLE"}
+	}
+	dsn := strings.TrimSpace(getenv("MOCHAT_MYSQL_DSN"))
+	stateRoot := strings.TrimSpace(getenv("MOCHAT_ARCHIVE_BRIDGE_STATE_ROOT"))
+	if stateRoot == "" {
+		stateRoot = "/app/storage/archive-bridge/finance"
+	}
+	encryption, dedicated := wecomcredentials.SelectEncryptionSource(
+		wecomcredentials.EncryptionSource{
+			Key: getenv("MOCHAT_GO_WECOM_CREDENTIAL_ENCRYPTION_KEY"), Keys: getenv("MOCHAT_GO_WECOM_CREDENTIAL_ENCRYPTION_KEYS"), KeyID: getenv("MOCHAT_GO_WECOM_CREDENTIAL_ENCRYPTION_KEY_ID"),
+		},
+		wecomcredentials.EncryptionSource{
+			Key: getenv("MOCHAT_GO_SAAS_IDENTITY_ENCRYPTION_KEY"), Keys: getenv("MOCHAT_GO_SAAS_IDENTITY_ENCRYPTION_KEYS"), KeyID: getenv("MOCHAT_GO_SAAS_IDENTITY_ENCRYPTION_KEY_ID"),
+		},
+		wecomcredentials.EncryptionSource{
+			Key: getenv("MOCHAT_GO_SAAS_COMPLIANCE_ENCRYPTION_KEY"), Keys: getenv("MOCHAT_GO_SAAS_COMPLIANCE_ENCRYPTION_KEYS"), KeyID: getenv("MOCHAT_GO_SAAS_COMPLIANCE_ENCRYPTION_KEY_ID"),
+		},
+		wecomcredentials.EncryptionSource{
+			Key: getenv("MOCHAT_GO_SAAS_BACKUP_ENCRYPTION_KEY"), Keys: getenv("MOCHAT_GO_SAAS_BACKUP_ENCRYPTION_KEYS"), KeyID: getenv("MOCHAT_GO_SAAS_BACKUP_ENCRYPTION_KEY_ID"),
+		},
 	)
+	if dsn == "" || (strings.TrimSpace(encryption.Key) == "" && strings.TrimSpace(encryption.Keys) == "") {
+		return nil, &archivebridge.BridgeError{Code: "ARCHIVE_DRIVER_UNAVAILABLE"}
+	}
+	credentials, err := wecomcredentials.NewManager(wecomcredentials.Config{
+		EncryptionKey: encryption.Key, EncryptionKeys: encryption.Keys, EncryptionKeyID: encryption.KeyID,
+		RequireEncryption: true, DedicatedConfigured: dedicated,
+	})
+	if err != nil {
+		return nil, &archivebridge.BridgeError{Code: "ARCHIVE_DRIVER_UNAVAILABLE", Cause: err}
+	}
+	db, err := openDatabase(dsn)
+	if err != nil {
+		return nil, &archivebridge.BridgeError{Code: "ARCHIVE_BINDING_SOURCE_UNAVAILABLE", Cause: err}
+	}
+	pingCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := db.PingContext(pingCtx); err != nil {
+		return nil, errors.Join(&archivebridge.BridgeError{Code: "ARCHIVE_BINDING_SOURCE_UNAVAILABLE", Cause: err}, db.Close())
+	}
+	provider, err := archivebridge.NewMySQLProductionProvider(db, credentials, stateRoot, nil)
+	if err != nil {
+		return nil, errors.Join(err, db.Close())
+	}
+	registrar, err := archivebridge.NewDriverRegistrar(provider, provider, bridgeStore)
+	if err != nil {
+		return nil, errors.Join(err, db.Close())
+	}
+	return &managedProductionRegistrar{driverRegistrar: registrar, db: db}, nil
 }
 
 func loadConfig(getenv func(string) string) (commandConfig, error) {
@@ -160,21 +243,25 @@ func newReadinessHandler(next http.Handler, store *archivebridge.Store, producti
 }
 
 func serve(ctx context.Context, server bridgeServer, registrar driverRegistrar) error {
-	serveDone := make(chan struct{})
-	shutdownDone := make(chan error, 1)
+	listenDone := make(chan error, 1)
 	go func() {
-		select {
-		case <-ctx.Done():
-			shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			defer cancel()
-			shutdownDone <- server.Shutdown(shutdownCtx)
-		case <-serveDone:
-			shutdownDone <- nil
-		}
+		listenDone <- server.ListenAndServe()
 	}()
-	listenErr := server.ListenAndServe()
-	close(serveDone)
-	shutdownErr := <-shutdownDone
+	var listenErr, shutdownErr, forceCloseErr error
+	select {
+	case <-ctx.Done():
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		shutdownErr = server.Shutdown(shutdownCtx)
+		cancel()
+		if shutdownErr != nil {
+			forceCloseErr = server.Close()
+		}
+		listenErr = <-listenDone
+	case listenErr = <-listenDone:
+		if !errors.Is(listenErr, http.ErrServerClosed) {
+			forceCloseErr = server.Close()
+		}
+	}
 	if errors.Is(listenErr, http.ErrServerClosed) {
 		listenErr = nil
 	}
@@ -182,7 +269,7 @@ func serve(ctx context.Context, server bridgeServer, registrar driverRegistrar) 
 	if registrar != nil {
 		closeErr = registrar.Close()
 	}
-	return errors.Join(listenErr, shutdownErr, closeErr)
+	return errors.Join(listenErr, shutdownErr, forceCloseErr, closeErr)
 }
 
 func closeRegistrar(registrar driverRegistrar, runErr error) error {
