@@ -114,6 +114,38 @@ func ControlledMigrationRollbackRequired(version string) error {
 	return fmt.Errorf("controlled migration %s must be rolled back with %s", version, requiredCLI)
 }
 
+func controlledMigrationBaselineEvidence(ctx context.Context, db *sql.DB, migration Migration, checksum string) error {
+	metadata := migration.Controlled
+	if metadata == nil {
+		return fmt.Errorf("controlled migration %s metadata is missing", migration.Version)
+	}
+	var count int
+	if migration.Version == AIInsight0165Version {
+		if err := db.QueryRowContext(ctx, `
+			SELECT COUNT(*)
+			FROM `+aiInsight0165ControlTable+`
+			WHERE migration_checksum = ? AND status = ?
+		`, checksum, metadata.SuccessStatus).Scan(&count); err != nil {
+			return fmt.Errorf("inspect controlled migration %s baseline evidence: %w", migration.Version, err)
+		}
+	} else {
+		if err := db.QueryRowContext(ctx, `
+			SELECT COUNT(*)
+			FROM `+metadata.LedgerTable+` AS ledger
+			INNER JOIN `+metadata.CompletionTable+` AS completion
+				ON completion.request_id = ledger.request_id AND completion.status = 'completed'
+			WHERE ledger.migration_name = ? AND ledger.phase = ? AND ledger.status = ?
+				AND JSON_UNQUOTE(JSON_EXTRACT(ledger.result_json, '$.scriptChecksum')) = ?
+		`, metadata.LedgerName, metadata.SuccessPhase, metadata.SuccessStatus, checksum).Scan(&count); err != nil {
+			return fmt.Errorf("inspect controlled migration %s baseline evidence: %w", migration.Version, err)
+		}
+	}
+	if count != 1 {
+		return fmt.Errorf("controlled migration %s baseline requires exactly one verified completion for checksum %s; found %d", migration.Version, checksum, count)
+	}
+	return nil
+}
+
 // RecordControlledMigration writes the normal migration-table fact only after
 // the controlled migration's own success ledger is present. This is the
 // hand-off that allows later automatic migrations to proceed.

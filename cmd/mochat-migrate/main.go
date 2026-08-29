@@ -153,9 +153,27 @@ func runMigrationCommand(ctx context.Context, options migrationCommandOptions, r
 		}
 		fmt.Fprintf(output, "%s\t%s\t%s\t%s\t%s\n", item.Migration.Version, item.State, item.Checksum, appliedAt, item.Migration.Description)
 	}
+	if action == "status" {
+		if integrityErr := migrationStatusIntegrityError(status); integrityErr != nil {
+			logger.Error("数据库迁移状态校验失败；请检查校验和或未知版本",
+				"event", "migration_failed", "component", "migration", "step", action, "result", "failed",
+				"error_code", migrationFailureCode(action, integrityErr), "duration_ms", time.Since(startedAt).Milliseconds())
+			return integrityErr
+		}
+	}
 	logger.Info("数据库迁移完成；请核对本次应用数量和迁移状态",
 		"event", "migration_completed", "component", "migration", "step", action, "result", "success",
 		"applied", applied, "total", len(status), "duration_ms", time.Since(startedAt).Milliseconds())
+	return nil
+}
+
+func migrationStatusIntegrityError(status []migration.StatusItem) error {
+	for _, item := range status {
+		switch item.State {
+		case "checksum_mismatch", "database_ahead":
+			return fmt.Errorf("migration %s has integrity state %s", item.Migration.Version, item.State)
+		}
+	}
 	return nil
 }
 

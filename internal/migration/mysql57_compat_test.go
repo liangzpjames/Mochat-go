@@ -41,3 +41,14 @@ func TestSplitSQLTopLevelCommasKeepsIndexAndGeneratedExpressionsTogether(t *test
 		t.Fatalf("clauses=%v", clauses)
 	}
 }
+
+func TestRuntimeCompatibleMigrationBodyMakes0152ReplaySafeWithoutChangingOtherVersions(t *testing.T) {
+	body := "ALTER TABLE one ADD COLUMN `provider_kind` varchar(20), ADD COLUMN `room_base_id` int"
+	compatible := runtimeCompatibleMigrationBody("0152_group_code_direct_join", body)
+	if strings.Count(compatible, "ADD COLUMN IF NOT EXISTS") != 2 {
+		t.Fatalf("compatible=%s", compatible)
+	}
+	if got := runtimeCompatibleMigrationBody("0151_other", body); got != body {
+		t.Fatalf("unrelated migration changed: %s", got)
+	}
+}

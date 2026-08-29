@@ -80,6 +80,22 @@ func TestWriteMigrationInventoryEmitsStableTSV(t *testing.T) {
 	}
 }
 
+func TestRunMigrationCommandStatusFailsClosedOnChecksumMismatch(t *testing.T) {
+	var output bytes.Buffer
+	runner := &fakeMigrationRunner{status: []migration.StatusItem{{
+		Migration: migration.Migration{Version: "0173_scrm_order_idempotency"},
+		Checksum:  "current-checksum",
+		State:     "checksum_mismatch",
+	}}}
+	err := runMigrationCommand(context.Background(), migrationCommandOptions{Action: "status"}, runner, slog.New(slog.NewTextHandler(io.Discard, nil)), &output)
+	if err == nil || !strings.Contains(err.Error(), "checksum_mismatch") {
+		t.Fatalf("status error = %v", err)
+	}
+	if !strings.Contains(output.String(), "0173_scrm_order_idempotency\tchecksum_mismatch\tcurrent-checksum") {
+		t.Fatalf("status output = %q", output.String())
+	}
+}
+
 type fakeMigrationRunner struct {
 	status []migration.StatusItem
 	err    error

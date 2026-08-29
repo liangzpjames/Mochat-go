@@ -316,8 +316,14 @@ func (r *Runner) baseline(ctx context.Context, throughVersion string) ([]StatusI
 			continue
 		}
 		if migration.Kind == MigrationControlled {
-			blockedErr = ControlledMigrationBlocked(migration.Version)
-			break
+			if throughVersion != "" {
+				blockedErr = ControlledMigrationBlocked(migration.Version)
+				break
+			}
+			if err := controlledMigrationBaselineEvidence(ctx, r.db, migration, checksum); err != nil {
+				blockedErr = err
+				break
+			}
 		}
 		pending = append(pending, pendingRecord{migration: migration, checksum: checksum})
 		appliedItem := AppliedMigration{
@@ -433,6 +439,7 @@ func (r *Runner) execMigrationScript(ctx context.Context, migration Migration, b
 		return 0, fmt.Errorf("pin migration connection %s: %w", migration.Version, err)
 	}
 	defer conn.Close()
+	body = runtimeCompatibleMigrationBody(migration.Version, body)
 	if automaticMigrationNeedsServerDetection(body) {
 		var serverVersion string
 		if err := conn.QueryRowContext(ctx, "SELECT VERSION()").Scan(&serverVersion); err != nil {
@@ -465,6 +472,13 @@ func (r *Runner) execMigrationScript(ctx context.Context, migration Migration, b
 		return 0, err
 	}
 	return executionMS, nil
+}
+
+func runtimeCompatibleMigrationBody(version, body string) string {
+	if version == "0152_group_code_direct_join" {
+		return strings.ReplaceAll(body, "ADD COLUMN `", "ADD COLUMN IF NOT EXISTS `")
+	}
+	return body
 }
 
 func (r *Runner) execRollbackScript(ctx context.Context, migration Migration, body string) error {

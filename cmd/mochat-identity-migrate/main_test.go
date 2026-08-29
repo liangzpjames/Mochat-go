@@ -2,12 +2,16 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"os"
+	"regexp"
 	"strings"
 	"testing"
 
 	"jiyi/mochat-go/internal/identitymigration"
+
+	"github.com/DATA-DOG/go-sqlmock"
 )
 
 func TestMigrateCLIReportsUsageWhenActionIsMissing(t *testing.T) {
@@ -90,5 +94,37 @@ func TestMigrateCLIRejectsPasswordAndSecretFlags(t *testing.T) {
 		if _, err := parseMigrateOptions(args); err == nil {
 			t.Fatalf("migrate CLI accepted sensitive flag %v", args)
 		}
+	}
+}
+
+func TestFinalizeIdentityCorpTenantConstraintFailsClosedAndVerifiesMetadata(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT COUNT(*) FROM mc_corp WHERE tenant_id IS NULL")).WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+	mock.ExpectExec(regexp.QuoteMeta("ALTER TABLE mc_corp MODIFY COLUMN tenant_id int(10) unsigned NOT NULL DEFAULT 0")).WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectQuery("SELECT COUNT\\(\\*\\) FROM information_schema.columns").WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+	if err := finalizeIdentityCorpTenantConstraint(context.Background(), db); err != nil {
+		t.Fatal(err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestFinalizeIdentityCorpTenantConstraintRejectsNullRowsBeforeDDL(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT COUNT(*) FROM mc_corp WHERE tenant_id IS NULL")).WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+	if err := finalizeIdentityCorpTenantConstraint(context.Background(), db); err == nil {
+		t.Fatal("nullable corp tenant row was accepted")
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
 	}
 }
