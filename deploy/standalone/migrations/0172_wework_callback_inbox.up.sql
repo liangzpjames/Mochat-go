@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS `mochat_go_wework_callback_inbox` (
   `event_json` mediumtext COLLATE utf8mb4_bin NOT NULL,
   `status` varchar(16) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'pending',
   `attempt` int(10) unsigned NOT NULL DEFAULT 0,
+  `dependency_defer_count` int(10) unsigned NOT NULL DEFAULT 0,
   `lease_token` varchar(96) COLLATE utf8mb4_bin NOT NULL DEFAULT '',
   `lease_fence` bigint(20) unsigned NOT NULL DEFAULT 0,
   `lease_expires_at` datetime(6) NULL DEFAULT NULL,

@@ -1193,9 +1193,10 @@ func assertDurableCallbackWorkerIsRedisOptional(t *testing.T) {
 	if callbackBlock == nil {
 		t.Fatal("durable callback worker startup block not found")
 	}
-	startupProbeFound := false
 	lazyResolverInjected := false
 	staticEmptyCapabilities := false
+	contactWelcomeConstructed := false
+	contactWelcomeRegistered := false
 	ast.Inspect(callbackBlock, func(node ast.Node) bool {
 		call, ok := node.(*ast.CallExpr)
 		if !ok {
@@ -1206,7 +1207,7 @@ func assertDurableCallbackWorkerIsRedisOptional(t *testing.T) {
 			case "getRedisStore", "ImportLegacyWeWorkCallbackBacklog", "executeCutover":
 				t.Fatalf("ordinary durable callback startup calls forbidden dependency %s", name.Name)
 			case "optionalWeWorkCallbackCapabilities":
-				startupProbeFound = true
+				t.Fatal("callback worker composition must not use a one-shot Redis startup probe")
 			}
 		}
 		if selector, ok := call.Fun.(*ast.SelectorExpr); ok {
@@ -1219,15 +1220,43 @@ func assertDurableCallbackWorkerIsRedisOptional(t *testing.T) {
 						staticEmptyCapabilities = true
 					}
 				}
+			case "NewContactWelcomeWorker":
+				contactWelcomeConstructed = true
+			case "Add":
+				if len(call.Args) > 0 {
+					if taskName, ok := call.Args[0].(*ast.BasicLit); ok && taskName.Value == `"contact-welcome"` {
+						contactWelcomeRegistered = true
+					}
+				}
 			}
 		}
 		return true
 	})
-	if !startupProbeFound {
-		t.Fatal("durable callback startup no longer probes Redis only for the optional consumer")
-	}
 	if !lazyResolverInjected || !staticEmptyCapabilities {
 		t.Fatal("durable callback producer does not use an empty static capability set plus lazy Redis resolver")
+	}
+	if !contactWelcomeConstructed || !contactWelcomeRegistered {
+		t.Fatal("contact welcome consumer is not always registered with the durable callback worker")
+	}
+	for _, statement := range callbackBlock.List {
+		conditional, ok := statement.(*ast.IfStmt)
+		if !ok {
+			continue
+		}
+		conditionalWelcome := false
+		ast.Inspect(conditional.Body, func(node ast.Node) bool {
+			call, ok := node.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			if selector, ok := call.Fun.(*ast.SelectorExpr); ok && selector.Sel.Name == "NewContactWelcomeWorker" {
+				conditionalWelcome = true
+			}
+			return true
+		})
+		if conditionalWelcome {
+			t.Fatal("contact welcome consumer registration is still conditional on a startup probe")
+		}
 	}
 
 	configPath := filepath.Join("..", "..", "internal", "config", "config.go")

@@ -17,6 +17,7 @@ const (
 	workContactEmployeeStatusRemoved        = 2
 	workContactEmployeeStatusPassiveRemoved = 3
 	weWorkCallbackLeaseCompletionGrace      = 30 * time.Second
+	weWorkCallbackDependencyDeferMaxDelay   = 5 * time.Minute
 )
 
 var ErrWeWorkCallbackDependencyUnavailable = errors.New("wework callback dependency is unavailable")
@@ -360,6 +361,19 @@ func (w *WeWorkCallbackWorker) handleClaim(ctx context.Context, claim WeWorkCall
 	finishExecution := startQueueItemExecution(processCtx, w.logger, "wework-callback", w.store, tenantID)
 	if err := w.Process(processCtx, claim.Event); err != nil {
 		safeErr := errors.New(SanitizeWeWorkCallbackFailure(err.Error()))
+		if errors.Is(err, ErrWeWorkCallbackDependencyUnavailable) {
+			retryDelay := weWorkCallbackDependencyDeferDelay(w.retryDelay, claim.DependencyDeferCount)
+			deferErr := w.inbox.DeferWeWorkCallbackDependency(leaseCtx, claim, safeErr.Error(), retryDelay)
+			if deferErr != nil {
+				safeDeferErr := errors.New(SanitizeWeWorkCallbackFailure(deferErr.Error()))
+				finishExecution(taskrunner.StatusFailed, fmt.Errorf("%w; durable dependency defer failed: %v", safeErr, safeDeferErr))
+				w.logger.Printf("wework callback durable dependency defer failed: event_key=%s fence=%d err=%v transition_err=%v", claim.EventKey, claim.LeaseFence, safeErr, safeDeferErr)
+				return
+			}
+			finishExecution(taskrunner.StatusFailed, safeErr)
+			w.logger.Printf("wework callback durable dependency deferred: event_key=%s fence=%d dependency_defers=%d retry_in=%s err=%v", claim.EventKey, claim.LeaseFence, claim.DependencyDeferCount+1, retryDelay, safeErr)
+			return
+		}
 		deadLettered, failErr := w.inbox.FailWeWorkCallback(leaseCtx, claim, safeErr.Error(), w.maxAttempts, w.retryDelay)
 		if failErr != nil {
 			safeFailErr := errors.New(SanitizeWeWorkCallbackFailure(failErr.Error()))
@@ -382,6 +396,23 @@ func (w *WeWorkCallbackWorker) handleClaim(ctx context.Context, claim WeWorkCall
 		return
 	}
 	finishExecution(taskrunner.StatusSucceeded, nil)
+}
+
+func weWorkCallbackDependencyDeferDelay(base time.Duration, deferCount int) time.Duration {
+	if base <= 0 {
+		base = time.Second
+	}
+	if base >= weWorkCallbackDependencyDeferMaxDelay {
+		return weWorkCallbackDependencyDeferMaxDelay
+	}
+	delay := base
+	for count := 0; count < deferCount; count++ {
+		if delay >= weWorkCallbackDependencyDeferMaxDelay/2 {
+			return weWorkCallbackDependencyDeferMaxDelay
+		}
+		delay *= 2
+	}
+	return delay
 }
 
 func (w *WeWorkCallbackWorker) Process(ctx context.Context, event WeWorkCallbackEvent) error {

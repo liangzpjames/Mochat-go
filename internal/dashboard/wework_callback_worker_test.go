@@ -1516,25 +1516,38 @@ func TestWeWorkCallbackWorkerLazyRedisRecoveryRetriesQueueRequiredEvent(t *testi
 		Message: map[string]string{"UserID": "go-user", "ExternalUserID": "external-user", "WelcomeCode": "welcome-code"},
 	}
 
-	worker.handleClaim(context.Background(), WeWorkCallbackClaim{ID: 7, EventKey: eventKey, LeaseToken: "lease-1", LeaseFence: 1, Attempt: 1, Event: event})
-	if len(store.completedClaims) != 0 || len(store.failedClaims) != 1 || len(queue.contactWelcomeEvents) != 0 {
-		t.Fatalf("redis-down completed=%d failed=%d enqueued=%d", len(store.completedClaims), len(store.failedClaims), len(queue.contactWelcomeEvents))
+	for deferCount := 0; deferCount < worker.maxAttempts+2; deferCount++ {
+		worker.handleClaim(context.Background(), WeWorkCallbackClaim{
+			ID: 7, EventKey: eventKey, LeaseToken: fmt.Sprintf("lease-%d", deferCount+1),
+			LeaseFence: uint64(deferCount + 1), Attempt: 1, DependencyDeferCount: deferCount, Event: event,
+		})
 	}
-	if len(store.failedReasons) != 1 || !strings.Contains(store.failedReasons[0], ErrWeWorkCallbackDependencyUnavailable.Error()) || strings.Contains(store.failedReasons[0], secret) {
-		t.Fatalf("redis-down failure reason=%q", store.failedReasons)
+	if len(store.completedClaims) != 0 || len(store.failedClaims) != 0 || len(store.deferredClaims) != worker.maxAttempts+2 || len(queue.contactWelcomeEvents) != 0 {
+		t.Fatalf("redis-down completed=%d failed=%d deferred=%d enqueued=%d", len(store.completedClaims), len(store.failedClaims), len(store.deferredClaims), len(queue.contactWelcomeEvents))
 	}
-	if len(store.failRetryDelays) != 1 || store.failRetryDelays[0] <= 0 {
-		t.Fatalf("redis-down retry delays=%v", store.failRetryDelays)
+	for index, reason := range store.deferredReasons {
+		if !strings.Contains(reason, ErrWeWorkCallbackDependencyUnavailable.Error()) || strings.Contains(reason, secret) {
+			t.Fatalf("redis-down defer[%d] reason=%q", index, reason)
+		}
+		if store.deferRetryDelays[index] <= 0 || store.deferRetryDelays[index] > 5*time.Minute {
+			t.Fatalf("redis-down defer[%d] retry delay=%v", index, store.deferRetryDelays[index])
+		}
+		if index > 0 && store.deferRetryDelays[index] <= store.deferRetryDelays[index-1] {
+			t.Fatalf("dependency retry delays are not increasing: %v", store.deferRetryDelays)
+		}
 	}
 
 	resolver.err = nil
 	resolver.capabilities = fakeWeWorkCallbackWorkerCapabilities(queue)
-	worker.handleClaim(context.Background(), WeWorkCallbackClaim{ID: 7, EventKey: eventKey, LeaseToken: "lease-2", LeaseFence: 2, Attempt: 2, Event: event})
-	if len(store.completedClaims) != 1 || len(store.failedClaims) != 1 || len(queue.contactWelcomeEvents) != 1 {
-		t.Fatalf("redis-recovered completed=%d failed=%d enqueued=%d", len(store.completedClaims), len(store.failedClaims), len(queue.contactWelcomeEvents))
+	worker.handleClaim(context.Background(), WeWorkCallbackClaim{
+		ID: 7, EventKey: eventKey, LeaseToken: "lease-recovered", LeaseFence: uint64(worker.maxAttempts + 3),
+		Attempt: 1, DependencyDeferCount: worker.maxAttempts + 2, Event: event,
+	})
+	if len(store.completedClaims) != 1 || len(store.failedClaims) != 0 || len(store.deferredClaims) != worker.maxAttempts+2 || len(queue.contactWelcomeEvents) != 1 {
+		t.Fatalf("redis-recovered completed=%d failed=%d deferred=%d enqueued=%d", len(store.completedClaims), len(store.failedClaims), len(store.deferredClaims), len(queue.contactWelcomeEvents))
 	}
-	if resolver.calls != 2 {
-		t.Fatalf("resolver calls=%d, want 2", resolver.calls)
+	if resolver.calls != worker.maxAttempts+3 {
+		t.Fatalf("resolver calls=%d, want %d", resolver.calls, worker.maxAttempts+3)
 	}
 }
 
@@ -2147,6 +2160,9 @@ type fakeDurableWeWorkCallbackWorkerStore struct {
 	failedClaims         []WeWorkCallbackClaim
 	failedReasons        []string
 	failRetryDelays      []time.Duration
+	deferredClaims       []WeWorkCallbackClaim
+	deferredReasons      []string
+	deferRetryDelays     []time.Duration
 	currentFences        map[string]uint64
 	claimLeaseDurations  []time.Duration
 	completed            chan WeWorkCallbackClaim
@@ -2206,6 +2222,15 @@ func (s *fakeDurableWeWorkCallbackWorkerStore) FailWeWorkCallback(_ context.Cont
 	s.failedReasons = append(s.failedReasons, reason)
 	s.failRetryDelays = append(s.failRetryDelays, retryDelay)
 	return false, nil
+}
+
+func (s *fakeDurableWeWorkCallbackWorkerStore) DeferWeWorkCallbackDependency(_ context.Context, claim WeWorkCallbackClaim, reason string, retryDelay time.Duration) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.deferredClaims = append(s.deferredClaims, claim)
+	s.deferredReasons = append(s.deferredReasons, reason)
+	s.deferRetryDelays = append(s.deferRetryDelays, retryDelay)
+	return nil
 }
 
 type fakeLegacyWeWorkCallbackBacklog struct {

@@ -3163,17 +3163,6 @@ func main() {
 	if cfg.EnableWeWorkCallbackWorker {
 		callbackRedis := getOptionalWeWorkCallbackRedisStore()
 		callbackCapabilityResolver := weWorkCallbackRedisCapabilityResolver{candidate: callbackRedis}
-		capabilityCtx, cancelCapabilityProbe := context.WithTimeout(context.Background(), 2*time.Second)
-		_, redisCapabilitiesAvailable := optionalWeWorkCallbackCapabilities(capabilityCtx, callbackRedis)
-		cancelCapabilityProbe()
-		if !redisCapabilitiesAvailable {
-			structuredLogger().Warn("durable WeWork callback worker started without optional Redis downstream queues",
-				"event", "wework_callback_redis_capability_degraded",
-				"component", "wework_callback_worker",
-				"dependency", "redis",
-				"result", "degraded",
-			)
-		}
 		worker := dashboard.NewWeWorkCallbackWorker(
 			dashboard.WeWorkCallbackWorkerCapabilities{},
 			getMySQLStore(),
@@ -3192,19 +3181,17 @@ func main() {
 		workerGroup.Add("wework-callback", worker.Run)
 		debugf("go worker enabled: durable MySQL WeWork callback inbox consumer (Redis only used by optional downstream queues)")
 
-		if redisCapabilitiesAvailable {
-			contactWelcomeWorker := dashboard.NewContactWelcomeWorker(
-				callbackRedis,
-				getMySQLStore(),
-				dashboard.NewRoomWelcomeWeComClient(cfg.WeComAPIBaseURL),
-				cfg.FileStorageRoot,
-				cfg.APIBaseURL,
-				log.Default(),
-			).WithProcessingTimeout(cfg.WorkerProcessingTimeout).
-				WithSaaSAlertNotifier(saasAlertNotifier)
-			workerGroup.Add("contact-welcome", contactWelcomeWorker.Run)
-			debugf("go worker enabled: optional ContactWelcome Redis consumer")
-		}
+		contactWelcomeWorker := dashboard.NewContactWelcomeWorker(
+			callbackRedis,
+			getMySQLStore(),
+			dashboard.NewRoomWelcomeWeComClient(cfg.WeComAPIBaseURL),
+			cfg.FileStorageRoot,
+			cfg.APIBaseURL,
+			log.Default(),
+		).WithProcessingTimeout(cfg.WorkerProcessingTimeout).
+			WithSaaSAlertNotifier(saasAlertNotifier)
+		workerGroup.Add("contact-welcome", contactWelcomeWorker.Run)
+		debugf("go worker enabled: self-recovering ContactWelcome Redis consumer")
 	}
 
 	if cfg.EnableEmployeeApplyWorker {

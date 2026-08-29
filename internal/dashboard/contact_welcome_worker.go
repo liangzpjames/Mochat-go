@@ -150,17 +150,19 @@ type ContactWelcomeClient interface {
 }
 
 type ContactWelcomeWorker struct {
-	queue             ContactWelcomeWorkerQueue
-	store             ContactWelcomeStore
-	client            ContactWelcomeClient
-	fileStorageRoot   string
-	apiBaseURL        string
-	pollTimeout       time.Duration
-	maxAttempts       int
-	processingTimeout time.Duration
-	recoveryInterval  time.Duration
-	alertNotifier     SaaSAlertNotifier
-	logger            *log.Logger
+	queue               ContactWelcomeWorkerQueue
+	store               ContactWelcomeStore
+	client              ContactWelcomeClient
+	fileStorageRoot     string
+	apiBaseURL          string
+	pollTimeout         time.Duration
+	maxAttempts         int
+	processingTimeout   time.Duration
+	recoveryInterval    time.Duration
+	dependencyRetryBase time.Duration
+	dependencyRetryMax  time.Duration
+	alertNotifier       SaaSAlertNotifier
+	logger              *log.Logger
 }
 
 func NewContactWelcomeWorker(queue ContactWelcomeWorkerQueue, store ContactWelcomeStore, client ContactWelcomeClient, fileStorageRoot string, apiBaseURL string, logger *log.Logger) *ContactWelcomeWorker {
@@ -171,16 +173,18 @@ func NewContactWelcomeWorker(queue ContactWelcomeWorkerQueue, store ContactWelco
 		fileStorageRoot = defaultMediumFileStorageRoot
 	}
 	return &ContactWelcomeWorker{
-		queue:             queue,
-		store:             store,
-		client:            client,
-		fileStorageRoot:   fileStorageRoot,
-		apiBaseURL:        strings.TrimRight(strings.TrimSpace(apiBaseURL), "/"),
-		pollTimeout:       5 * time.Second,
-		maxAttempts:       3,
-		processingTimeout: 5 * time.Minute,
-		recoveryInterval:  time.Minute,
-		logger:            logger,
+		queue:               queue,
+		store:               store,
+		client:              client,
+		fileStorageRoot:     fileStorageRoot,
+		apiBaseURL:          strings.TrimRight(strings.TrimSpace(apiBaseURL), "/"),
+		pollTimeout:         5 * time.Second,
+		maxAttempts:         3,
+		processingTimeout:   5 * time.Minute,
+		recoveryInterval:    time.Minute,
+		dependencyRetryBase: time.Second,
+		dependencyRetryMax:  30 * time.Second,
+		logger:              logger,
 	}
 }
 
@@ -205,6 +209,7 @@ func (w *ContactWelcomeWorker) Run(ctx context.Context) error {
 		return fmt.Errorf("contact welcome worker dependencies are not configured")
 	}
 	nextRecovery := time.Now()
+	consecutiveDependencyFailures := 0
 	for {
 		select {
 		case <-ctx.Done():
@@ -212,16 +217,40 @@ func (w *ContactWelcomeWorker) Run(ctx context.Context) error {
 		default:
 		}
 		if !time.Now().Before(nextRecovery) {
-			w.recoverProcessing(ctx)
+			if err := w.recoverProcessing(ctx); err != nil {
+				if ctx.Err() != nil {
+					return ctx.Err()
+				}
+				consecutiveDependencyFailures++
+				delay := contactWelcomeDependencyRetryDelay(w.dependencyRetryBase, w.dependencyRetryMax, consecutiveDependencyFailures-1)
+				w.logger.Printf("event=contact_welcome_queue_dependency_degraded component=contact_welcome_worker operation=recover dependency=redis result=retrying failure_count=%d retry_in=%s", consecutiveDependencyFailures, delay)
+				if err := waitContactWelcomeDependency(ctx, delay); err != nil {
+					return err
+				}
+				continue
+			}
 			nextRecovery = time.Now().Add(w.recoveryInterval)
+			if consecutiveDependencyFailures > 0 {
+				w.logger.Printf("event=contact_welcome_queue_dependency_recovered component=contact_welcome_worker dependency=redis result=recovered failure_count=%d", consecutiveDependencyFailures)
+				consecutiveDependencyFailures = 0
+			}
 		}
 		delivery, ok, err := w.queue.DequeueContactWelcome(ctx, w.pollTimeout)
 		if err != nil {
 			if ctx.Err() != nil {
 				return ctx.Err()
 			}
-			w.logger.Printf("contact welcome dequeue failed: %v", err)
+			consecutiveDependencyFailures++
+			delay := contactWelcomeDependencyRetryDelay(w.dependencyRetryBase, w.dependencyRetryMax, consecutiveDependencyFailures-1)
+			w.logger.Printf("event=contact_welcome_queue_dependency_degraded component=contact_welcome_worker operation=dequeue dependency=redis result=retrying failure_count=%d retry_in=%s", consecutiveDependencyFailures, delay)
+			if err := waitContactWelcomeDependency(ctx, delay); err != nil {
+				return err
+			}
 			continue
+		}
+		if consecutiveDependencyFailures > 0 {
+			w.logger.Printf("event=contact_welcome_queue_dependency_recovered component=contact_welcome_worker dependency=redis result=recovered failure_count=%d", consecutiveDependencyFailures)
+			consecutiveDependencyFailures = 0
 		}
 		if !ok {
 			continue
@@ -230,14 +259,45 @@ func (w *ContactWelcomeWorker) Run(ctx context.Context) error {
 	}
 }
 
-func (w *ContactWelcomeWorker) recoverProcessing(ctx context.Context) {
+func (w *ContactWelcomeWorker) recoverProcessing(ctx context.Context) error {
 	recovered, err := w.queue.RecoverContactWelcomeProcessing(ctx, w.processingTimeout, w.maxAttempts)
 	if err != nil {
-		w.logger.Printf("contact welcome processing recovery failed: %v", err)
-		return
+		return err
 	}
 	if recovered > 0 {
 		w.logger.Printf("contact welcome recovered processing jobs: %d", recovered)
+	}
+	return nil
+}
+
+func contactWelcomeDependencyRetryDelay(base time.Duration, maximum time.Duration, failureIndex int) time.Duration {
+	if base <= 0 {
+		base = time.Second
+	}
+	if maximum < base {
+		maximum = base
+	}
+	delay := base
+	for index := 0; index < failureIndex; index++ {
+		if delay >= maximum/2 {
+			return maximum
+		}
+		delay *= 2
+	}
+	if delay > maximum {
+		return maximum
+	}
+	return delay
+}
+
+func waitContactWelcomeDependency(ctx context.Context, delay time.Duration) error {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
 	}
 }
 

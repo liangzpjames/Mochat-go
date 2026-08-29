@@ -144,25 +144,37 @@ func TestMySQLStoreWeWorkCallbackInboxConcurrentAcceptanceAndLeaseFencing(t *tes
 	if _, found, err := store.ClaimWeWorkCallback(context.Background(), time.Minute, 3); err != nil || found {
 		t.Fatalf("leased row reclaimed found=%t err=%v", found, err)
 	}
-	stale := first
-	stale.LeaseToken = "stale-token"
-	if err := store.CompleteWeWorkCallback(context.Background(), stale); !errors.Is(err, dashboard.ErrWeWorkCallbackLeaseLost) {
-		t.Fatalf("stale completion error=%v", err)
-	}
-	if dead, err := store.FailWeWorkCallback(context.Background(), first, dashboard.ErrWeWorkCallbackDependencyUnavailable.Error()+`: dependency=redis password=callback-secret-value`, 3, 20*time.Millisecond); err != nil || dead {
-		t.Fatalf("first failure dead=%t err=%v", dead, err)
+	claim := first
+	for deferIndex := 0; deferIndex < 5; deferIndex++ {
+		stale := claim
+		stale.LeaseFence++
+		if err := store.DeferWeWorkCallbackDependency(context.Background(), stale, "stale dependency", time.Millisecond); !errors.Is(err, dashboard.ErrWeWorkCallbackLeaseLost) {
+			t.Fatalf("stale dependency defer[%d] error=%v", deferIndex, err)
+		}
+		if err := store.DeferWeWorkCallbackDependency(context.Background(), claim, dashboard.ErrWeWorkCallbackDependencyUnavailable.Error()+`: dependency=redis password=callback-secret-value`, time.Millisecond); err != nil {
+			t.Fatalf("dependency defer[%d] error=%v", deferIndex, err)
+		}
+		time.Sleep(2 * time.Millisecond)
+		if deferIndex == 4 {
+			break
+		}
+		claim, found, err = store.ClaimWeWorkCallback(context.Background(), time.Minute, 3)
+		if err != nil || !found || claim.Attempt != 1 || claim.DependencyDeferCount != deferIndex+1 || claim.LeaseFence != uint64(deferIndex+2) {
+			t.Fatalf("dependency reclaim[%d]=%+v found=%t err=%v", deferIndex, claim, found, err)
+		}
 	}
 	var safeLastError, retryStatus string
+	var businessAttempts, dependencyDefers int
 	var hasNextAttempt bool
-	if err := db.QueryRow(`SELECT status,last_error,next_attempt_at IS NOT NULL FROM mochat_go_wework_callback_inbox WHERE event_key=?`, eventKey).Scan(&retryStatus, &safeLastError, &hasNextAttempt); err != nil {
+	if err := db.QueryRow(`SELECT status,attempt,dependency_defer_count,last_error,next_attempt_at IS NOT NULL FROM mochat_go_wework_callback_inbox WHERE event_key=?`, eventKey).Scan(&retryStatus, &businessAttempts, &dependencyDefers, &safeLastError, &hasNextAttempt); err != nil {
 		t.Fatal(err)
 	}
-	if retryStatus != "pending" || !hasNextAttempt || !strings.Contains(safeLastError, dashboard.ErrWeWorkCallbackDependencyUnavailable.Error()) || strings.Contains(safeLastError, "callback-secret-value") {
-		t.Fatalf("durable retry status=%q next_attempt=%t last_error=%q", retryStatus, hasNextAttempt, safeLastError)
+	if retryStatus != "pending" || businessAttempts != 0 || dependencyDefers != 5 || !hasNextAttempt || !strings.Contains(safeLastError, dashboard.ErrWeWorkCallbackDependencyUnavailable.Error()) || strings.Contains(safeLastError, "callback-secret-value") {
+		t.Fatalf("durable defer status=%q attempts=%d defers=%d next_attempt=%t last_error=%q", retryStatus, businessAttempts, dependencyDefers, hasNextAttempt, safeLastError)
 	}
-	time.Sleep(30 * time.Millisecond)
+	time.Sleep(2 * time.Millisecond)
 	second, found, err := store.ClaimWeWorkCallback(context.Background(), time.Minute, 3)
-	if err != nil || !found || second.LeaseFence != 2 || second.Attempt != 2 || second.LeaseToken == first.LeaseToken {
+	if err != nil || !found || second.LeaseFence != 6 || second.Attempt != 1 || second.DependencyDeferCount != 5 || second.LeaseToken == first.LeaseToken {
 		t.Fatalf("second claim=%+v found=%t err=%v", second, found, err)
 	}
 	if err := store.CompleteWeWorkCallback(context.Background(), first); !errors.Is(err, dashboard.ErrWeWorkCallbackLeaseLost) {
@@ -179,6 +191,33 @@ func TestMySQLStoreWeWorkCallbackInboxConcurrentAcceptanceAndLeaseFencing(t *tes
 	}
 	if _, found, err := store.ClaimWeWorkCallback(context.Background(), time.Minute, 3); err != nil || found {
 		t.Fatalf("completed row claimed found=%t err=%v", found, err)
+	}
+
+	businessFailureEvent := event
+	businessFailureEvent.Message = map[string]string{"MsgId": "business-failure-three-attempts"}
+	businessFailureKey := dashboard.WeWorkCallbackEventKey(businessFailureEvent)
+	if _, err := store.AcceptWeWorkCallback(context.Background(), businessFailureEvent, businessFailureKey, dashboard.WeWorkCallbackPayloadFingerprint(businessFailureEvent)); err != nil {
+		t.Fatal(err)
+	}
+	for attempt := 1; attempt <= 3; attempt++ {
+		businessClaim, found, err := store.ClaimWeWorkCallback(context.Background(), time.Minute, 3)
+		if err != nil || !found || businessClaim.EventKey != businessFailureKey || businessClaim.Attempt != attempt || businessClaim.DependencyDeferCount != 0 {
+			t.Fatalf("business failure claim[%d]=%+v found=%t err=%v", attempt, businessClaim, found, err)
+		}
+		dead, err := store.FailWeWorkCallback(context.Background(), businessClaim, "business validation failed", 3, time.Millisecond)
+		if err != nil || dead != (attempt == 3) {
+			t.Fatalf("business failure transition[%d] dead=%t err=%v", attempt, dead, err)
+		}
+		if !dead {
+			time.Sleep(2 * time.Millisecond)
+		}
+	}
+	var businessStatus string
+	if err := db.QueryRow(`SELECT status,attempt,dependency_defer_count FROM mochat_go_wework_callback_inbox WHERE event_key=?`, businessFailureKey).Scan(&businessStatus, &businessAttempts, &dependencyDefers); err != nil {
+		t.Fatal(err)
+	}
+	if businessStatus != "dead" || businessAttempts != 3 || dependencyDefers != 0 {
+		t.Fatalf("business failure status=%q attempts=%d dependency_defers=%d", businessStatus, businessAttempts, dependencyDefers)
 	}
 
 	expiringEvent := event

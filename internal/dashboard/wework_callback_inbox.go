@@ -37,13 +37,14 @@ type WeWorkCallbackWakeup interface {
 }
 
 type WeWorkCallbackClaim struct {
-	ID                 int64
-	EventKey           string
-	PayloadFingerprint string
-	Event              WeWorkCallbackEvent
-	LeaseToken         string
-	LeaseFence         uint64
-	Attempt            int
+	ID                   int64
+	EventKey             string
+	PayloadFingerprint   string
+	Event                WeWorkCallbackEvent
+	LeaseToken           string
+	LeaseFence           uint64
+	Attempt              int
+	DependencyDeferCount int
 }
 
 type WeWorkCallbackInbox interface {
@@ -51,6 +52,7 @@ type WeWorkCallbackInbox interface {
 	ClaimWeWorkCallback(ctx context.Context, leaseDuration time.Duration, maxAttempts int) (WeWorkCallbackClaim, bool, error)
 	ValidateWeWorkCallbackClaim(ctx context.Context, claim WeWorkCallbackClaim) error
 	CompleteWeWorkCallback(ctx context.Context, claim WeWorkCallbackClaim) error
+	DeferWeWorkCallbackDependency(ctx context.Context, claim WeWorkCallbackClaim, reason string, retryDelay time.Duration) error
 	FailWeWorkCallback(ctx context.Context, claim WeWorkCallbackClaim, reason string, maxAttempts int, retryDelay time.Duration) (deadLettered bool, err error)
 }
 

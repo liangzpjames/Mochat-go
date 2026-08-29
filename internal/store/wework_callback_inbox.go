@@ -221,7 +221,7 @@ func (s *MySQLStore) ClaimWeWorkCallback(ctx context.Context, leaseDuration time
 	var claim dashboard.WeWorkCallbackClaim
 	var raw string
 	err = tx.QueryRowContext(ctx, `
-		SELECT id,event_key,payload_fingerprint,event_json,attempt,lease_fence
+		SELECT id,event_key,payload_fingerprint,event_json,attempt,dependency_defer_count,lease_fence
 		FROM mochat_go_wework_callback_inbox
 		WHERE ((status='pending' AND (next_attempt_at IS NULL OR next_attempt_at<=UTC_TIMESTAMP(6)))
 		   OR (status='processing' AND lease_expires_at<=UTC_TIMESTAMP(6)))
@@ -229,7 +229,7 @@ func (s *MySQLStore) ClaimWeWorkCallback(ctx context.Context, leaseDuration time
 		ORDER BY id ASC
 		LIMIT 1
 		FOR UPDATE
-	`, maxAttempts).Scan(&claim.ID, &claim.EventKey, &claim.PayloadFingerprint, &raw, &claim.Attempt, &claim.LeaseFence)
+	`, maxAttempts).Scan(&claim.ID, &claim.EventKey, &claim.PayloadFingerprint, &raw, &claim.Attempt, &claim.DependencyDeferCount, &claim.LeaseFence)
 	if errors.Is(err, sql.ErrNoRows) {
 		if err := tx.Commit(); err != nil {
 			return dashboard.WeWorkCallbackClaim{}, false, err
@@ -295,6 +295,27 @@ func (s *MySQLStore) ValidateWeWorkCallbackClaim(ctx context.Context, claim dash
 		return dashboard.ErrWeWorkCallbackLeaseLost
 	}
 	return err
+}
+
+func (s *MySQLStore) DeferWeWorkCallbackDependency(ctx context.Context, claim dashboard.WeWorkCallbackClaim, reason string, retryDelay time.Duration) error {
+	if s == nil || s.db == nil {
+		return errors.New("wework callback inbox store is not configured")
+	}
+	if retryDelay <= 0 {
+		retryDelay = time.Second
+	}
+	if retryDelay > 5*time.Minute {
+		retryDelay = 5 * time.Minute
+	}
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE mochat_go_wework_callback_inbox
+		SET status='pending',attempt=IF(attempt>0,attempt-1,0),dependency_defer_count=dependency_defer_count+1,
+		    lease_token='',lease_expires_at=NULL,
+		    next_attempt_at=DATE_ADD(UTC_TIMESTAMP(6), INTERVAL ? MICROSECOND),
+		    last_error=?,completed_at=NULL
+		WHERE id=? AND event_key=? AND status='processing' AND lease_token=? AND lease_fence=? AND lease_expires_at>UTC_TIMESTAMP(6)
+	`, retryDelay.Microseconds(), truncateWeWorkCallbackError(reason), claim.ID, strings.TrimSpace(claim.EventKey), strings.TrimSpace(claim.LeaseToken), claim.LeaseFence)
+	return callbackLeaseUpdateError(result, err)
 }
 
 func (s *MySQLStore) FailWeWorkCallback(ctx context.Context, claim dashboard.WeWorkCallbackClaim, reason string, maxAttempts int, retryDelay time.Duration) (bool, error) {

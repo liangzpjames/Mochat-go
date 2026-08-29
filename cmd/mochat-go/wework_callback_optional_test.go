@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -97,4 +98,79 @@ func TestWeWorkCallbackRedisCapabilityResolverRecoversWithRealRedis(t *testing.T
 		time.Sleep(50 * time.Millisecond)
 	}
 	t.Fatal("Redis capability did not recover before deadline")
+}
+
+func TestContactWelcomeConsumerRecoversWithQueuedDeliveryAfterRedisReturns(t *testing.T) {
+	if os.Getenv("MOCHAT_GO_CONTACT_WELCOME_RECOVERY_INTEGRATION") != "1" {
+		t.Skip("SKIP: set MOCHAT_GO_CONTACT_WELCOME_RECOVERY_INTEGRATION=1 with an isolated Redis containing a queued welcome, initially stopped, then started")
+	}
+	addr := strings.TrimSpace(os.Getenv("MOCHAT_REDIS_ADDR"))
+	if addr == "" {
+		t.Fatal("MOCHAT_REDIS_ADDR is required")
+	}
+	redis := store.NewRedisStore(store.RedisConfig{Addr: addr})
+	defer redis.Close()
+	downCtx, cancelDown := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	downErr := redis.Ping(downCtx)
+	cancelDown()
+	if downErr == nil {
+		t.Fatal("Redis must be unavailable when the contact welcome consumer starts")
+	}
+
+	queue := &observedContactWelcomeQueue{queue: redis, acked: make(chan struct{})}
+	worker := dashboard.NewContactWelcomeWorker(queue, inertContactWelcomeStore{}, inertContactWelcomeClient{}, "", "", nil)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	result := make(chan error, 1)
+	go func() { result <- worker.Run(ctx) }()
+	select {
+	case <-queue.acked:
+		cancel()
+	case <-ctx.Done():
+		t.Fatal("queued contact welcome was not consumed after Redis recovered")
+	}
+	if err := <-result; !errors.Is(err, context.Canceled) {
+		t.Fatalf("contact welcome worker error=%v", err)
+	}
+}
+
+type observedContactWelcomeQueue struct {
+	queue *store.RedisStore
+	once  sync.Once
+	acked chan struct{}
+}
+
+func (q *observedContactWelcomeQueue) DequeueContactWelcome(ctx context.Context, timeout time.Duration) (dashboard.ContactWelcomeDelivery, bool, error) {
+	return q.queue.DequeueContactWelcome(ctx, timeout)
+}
+
+func (q *observedContactWelcomeQueue) AckContactWelcome(ctx context.Context, delivery dashboard.ContactWelcomeDelivery) error {
+	if err := q.queue.AckContactWelcome(ctx, delivery); err != nil {
+		return err
+	}
+	q.once.Do(func() { close(q.acked) })
+	return nil
+}
+
+func (q *observedContactWelcomeQueue) RetryContactWelcome(ctx context.Context, delivery dashboard.ContactWelcomeDelivery, reason string, maxAttempts int) (bool, error) {
+	return q.queue.RetryContactWelcome(ctx, delivery, reason, maxAttempts)
+}
+
+func (q *observedContactWelcomeQueue) RecoverContactWelcomeProcessing(ctx context.Context, staleAfter time.Duration, maxAttempts int) (int, error) {
+	return q.queue.RecoverContactWelcomeProcessing(ctx, staleAfter, maxAttempts)
+}
+
+type inertContactWelcomeStore struct{}
+
+func (inertContactWelcomeStore) RoomWelcomeCorpCredentialByID(context.Context, int) (dashboard.RoomWelcomeCorpCredential, bool, error) {
+	return dashboard.RoomWelcomeCorpCredential{}, false, nil
+}
+
+type inertContactWelcomeClient struct{}
+
+func (inertContactWelcomeClient) UploadTemporaryImage(context.Context, dashboard.RoomWelcomeCorpCredential, string) (string, error) {
+	return "", nil
+}
+
+func (inertContactWelcomeClient) SendExternalContactWelcome(context.Context, dashboard.RoomWelcomeCorpCredential, string, dashboard.ContactWelcomePayload) error {
+	return nil
 }
