@@ -43,6 +43,11 @@ func TestApplyLatestBuildsSchemaFromCompleteProductionRegistry(t *testing.T) {
 	if count != 1 {
 		t.Fatalf("latest migration %s ledger rows=%d, want 1", latest, count)
 	}
+	for index := 0; index < 2; index++ {
+		if _, err := database.DB.Exec(`INSERT INTO mc_tenant (name,status) VALUES (?,1)`, "post-migration-tenant"); err != nil {
+			t.Fatalf("post-migration tenant insert %d: %v", index+1, err)
+		}
+	}
 }
 
 func registryIntegrationDSN(t *testing.T) string {

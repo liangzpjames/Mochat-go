@@ -56,7 +56,7 @@ func TestDashboardAdminApprovalExecutionRealMariaDB(t *testing.T) {
 	}
 	resendResult := executeRealDashboardAdminApproval(t, ctx, db, store, actor, dashboardadmin.ApprovalActionActivationResend, resendRaw, "dashboard_identity_activation", fmt.Sprintf("%d", resendSeedResult.DashboardUserID))
 	if !realApprovalResultHasPositiveID(resendResult, "dashboardUserId") || !realApprovalResultHasPositiveVersion(resendResult, 2) {
-		t.Fatal("resend approval result omitted result version")
+		t.Fatalf("resend approval result omitted result version: %#v", resendResult)
 	}
 	assertRealApprovalEffectAndAudits(t, db, resendResult, "saas.admin.dashboard_activation.resend", "saas.admin.dashboard_activation.resend")
 
@@ -88,6 +88,7 @@ func TestDashboardAdminApprovalExecutionRealMariaDB(t *testing.T) {
 		t.Fatalf("seed status target: %v", err)
 	}
 	activateProvisionedSubjectForGovernance(t, db, statusSeedResult.DashboardUserID)
+	insertActivatedDashboardUser(t, db, statusSeedResult.TenantID, "13800000107", "Approval status backup", true)
 	statusRaw, err := json.Marshal(map[string]any{
 		"tenantId":        statusSeedResult.TenantID,
 		"targetUserId":    statusSeedResult.DashboardUserID,
@@ -127,7 +128,7 @@ func TestDashboardAdminApprovalEffectUpdateFailureRollsBackBusinessTransactionRe
 	if err != nil {
 		t.Fatal(err)
 	}
-	started := createAndBeginRealDashboardAdminApproval(t, ctx, store, dashboardadmin.ApprovalActionSuperAdminStatus, raw, "dashboard_superadmin", fmt.Sprintf("%d", seed.DashboardUserID))
+	started := createAndBeginRealDashboardAdminApproval(t, ctx, store, actor.UserID, dashboardadmin.ApprovalActionSuperAdminStatus, raw, "dashboard_superadmin", fmt.Sprintf("%d", seed.DashboardUserID))
 
 	beforeCounts := dashboardAdminCounts(t, db)
 	var beforeVersion uint64
@@ -195,7 +196,7 @@ func TestDashboardAdminApprovalEffectUpdateFailureRollsBackBusinessTransactionRe
 	}
 }
 
-func createAndBeginRealDashboardAdminApproval(t *testing.T, ctx context.Context, store *MySQLStore, action string, raw []byte, targetType, targetID string) dashboard.SaaSAdminApproval {
+func createAndBeginRealDashboardAdminApproval(t *testing.T, ctx context.Context, store *MySQLStore, executionUserID int, action string, raw []byte, targetType, targetID string) dashboard.SaaSAdminApproval {
 	t.Helper()
 	digest := sha256.Sum256(raw)
 	requestKey := fmt.Sprintf("task7-real-%d", time.Now().UnixNano())
@@ -238,13 +239,13 @@ func createAndBeginRealDashboardAdminApproval(t *testing.T, ctx context.Context,
 	started, err := store.BeginSaaSAdminApprovalExecution(ctx, dashboard.SaaSAdminApprovalExecutionStart{
 		ApprovalID:      decided.ID,
 		ExpectedVersion: decided.Version,
-		ActorUserID:     700,
+		ActorUserID:     executionUserID,
 		ActorTenantID:   1,
 	})
 	if err != nil {
 		t.Fatalf("begin real approval action=%s: %v", action, err)
 	}
-	if started.Status != dashboard.SaaSAdminApprovalStatusExecuting || started.ExecutionUserID != 700 {
+	if started.Status != dashboard.SaaSAdminApprovalStatusExecuting || started.ExecutionUserID != executionUserID {
 		t.Fatalf("started approval action=%s status=%s executor=%d", action, started.Status, started.ExecutionUserID)
 	}
 	return started
@@ -252,7 +253,7 @@ func createAndBeginRealDashboardAdminApproval(t *testing.T, ctx context.Context,
 
 func executeRealDashboardAdminApproval(t *testing.T, ctx context.Context, db *sql.DB, store *MySQLStore, actor dashboardadmin.Actor, action string, raw []byte, targetType, targetID string) map[string]any {
 	t.Helper()
-	started := createAndBeginRealDashboardAdminApproval(t, ctx, store, action, raw, targetType, targetID)
+	started := createAndBeginRealDashboardAdminApproval(t, ctx, store, actor.UserID, action, raw, targetType, targetID)
 	result, err := dashboardadmin.NewService(store).ExecuteApproval(ctx, actor, action, raw, started.ID, started.Version)
 	if err != nil {
 		t.Fatalf("execute real approval action=%s: %v", action, err)
@@ -323,6 +324,10 @@ func realApprovalResultHasPositiveVersion(result map[string]any, expected int) b
 		return number == expected
 	case int64:
 		return number == int64(expected)
+	case uint:
+		return number == uint(expected)
+	case uint64:
+		return number == uint64(expected)
 	case float64:
 		return int(number) == expected
 	default:
@@ -694,6 +699,7 @@ func TestDashboardAdminProvisioningRealMariaDB(t *testing.T) {
 func dashboardAdminProvisioningInput(key, phone, tenantName string) dashboardadmin.ProvisionDashboardTenant {
 	return dashboardadmin.ProvisionDashboardTenant{
 		TenantName:           tenantName,
+		WeComIntegrationMode: dashboardadmin.WeComIntegrationModeSelfBuilt,
 		PackageID:            11,
 		Limits:               dashboardAdminIntegrationLimits(),
 		Subscription:         dashboardadmin.SubscriptionInput{PackageCode: "pro", Status: "trialing", BillingCycle: "custom", StartsAt: "2026-08-11T00:00:00Z", ExpiresAt: "2026-09-11T00:00:00Z"},
@@ -902,7 +908,6 @@ func createDashboardAdminProvisioningFixture(t *testing.T, db *sql.DB) {
 		`INSERT INTO mc_corp (id, tenant_id, name) VALUES (100, 1, 'Fixture corp 1'), (200, 2, 'Fixture corp 2')`,
 		`INSERT INTO mc_user (id, tenant_id, phone, status, deleted_at) VALUES (10, 1, '13800000001', 1, NULL)`,
 		`INSERT INTO mc_rbac_role (id, tenant_id, operate_id, operate_name) VALUES (20, 1, 10, 'Fixture actor')`,
-		`INSERT INTO mochat_go_tenant_corp_bindings (tenant_id,corp_id,status,verified_corp_name) VALUES (1,100,1,'Fixture corp 1'),(2,200,1,'Fixture corp 2')`,
 	} {
 		if _, err := db.Exec(statement); err != nil {
 			t.Fatalf("base fixture: %v", err)

@@ -18,7 +18,9 @@ import (
 	"jiyi/mochat-go/internal/wecomcredentials"
 )
 
-const freshInstallPlatformTenantID int64 = 4294967294
+// Keep the synthetic platform tenant away from ordinary fixture IDs while
+// leaving ample uint32 AUTO_INCREMENT space for provisioning scenarios.
+const freshInstallPlatformTenantID int64 = 4000000000
 
 var requestPrefixPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,47}$`)
 
