@@ -15,6 +15,82 @@ import (
 	"jiyi/mochat-go/internal/dashboard"
 )
 
+func (s *MySQLStore) WeWorkCallbackLegacyCutoverCompleted(ctx context.Context) (bool, error) {
+	if s == nil || s.db == nil {
+		return false, errors.New("wework callback inbox store is not configured")
+	}
+	var status string
+	err := s.db.QueryRowContext(ctx, `
+		SELECT status FROM mochat_go_wework_callback_cutovers WHERE name=?
+	`, dashboard.LegacyWeWorkCallbackCutoverName).Scan(&status)
+	if err != nil {
+		return false, err
+	}
+	return status == "completed", nil
+}
+
+func (s *MySQLStore) CompleteWeWorkCallbackLegacyCutover(ctx context.Context, imported int) error {
+	if s == nil || s.db == nil {
+		return errors.New("wework callback inbox store is not configured")
+	}
+	if imported < 0 {
+		return errors.New("legacy callback imported count must not be negative")
+	}
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE mochat_go_wework_callback_cutovers
+		SET status='completed',imported_count=imported_count+?,last_error='',completed_at=UTC_TIMESTAMP(6)
+		WHERE name=? AND status<>'completed'
+	`, imported, dashboard.LegacyWeWorkCallbackCutoverName)
+	if err != nil {
+		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		completed, err := s.WeWorkCallbackLegacyCutoverCompleted(ctx)
+		if err != nil {
+			return err
+		}
+		if !completed {
+			return errors.New("legacy callback cutover marker is missing")
+		}
+	}
+	return nil
+}
+
+func (s *MySQLStore) FailWeWorkCallbackLegacyCutover(ctx context.Context, imported int, reason string) error {
+	if s == nil || s.db == nil {
+		return errors.New("wework callback inbox store is not configured")
+	}
+	if imported < 0 {
+		return errors.New("legacy callback imported count must not be negative")
+	}
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE mochat_go_wework_callback_cutovers
+		SET status='failed',imported_count=imported_count+?,last_error=?,completed_at=NULL
+		WHERE name=? AND status<>'completed'
+	`, imported, truncateWeWorkCallbackError(reason), dashboard.LegacyWeWorkCallbackCutoverName)
+	if err != nil {
+		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		completed, err := s.WeWorkCallbackLegacyCutoverCompleted(ctx)
+		if err != nil {
+			return err
+		}
+		if !completed {
+			return errors.New("legacy callback cutover marker is missing")
+		}
+	}
+	return nil
+}
+
 func (s *MySQLStore) AcceptWeWorkCallback(ctx context.Context, event dashboard.WeWorkCallbackEvent, eventKey string, fingerprint string) (bool, error) {
 	if s == nil || s.db == nil {
 		return false, errors.New("wework callback inbox store is not configured")
@@ -60,30 +136,48 @@ func (s *MySQLStore) AcceptWeWorkCallback(ctx context.Context, event dashboard.W
 	return true, nil
 }
 
-func (s *MySQLStore) ClaimWeWorkCallback(ctx context.Context, leaseDuration time.Duration) (dashboard.WeWorkCallbackClaim, bool, error) {
+func (s *MySQLStore) ClaimWeWorkCallback(ctx context.Context, leaseDuration time.Duration, maxAttempts int) (dashboard.WeWorkCallbackClaim, bool, error) {
 	if s == nil || s.db == nil {
 		return dashboard.WeWorkCallbackClaim{}, false, errors.New("wework callback inbox store is not configured")
 	}
 	if leaseDuration <= 0 {
 		return dashboard.WeWorkCallbackClaim{}, false, errors.New("wework callback lease duration must be positive")
 	}
+	if maxAttempts <= 0 {
+		return dashboard.WeWorkCallbackClaim{}, false, errors.New("wework callback max attempts must be positive")
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return dashboard.WeWorkCallbackClaim{}, false, err
 	}
 	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE mochat_go_wework_callback_inbox
+		SET status='dead',lease_token='',lease_expires_at=NULL,next_attempt_at=NULL,
+		    last_error=IF(last_error='', 'maximum attempts exceeded before replay', last_error),
+		    completed_at=UTC_TIMESTAMP(6)
+		WHERE attempt>=?
+		  AND ((status='pending' AND (next_attempt_at IS NULL OR next_attempt_at<=UTC_TIMESTAMP(6)))
+		    OR (status='processing' AND lease_expires_at<=UTC_TIMESTAMP(6)))
+	`, maxAttempts); err != nil {
+		return dashboard.WeWorkCallbackClaim{}, false, err
+	}
 	var claim dashboard.WeWorkCallbackClaim
 	var raw string
 	err = tx.QueryRowContext(ctx, `
 		SELECT id,event_key,payload_fingerprint,event_json,attempt,lease_fence
 		FROM mochat_go_wework_callback_inbox
-		WHERE (status='pending' AND (next_attempt_at IS NULL OR next_attempt_at<=UTC_TIMESTAMP(6)))
-		   OR (status='processing' AND lease_expires_at<=UTC_TIMESTAMP(6))
+		WHERE ((status='pending' AND (next_attempt_at IS NULL OR next_attempt_at<=UTC_TIMESTAMP(6)))
+		   OR (status='processing' AND lease_expires_at<=UTC_TIMESTAMP(6)))
+		  AND attempt<?
 		ORDER BY id ASC
 		LIMIT 1
 		FOR UPDATE
-	`).Scan(&claim.ID, &claim.EventKey, &claim.PayloadFingerprint, &raw, &claim.Attempt, &claim.LeaseFence)
+	`, maxAttempts).Scan(&claim.ID, &claim.EventKey, &claim.PayloadFingerprint, &raw, &claim.Attempt, &claim.LeaseFence)
 	if errors.Is(err, sql.ErrNoRows) {
+		if err := tx.Commit(); err != nil {
+			return dashboard.WeWorkCallbackClaim{}, false, err
+		}
 		return dashboard.WeWorkCallbackClaim{}, false, nil
 	}
 	if err != nil {

@@ -13,11 +13,17 @@ import (
 )
 
 var (
-	ErrWeWorkCallbackConflict     = errors.New("wework callback event key conflicts with a different payload")
-	ErrWeWorkCallbackLeaseLost    = errors.New("wework callback lease is no longer owned")
-	weWorkCallbackURLQueryPattern = regexp.MustCompile(`(?i)(https?://[^\s"'?]+)\?[^\s"']+`)
-	weWorkCallbackSecretPattern   = regexp.MustCompile(`(?i)(access[_-]?token|token|secret|signature|nonce|authorization|password)(\s*[:=]\s*)("[^"]*"|'[^']*'|[^&\s,;}]+)`)
+	ErrWeWorkCallbackConflict             = errors.New("wework callback event key conflicts with a different payload")
+	ErrWeWorkCallbackLeaseLost            = errors.New("wework callback lease is no longer owned")
+	ErrLegacyWeWorkCallbackDeadBacklog    = errors.New("legacy wework callback dead-letter backlog requires operator review")
+	weWorkCallbackURLQueryPattern         = regexp.MustCompile(`(?i)(https?://[^\s"'?]+)\?[^\s"']+`)
+	weWorkCallbackQuotedSecretPattern     = regexp.MustCompile(`(?i)("(?:access[_-]?token|token|secret|signature|nonce|authorization|password)"\s*:\s*")[^"]*(")`)
+	weWorkCallbackAuthorizationPattern    = regexp.MustCompile(`(?i)(authorization\s*[:=]\s*["']?)(bearer|basic)\s+[^"'\s,;}]+`)
+	weWorkCallbackCredentialSchemePattern = regexp.MustCompile(`(?i)\b(bearer|basic)\s+[^"'\s,;}]+`)
+	weWorkCallbackAssignedSecretPattern   = regexp.MustCompile(`(?i)((?:access[_-]?token|token|secret|signature|nonce|authorization|password)\s*[:=]\s*)(?:"[^"]*"|'[^']*'|[^,;}\r\n]+)`)
 )
+
+const LegacyWeWorkCallbackCutoverName = "legacy-redis-v1"
 
 type WeWorkCallbackInboxStore interface {
 	AcceptWeWorkCallback(ctx context.Context, event WeWorkCallbackEvent, eventKey string, fingerprint string) (replayed bool, err error)
@@ -38,10 +44,42 @@ type WeWorkCallbackClaim struct {
 }
 
 type WeWorkCallbackInbox interface {
-	ClaimWeWorkCallback(ctx context.Context, leaseDuration time.Duration) (WeWorkCallbackClaim, bool, error)
+	WeWorkCallbackInboxStore
+	ClaimWeWorkCallback(ctx context.Context, leaseDuration time.Duration, maxAttempts int) (WeWorkCallbackClaim, bool, error)
 	ValidateWeWorkCallbackClaim(ctx context.Context, claim WeWorkCallbackClaim) error
 	CompleteWeWorkCallback(ctx context.Context, claim WeWorkCallbackClaim) error
 	FailWeWorkCallback(ctx context.Context, claim WeWorkCallbackClaim, reason string, maxAttempts int, retryDelay time.Duration) (deadLettered bool, err error)
+}
+
+type LegacyWeWorkCallbackBacklogStats struct {
+	Pending    int64
+	Processing int64
+	Dead       int64
+}
+
+type LegacyWeWorkCallbackDelivery struct {
+	Event WeWorkCallbackEvent
+	Raw   string
+}
+
+// LegacyWeWorkCallbackBacklog is a one-way cutover capability. HTTP callback
+// ACK never uses it; it only imports already-ACKed Redis backlog into MySQL.
+type LegacyWeWorkCallbackBacklog interface {
+	PreflightLegacyWeWorkCallbackBacklog(ctx context.Context) (LegacyWeWorkCallbackBacklogStats, error)
+	NextLegacyWeWorkCallback(ctx context.Context) (LegacyWeWorkCallbackDelivery, bool, error)
+	AckLegacyWeWorkCallback(ctx context.Context, delivery LegacyWeWorkCallbackDelivery) error
+}
+
+type LegacyWeWorkCallbackImportStore interface {
+	WeWorkCallbackInboxStore
+	TenantIDByCorpID(ctx context.Context, corpID int) (int, error)
+}
+
+type LegacyWeWorkCallbackCutoverStore interface {
+	LegacyWeWorkCallbackImportStore
+	WeWorkCallbackLegacyCutoverCompleted(ctx context.Context) (bool, error)
+	CompleteWeWorkCallbackLegacyCutover(ctx context.Context, imported int) error
+	FailWeWorkCallbackLegacyCutover(ctx context.Context, imported int, reason string) error
 }
 
 type weWorkCallbackExecutionContextKey struct{}
@@ -68,7 +106,10 @@ func WeWorkCallbackExecutionFromContext(ctx context.Context) (WeWorkCallbackExec
 func SanitizeWeWorkCallbackFailure(value string) string {
 	value = strings.TrimSpace(value)
 	value = weWorkCallbackURLQueryPattern.ReplaceAllString(value, `${1}?[REDACTED]`)
-	value = weWorkCallbackSecretPattern.ReplaceAllString(value, `${1}${2}[REDACTED]`)
+	value = weWorkCallbackQuotedSecretPattern.ReplaceAllString(value, `${1}[REDACTED]${2}`)
+	value = weWorkCallbackAuthorizationPattern.ReplaceAllString(value, `${1}${2} [REDACTED]`)
+	value = weWorkCallbackCredentialSchemePattern.ReplaceAllString(value, `${1} [REDACTED]`)
+	value = weWorkCallbackAssignedSecretPattern.ReplaceAllString(value, `${1}[REDACTED]`)
 	return value
 }
 

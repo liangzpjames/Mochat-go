@@ -23,6 +23,28 @@ var weWorkCallbackInboxSchemaSequence atomic.Int64
 
 func TestMySQLStoreWeWorkCallbackInboxConcurrentAcceptanceAndLeaseFencing(t *testing.T) {
 	store, db, runner := newWeWorkCallbackInboxIntegrationStore(t)
+	completed, err := store.WeWorkCallbackLegacyCutoverCompleted(context.Background())
+	if err != nil || completed {
+		t.Fatalf("initial cutover completed=%t err=%v", completed, err)
+	}
+	if err := store.FailWeWorkCallbackLegacyCutover(context.Background(), 2, "Authorization: Bearer callback-secret-value"); err != nil {
+		t.Fatal(err)
+	}
+	var cutoverStatus, cutoverError string
+	var importedCount int
+	if err := db.QueryRow(`SELECT status,imported_count,last_error FROM mochat_go_wework_callback_cutovers WHERE name=?`, dashboard.LegacyWeWorkCallbackCutoverName).Scan(&cutoverStatus, &importedCount, &cutoverError); err != nil {
+		t.Fatal(err)
+	}
+	if cutoverStatus != "failed" || importedCount != 2 || strings.Contains(cutoverError, "callback-secret-value") {
+		t.Fatalf("failed cutover status=%q imported=%d error=%q", cutoverStatus, importedCount, cutoverError)
+	}
+	if err := store.CompleteWeWorkCallbackLegacyCutover(context.Background(), 3); err != nil {
+		t.Fatal(err)
+	}
+	completed, err = store.WeWorkCallbackLegacyCutoverCompleted(context.Background())
+	if err != nil || !completed {
+		t.Fatalf("completed cutover completed=%t err=%v", completed, err)
+	}
 	event := dashboard.WeWorkCallbackEvent{
 		TenantID: 11, CorpID: 1101, WxCorpID: "wx-corp-1101", EventPath: "event.change_contact.create_user",
 		Message:    map[string]string{"ToUserName": "wx-corp-1101", "CreateTime": "1783159200", "UserID": "go-user", "Name": "Go User"},
@@ -83,7 +105,7 @@ func TestMySQLStoreWeWorkCallbackInboxConcurrentAcceptanceAndLeaseFencing(t *tes
 		t.Fatalf("conflict error=%v", err)
 	}
 
-	first, found, err := store.ClaimWeWorkCallback(context.Background(), time.Minute)
+	first, found, err := store.ClaimWeWorkCallback(context.Background(), time.Minute, 3)
 	if err != nil || !found {
 		t.Fatalf("first claim found=%t err=%v", found, err)
 	}
@@ -93,7 +115,7 @@ func TestMySQLStoreWeWorkCallbackInboxConcurrentAcceptanceAndLeaseFencing(t *tes
 	if err := store.ValidateWeWorkCallbackClaim(context.Background(), first); err != nil {
 		t.Fatalf("validate current claim: %v", err)
 	}
-	if _, found, err := store.ClaimWeWorkCallback(context.Background(), time.Minute); err != nil || found {
+	if _, found, err := store.ClaimWeWorkCallback(context.Background(), time.Minute, 3); err != nil || found {
 		t.Fatalf("leased row reclaimed found=%t err=%v", found, err)
 	}
 	stale := first
@@ -101,10 +123,17 @@ func TestMySQLStoreWeWorkCallbackInboxConcurrentAcceptanceAndLeaseFencing(t *tes
 	if err := store.CompleteWeWorkCallback(context.Background(), stale); !errors.Is(err, dashboard.ErrWeWorkCallbackLeaseLost) {
 		t.Fatalf("stale completion error=%v", err)
 	}
-	if dead, err := store.FailWeWorkCallback(context.Background(), first, "temporary provider failure", 3, 0); err != nil || dead {
+	if dead, err := store.FailWeWorkCallback(context.Background(), first, `temporary provider failure Authorization: Bearer callback-secret-value`, 3, 0); err != nil || dead {
 		t.Fatalf("first failure dead=%t err=%v", dead, err)
 	}
-	second, found, err := store.ClaimWeWorkCallback(context.Background(), time.Minute)
+	var safeLastError string
+	if err := db.QueryRow(`SELECT last_error FROM mochat_go_wework_callback_inbox WHERE event_key=?`, eventKey).Scan(&safeLastError); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(safeLastError, "callback-secret-value") {
+		t.Fatalf("durable last_error leaked credential: %q", safeLastError)
+	}
+	second, found, err := store.ClaimWeWorkCallback(context.Background(), time.Minute, 3)
 	if err != nil || !found || second.LeaseFence != 2 || second.Attempt != 2 || second.LeaseToken == first.LeaseToken {
 		t.Fatalf("second claim=%+v found=%t err=%v", second, found, err)
 	}
@@ -120,7 +149,7 @@ func TestMySQLStoreWeWorkCallbackInboxConcurrentAcceptanceAndLeaseFencing(t *tes
 	if err := store.CompleteWeWorkCallback(context.Background(), second); err != nil {
 		t.Fatal(err)
 	}
-	if _, found, err := store.ClaimWeWorkCallback(context.Background(), time.Minute); err != nil || found {
+	if _, found, err := store.ClaimWeWorkCallback(context.Background(), time.Minute, 3); err != nil || found {
 		t.Fatalf("completed row claimed found=%t err=%v", found, err)
 	}
 
@@ -130,12 +159,12 @@ func TestMySQLStoreWeWorkCallbackInboxConcurrentAcceptanceAndLeaseFencing(t *tes
 	if _, err := store.AcceptWeWorkCallback(context.Background(), expiringEvent, expiringKey, dashboard.WeWorkCallbackPayloadFingerprint(expiringEvent)); err != nil {
 		t.Fatal(err)
 	}
-	expired, found, err := store.ClaimWeWorkCallback(context.Background(), 5*time.Millisecond)
+	expired, found, err := store.ClaimWeWorkCallback(context.Background(), 5*time.Millisecond, 3)
 	if err != nil || !found {
 		t.Fatalf("expiring claim found=%t err=%v", found, err)
 	}
 	time.Sleep(20 * time.Millisecond)
-	reclaimed, found, err := store.ClaimWeWorkCallback(context.Background(), time.Minute)
+	reclaimed, found, err := store.ClaimWeWorkCallback(context.Background(), time.Minute, 3)
 	if err != nil || !found || reclaimed.EventKey != expiringKey || reclaimed.LeaseFence != expired.LeaseFence+1 || reclaimed.Attempt != expired.Attempt+1 {
 		t.Fatalf("reclaimed=%+v found=%t err=%v", reclaimed, found, err)
 	}
@@ -144,6 +173,34 @@ func TestMySQLStoreWeWorkCallbackInboxConcurrentAcceptanceAndLeaseFencing(t *tes
 	}
 	if err := store.CompleteWeWorkCallback(context.Background(), reclaimed); err != nil {
 		t.Fatal(err)
+	}
+
+	maxEvent := event
+	maxEvent.Message = map[string]string{"MsgId": "lease-max-attempts"}
+	maxKey := dashboard.WeWorkCallbackEventKey(maxEvent)
+	if _, err := store.AcceptWeWorkCallback(context.Background(), maxEvent, maxKey, dashboard.WeWorkCallbackPayloadFingerprint(maxEvent)); err != nil {
+		t.Fatal(err)
+	}
+	firstMax, found, err := store.ClaimWeWorkCallback(context.Background(), 5*time.Millisecond, 2)
+	if err != nil || !found || firstMax.Attempt != 1 {
+		t.Fatalf("first max claim=%+v found=%v err=%v", firstMax, found, err)
+	}
+	time.Sleep(20 * time.Millisecond)
+	secondMax, found, err := store.ClaimWeWorkCallback(context.Background(), 5*time.Millisecond, 2)
+	if err != nil || !found || secondMax.Attempt != 2 {
+		t.Fatalf("second max claim=%+v found=%v err=%v", secondMax, found, err)
+	}
+	time.Sleep(20 * time.Millisecond)
+	if _, found, err := store.ClaimWeWorkCallback(context.Background(), time.Minute, 2); err != nil || found {
+		t.Fatalf("max-attempt callback reclaimed found=%v err=%v", found, err)
+	}
+	var maxStatus string
+	var maxAttempts int
+	if err := db.QueryRow(`SELECT status,attempt FROM mochat_go_wework_callback_inbox WHERE event_key=?`, maxKey).Scan(&maxStatus, &maxAttempts); err != nil {
+		t.Fatal(err)
+	}
+	if maxStatus != "dead" || maxAttempts != 2 {
+		t.Fatalf("max-attempt row status=%q attempts=%d", maxStatus, maxAttempts)
 	}
 
 	rolledBack, err := runner.RollbackLast(context.Background())

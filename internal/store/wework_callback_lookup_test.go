@@ -29,9 +29,18 @@ func TestWeWorkCallbackCorpLookupRequiresActiveVerifiedBinding(t *testing.T) {
 }
 
 func TestWeWorkCallbackStoredFailureRedactsProviderURLCredentials(t *testing.T) {
-	got := truncateWeWorkCallbackError(`POST "https://qyapi.weixin.qq.com/cgi-bin/user/get?access_token=do-not-store": timeout`)
-	if strings.Contains(got, "do-not-store") || strings.Contains(strings.ToLower(got), "access_token=") {
-		t.Fatalf("stored failure was not redacted: %q", got)
+	const secret = "callback-secret-value"
+	for _, input := range []string{
+		`POST "https://qyapi.weixin.qq.com/cgi-bin/user/get?access_token=` + secret + `": timeout`,
+		`Authorization: Bearer ` + secret,
+		`Authorization=Basic ` + secret,
+		`{"access_token":"` + secret + `","error":"timeout"}`,
+		`secret=multi word ` + secret + `, retryable`,
+	} {
+		got := truncateWeWorkCallbackError(input)
+		if strings.Contains(got, secret) {
+			t.Fatalf("stored failure was not redacted: input=%q got=%q", input, got)
+		}
 	}
 }
 

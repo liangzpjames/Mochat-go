@@ -507,6 +507,74 @@ func TestRedisStoreQueueIdempotencyIntegration(t *testing.T) {
 	}
 }
 
+func TestRedisStoreLegacyWeWorkCallbackBacklogCutoverIntegration(t *testing.T) {
+	addr := os.Getenv("MOCHAT_REDIS_ADDR")
+	if addr == "" {
+		t.Skip("MOCHAT_REDIS_ADDR is not set")
+	}
+	store := newRedisIntegrationStore(t, addr)
+	defer store.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := store.client.Del(ctx, legacyWeWorkCallbackPendingKey, legacyWeWorkCallbackProcessingKey, legacyWeWorkCallbackDeadKey).Err(); err != nil {
+		t.Fatal(err)
+	}
+	defer store.client.Del(context.Background(), legacyWeWorkCallbackPendingKey, legacyWeWorkCallbackProcessingKey, legacyWeWorkCallbackDeadKey)
+
+	pendingEvent := dashboard.WeWorkCallbackEvent{CorpID: 7, WxCorpID: "wx-legacy", EventPath: "event.pending", Message: map[string]string{"MsgId": "pending-1"}}
+	pendingRaw, err := json.Marshal(pendingEvent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	processingEvent := dashboard.WeWorkCallbackEvent{CorpID: 7, WxCorpID: "wx-legacy", EventPath: "event.processing", Message: map[string]string{"MsgId": "processing-1"}}
+	processingPayload, err := json.Marshal(processingEvent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	processingRaw, err := json.Marshal(reliableQueueEnvelope{Queue: "wework-callback", PayloadType: "dashboard.WeWorkCallbackEvent.v1", Payload: processingPayload, Attempts: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.client.RPush(ctx, legacyWeWorkCallbackPendingKey, pendingRaw).Err(); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.client.RPush(ctx, legacyWeWorkCallbackProcessingKey, processingRaw).Err(); err != nil {
+		t.Fatal(err)
+	}
+
+	stats, err := store.PreflightLegacyWeWorkCallbackBacklog(ctx)
+	if err != nil || stats.Pending != 1 || stats.Processing != 1 || stats.Dead != 0 {
+		t.Fatalf("stats=%+v err=%v", stats, err)
+	}
+	first, found, err := store.NextLegacyWeWorkCallback(ctx)
+	if err != nil || !found || first.Event.EventPath != "event.processing" {
+		t.Fatalf("first=%+v found=%v err=%v", first, found, err)
+	}
+	if err := store.AckLegacyWeWorkCallback(ctx, first); err != nil {
+		t.Fatal(err)
+	}
+	second, found, err := store.NextLegacyWeWorkCallback(ctx)
+	if err != nil || !found || second.Event.EventPath != "event.pending" {
+		t.Fatalf("second=%+v found=%v err=%v", second, found, err)
+	}
+	if pending, _ := store.client.LLen(ctx, legacyWeWorkCallbackPendingKey).Result(); pending != 0 {
+		t.Fatalf("pending=%d after atomic move", pending)
+	}
+	if processing, _ := store.client.LLen(ctx, legacyWeWorkCallbackProcessingKey).Result(); processing != 1 {
+		t.Fatalf("processing=%d before durable ack", processing)
+	}
+	if err := store.AckLegacyWeWorkCallback(ctx, second); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.client.RPush(ctx, legacyWeWorkCallbackDeadKey, `{"lastError":"operator review required"}`).Err(); err != nil {
+		t.Fatal(err)
+	}
+	stats, err = store.PreflightLegacyWeWorkCallbackBacklog(ctx)
+	if err != nil || stats.Dead != 1 {
+		t.Fatalf("dead stats=%+v err=%v", stats, err)
+	}
+}
+
 func TestRedisStoreEmployeeApplyDeadLetterReleasesIdempotencyIntegration(t *testing.T) {
 	addr := os.Getenv("MOCHAT_REDIS_ADDR")
 	if addr == "" {

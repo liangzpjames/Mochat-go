@@ -49,6 +49,13 @@ type WeWorkCallbackWorkerStore interface {
 	DeleteWorkEmployeeByWXUserID(ctx context.Context, corpID int, wxUserID string) (bool, error)
 	SyncWorkDepartment(ctx context.Context, corpID int, department WorkDepartmentEventDepartment) (WorkEmployeeSyncResult, error)
 	DeleteWorkDepartmentByWXDepartmentID(ctx context.Context, corpID int, wxDepartmentID int) (bool, error)
+	TenantIDByCorpID(ctx context.Context, corpID int) (int, error)
+}
+
+type WeWorkCallbackWorkerCapabilities struct {
+	ContactWelcomeQueue ContactWelcomeEnqueuer
+	ContactWelcomeCache ContactWelcomeStatusCache
+	MarkTagsQueue       AutoTagMarkTagsQueue
 }
 
 type WorkFissionContactRule struct {
@@ -127,7 +134,7 @@ type WorkMessageArchiveSyncTrigger interface {
 }
 
 type WeWorkCallbackWorker struct {
-	queue              any
+	capabilities       WeWorkCallbackWorkerCapabilities
 	inbox              WeWorkCallbackInbox
 	store              WeWorkCallbackWorkerStore
 	client             WeWorkCallbackWorkerClient
@@ -146,12 +153,12 @@ type WeWorkCallbackWorker struct {
 	now                func() time.Time
 }
 
-func NewWeWorkCallbackWorker(queue any, store WeWorkCallbackWorkerStore, client WeWorkCallbackWorkerClient, passwordKey string, logger *log.Logger) *WeWorkCallbackWorker {
+func NewWeWorkCallbackWorker(capabilities WeWorkCallbackWorkerCapabilities, store WeWorkCallbackWorkerStore, client WeWorkCallbackWorkerClient, passwordKey string, logger *log.Logger) *WeWorkCallbackWorker {
 	if logger == nil {
 		logger = log.Default()
 	}
 	worker := &WeWorkCallbackWorker{
-		queue:             queue,
+		capabilities:      capabilities,
 		store:             store,
 		client:            client,
 		passwordKey:       passwordKey,
@@ -219,7 +226,7 @@ func (w *WeWorkCallbackWorker) Run(ctx context.Context) error {
 			return ctx.Err()
 		default:
 		}
-		claim, ok, err := w.inbox.ClaimWeWorkCallback(ctx, w.processingTimeout+weWorkCallbackLeaseCompletionGrace)
+		claim, ok, err := w.inbox.ClaimWeWorkCallback(ctx, w.processingTimeout+weWorkCallbackLeaseCompletionGrace, w.maxAttempts)
 		if err != nil {
 			if ctx.Err() != nil {
 				return ctx.Err()
@@ -238,6 +245,66 @@ func (w *WeWorkCallbackWorker) Run(ctx context.Context) error {
 		}
 		w.handleClaim(ctx, claim)
 	}
+}
+
+// ImportLegacyWeWorkCallbackBacklog is used only by the explicit maintenance
+// cutover command after every legacy producer has been stopped. Ordinary inbox
+// workers never call it and therefore do not depend on Redis availability.
+func ImportLegacyWeWorkCallbackBacklog(ctx context.Context, legacy LegacyWeWorkCallbackBacklog, store LegacyWeWorkCallbackImportStore, logger *log.Logger) (int, error) {
+	if legacy == nil || store == nil {
+		return 0, errors.New("legacy wework callback cutover dependencies are not configured")
+	}
+	if logger == nil {
+		logger = log.Default()
+	}
+	stats, err := legacy.PreflightLegacyWeWorkCallbackBacklog(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("legacy wework callback backlog preflight: %w", err)
+	}
+	logger.Printf("legacy wework callback backlog preflight: pending=%d processing=%d dead=%d", stats.Pending, stats.Processing, stats.Dead)
+	if stats.Dead > 0 {
+		return 0, fmt.Errorf("%w: dead=%d pending=%d processing=%d", ErrLegacyWeWorkCallbackDeadBacklog, stats.Dead, stats.Pending, stats.Processing)
+	}
+	imported := 0
+	for {
+		delivery, ok, err := legacy.NextLegacyWeWorkCallback(ctx)
+		if err != nil {
+			return imported, fmt.Errorf("read legacy wework callback backlog: %w", err)
+		}
+		if !ok {
+			break
+		}
+		event := delivery.Event
+		if event.TenantID <= 0 {
+			event.TenantID, err = store.TenantIDByCorpID(ctx, event.CorpID)
+			if err != nil {
+				return imported, fmt.Errorf("resolve legacy wework callback tenant: %w", err)
+			}
+		}
+		if event.TenantID <= 0 || event.CorpID <= 0 {
+			return imported, fmt.Errorf("legacy wework callback scope is incomplete")
+		}
+		event.RawXML = ""
+		event.Message = normalizedWeWorkCallbackMessage(event.Message)
+		if _, err := store.AcceptWeWorkCallback(ctx, event, WeWorkCallbackEventKey(event), WeWorkCallbackPayloadFingerprint(event)); err != nil {
+			return imported, fmt.Errorf("accept legacy wework callback durably: %w", err)
+		}
+		if err := legacy.AckLegacyWeWorkCallback(ctx, delivery); err != nil {
+			return imported, fmt.Errorf("ack imported legacy wework callback: %w", err)
+		}
+		imported++
+	}
+	if imported > 0 {
+		logger.Printf("legacy wework callback backlog imported: count=%d", imported)
+	}
+	finalStats, err := legacy.PreflightLegacyWeWorkCallbackBacklog(ctx)
+	if err != nil {
+		return imported, fmt.Errorf("legacy wework callback final preflight: %w", err)
+	}
+	if finalStats.Pending != 0 || finalStats.Processing != 0 || finalStats.Dead != 0 {
+		return imported, fmt.Errorf("legacy wework callback backlog changed during cutover: pending=%d processing=%d dead=%d", finalStats.Pending, finalStats.Processing, finalStats.Dead)
+	}
+	return imported, nil
 }
 
 func waitWeWorkCallbackPoll(ctx context.Context, delay time.Duration) error {
@@ -656,7 +723,7 @@ func (w *WeWorkCallbackWorker) handleAutoTagContactTime(ctx context.Context, cor
 	if len(result.MarkTagsEvents) == 0 {
 		return nil
 	}
-	enqueuer, _ := w.queue.(AutoTagMarkTagsQueue)
+	enqueuer := w.capabilities.MarkTagsQueue
 	if enqueuer == nil {
 		return nil
 	}
@@ -797,7 +864,7 @@ func (w *WeWorkCallbackWorker) enqueueGenericContactWelcome(ctx context.Context,
 	if contactID <= 0 || employeeID <= 0 || welcomeCode == "" {
 		return nil
 	}
-	cache, _ := w.queue.(ContactWelcomeStatusCache)
+	cache := w.capabilities.ContactWelcomeCache
 	if cache != nil {
 		status, err := cache.WorkContactWelcomeStatus(ctx, contactID)
 		if err != nil {
@@ -814,7 +881,7 @@ func (w *WeWorkCallbackWorker) enqueueGenericContactWelcome(ctx context.Context,
 	if !found {
 		return nil
 	}
-	enqueuer, _ := w.queue.(ContactWelcomeEnqueuer)
+	enqueuer := w.capabilities.ContactWelcomeQueue
 	if enqueuer == nil {
 		return nil
 	}
@@ -1028,7 +1095,7 @@ func (w *WeWorkCallbackWorker) handleAutoTagRoomJoin(ctx context.Context, corpID
 	if len(result.MarkTagsEvents) == 0 {
 		return nil
 	}
-	enqueuer, _ := w.queue.(AutoTagMarkTagsQueue)
+	enqueuer := w.capabilities.MarkTagsQueue
 	if enqueuer == nil {
 		return nil
 	}

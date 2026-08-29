@@ -24,6 +24,12 @@ type RedisStore struct {
 	client *redis.Client
 }
 
+const (
+	legacyWeWorkCallbackPendingKey    = "mochat-go:wework-callback"
+	legacyWeWorkCallbackProcessingKey = "mochat-go:wework-callback:processing"
+	legacyWeWorkCallbackDeadKey       = "mochat-go:wework-callback:dead"
+)
+
 func NewRedisStore(cfg RedisConfig) *RedisStore {
 	return &RedisStore{client: redis.NewClient(&redis.Options{
 		Addr:     cfg.Addr,
@@ -94,6 +100,39 @@ func (s *RedisStore) AddJWTBlacklist(ctx context.Context, key string, ttl time.D
 
 func (s *RedisStore) WakeWeWorkCallback(ctx context.Context) error {
 	return s.client.Publish(ctx, "mochat-go:wework-callback:wakeup", "pending").Err()
+}
+
+func (s *RedisStore) PreflightLegacyWeWorkCallbackBacklog(ctx context.Context) (dashboard.LegacyWeWorkCallbackBacklogStats, error) {
+	pipe := s.client.Pipeline()
+	pending := pipe.LLen(ctx, legacyWeWorkCallbackPendingKey)
+	processing := pipe.LLen(ctx, legacyWeWorkCallbackProcessingKey)
+	dead := pipe.LLen(ctx, legacyWeWorkCallbackDeadKey)
+	if _, err := pipe.Exec(ctx); err != nil {
+		return dashboard.LegacyWeWorkCallbackBacklogStats{}, err
+	}
+	return dashboard.LegacyWeWorkCallbackBacklogStats{Pending: pending.Val(), Processing: processing.Val(), Dead: dead.Val()}, nil
+}
+
+func (s *RedisStore) NextLegacyWeWorkCallback(ctx context.Context) (dashboard.LegacyWeWorkCallbackDelivery, bool, error) {
+	raw, err := s.client.LIndex(ctx, legacyWeWorkCallbackProcessingKey, 0).Result()
+	if err == redis.Nil {
+		raw, err = s.client.LMove(ctx, legacyWeWorkCallbackPendingKey, legacyWeWorkCallbackProcessingKey, "LEFT", "RIGHT").Result()
+	}
+	if err == redis.Nil {
+		return dashboard.LegacyWeWorkCallbackDelivery{}, false, nil
+	}
+	if err != nil {
+		return dashboard.LegacyWeWorkCallbackDelivery{}, false, err
+	}
+	var event dashboard.WeWorkCallbackEvent
+	if _, err := decodeReliableQueuePayload(raw, &event); err != nil {
+		return dashboard.LegacyWeWorkCallbackDelivery{}, false, fmt.Errorf("decode legacy wework callback delivery: %w", err)
+	}
+	return dashboard.LegacyWeWorkCallbackDelivery{Event: event, Raw: raw}, true, nil
+}
+
+func (s *RedisStore) AckLegacyWeWorkCallback(ctx context.Context, delivery dashboard.LegacyWeWorkCallbackDelivery) error {
+	return s.ackReliableQueueItem(ctx, legacyWeWorkCallbackProcessingKey, delivery.Raw)
 }
 
 func (s *RedisStore) EnqueueContactWelcome(ctx context.Context, event dashboard.ContactWelcomeEvent) error {

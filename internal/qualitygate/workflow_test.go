@@ -1122,6 +1122,38 @@ func TestShellFunctionExecutesRejectsDeadNestedPaths(t *testing.T) {
 	}
 }
 
+func TestWeWorkCallbackQueueGateAndSmokeUseDurableInboxContract(t *testing.T) {
+	audit := readRepositoryFile(t, "scripts/audit_queue_annotation_coverage.sh")
+	for _, required := range []string{"wework-callback", "durable-inbox", "WeWorkCallbackInbox", "LegacyWeWorkCallbackBacklog"} {
+		if !strings.Contains(audit, required) {
+			t.Fatalf("queue annotation audit missing durable callback token %q", required)
+		}
+	}
+	if strings.Contains(audit, `"wework-callback", "WeWorkCallbackQueueDescriptor"`) {
+		t.Fatal("queue annotation audit still requires deleted Redis callback descriptor")
+	}
+
+	smoke := readRepositoryFile(t, "scripts/smoke_wework_callback_worker.sh")
+	if strings.Contains(smoke, "RPUSH mochat-go:wework-callback") {
+		t.Fatal("callback smoke still injects new events through the legacy Redis queue")
+	}
+	for _, required := range []string{"mochat-callback-inbox-seed", "mochat_go_wework_callback_inbox", "status = 'pending'", "status = 'completed'", "lease_fence", "status = 'dead'"} {
+		if !strings.Contains(smoke, required) {
+			t.Fatalf("callback smoke missing durable inbox lifecycle token %q", required)
+		}
+	}
+	main := readRepositoryFile(t, "cmd/mochat-go/main.go")
+	if strings.Contains(main, "LegacyBacklog:       callbackRedis") {
+		t.Fatal("ordinary callback worker still depends on legacy Redis cutover")
+	}
+	cutover := readRepositoryFile(t, "cmd/mochat-callback-legacy-cutover/main.go")
+	for _, required := range []string{"confirm-producers-stopped", "CompleteWeWorkCallbackLegacyCutover", "LegacyWeWorkCallbackCutoverName"} {
+		if !strings.Contains(cutover, required) {
+			t.Fatalf("controlled legacy cutover command missing %q", required)
+		}
+	}
+}
+
 func readRepositoryFile(t *testing.T, path string) string {
 	t.Helper()
 	contents, err := os.ReadFile(filepath.Join("..", "..", filepath.FromSlash(path)))

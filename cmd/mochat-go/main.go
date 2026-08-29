@@ -3128,8 +3128,13 @@ func main() {
 		).WithLimit(cfg.WorkMessageArchiveSyncLimit)
 	}
 	if cfg.EnableWeWorkCallbackWorker {
+		callbackRedis := getOptionalWeWorkCallbackRedisStore()
 		worker := dashboard.NewWeWorkCallbackWorker(
-			getOptionalWeWorkCallbackRedisStore(),
+			dashboard.WeWorkCallbackWorkerCapabilities{
+				ContactWelcomeQueue: callbackRedis,
+				ContactWelcomeCache: callbackRedis,
+				MarkTagsQueue:       callbackRedis,
+			},
 			getMySQLStore(),
 			dashboard.NewRoomWelcomeWeComClient(cfg.WeComAPIBaseURL),
 			"",

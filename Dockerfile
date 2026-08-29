@@ -44,6 +44,7 @@ RUN SOURCE_FINGERPRINT="$(python3 scripts/source_fingerprint.py | python3 -c 'im
 	&& BUILD_LDFLAGS="-X jiyi/mochat-go/internal/buildinfo.SourceFingerprint=${SOURCE_FINGERPRINT}" \
 	&& CGO_ENABLED=0 GOOS=linux go build -ldflags "$BUILD_LDFLAGS" -o /out/mochat-go ./cmd/mochat-go \
 	&& CGO_ENABLED=0 GOOS=linux go build -ldflags "$BUILD_LDFLAGS" -o /out/mochat-migrate ./cmd/mochat-migrate \
+	&& CGO_ENABLED=0 GOOS=linux go build -ldflags "$BUILD_LDFLAGS" -o /out/mochat-callback-legacy-cutover ./cmd/mochat-callback-legacy-cutover \
 	&& CGO_ENABLED=0 GOOS=linux go build -ldflags "$BUILD_LDFLAGS" -o /out/mochat-bootstrap ./cmd/mochat-bootstrap \
 	&& CGO_ENABLED=0 GOOS=linux go build -ldflags "$BUILD_LDFLAGS" -o /out/mochat-saas-maintenance ./cmd/mochat-saas-maintenance \
 	&& CGO_ENABLED=0 GOOS=linux go build -ldflags "$BUILD_LDFLAGS" -o /out/mochat-archive-simulator ./cmd/mochat-archive-simulator \
@@ -61,6 +62,7 @@ WORKDIR /app
 
 COPY --from=build /out/mochat-go /usr/local/bin/mochat-go
 COPY --from=build /out/mochat-migrate /usr/local/bin/mochat-migrate
+COPY --from=build /out/mochat-callback-legacy-cutover /usr/local/bin/mochat-callback-legacy-cutover
 COPY --from=build /out/mochat-bootstrap /usr/local/bin/mochat-bootstrap
 COPY --from=build /out/mochat-saas-maintenance /usr/local/bin/mochat-saas-maintenance
 COPY --from=build /out/mochat-archive-simulator /usr/local/bin/mochat-archive-simulator
