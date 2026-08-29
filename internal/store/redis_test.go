@@ -38,14 +38,14 @@ func TestDecodeReliableQueuePayloadSupportsEnvelopeMetadata(t *testing.T) {
 }
 
 func TestReliableQueueEnvelopeForEventPreservesMetadata(t *testing.T) {
-	payload, err := json.Marshal(dashboard.WeWorkCallbackEvent{CorpID: 7, WxCorpID: "ww-go", EventPath: "event.change_contact.create_user"})
+	payload, err := json.Marshal(dashboard.ContactWelcomeEvent{CorpID: 7, ContactID: 8, EmployeeID: 9})
 	if err != nil {
 		t.Fatal(err)
 	}
 	raw, err := json.Marshal(reliableQueueEnvelope{
-		Queue:          dashboard.QueueNameWeWorkCallback,
-		PayloadType:    dashboard.QueuePayloadTypeWeWorkCallback,
-		IdempotencyKey: "mochat-go:queue-idempotency:wework-callback:test",
+		Queue:          dashboard.QueueNameContactWelcome,
+		PayloadType:    dashboard.QueuePayloadTypeContactWelcome,
+		IdempotencyKey: "mochat-go:queue-idempotency:contact-welcome:test",
 		EnqueuedAt:     "2026-07-04T12:00:00+08:00",
 		Payload:        payload,
 		Attempts:       1,
@@ -55,11 +55,11 @@ func TestReliableQueueEnvelopeForEventPreservesMetadata(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	envelope, err := reliableQueueEnvelopeForEvent(string(raw), dashboard.WeWorkCallbackEvent{})
+	envelope, err := reliableQueueEnvelopeForEvent(string(raw), dashboard.ContactWelcomeEvent{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if envelope.Queue != dashboard.QueueNameWeWorkCallback || envelope.PayloadType != dashboard.QueuePayloadTypeWeWorkCallback {
+	if envelope.Queue != dashboard.QueueNameContactWelcome || envelope.PayloadType != dashboard.QueuePayloadTypeContactWelcome {
 		t.Fatalf("envelope metadata = %+v", envelope)
 	}
 	if envelope.IdempotencyKey == "" || envelope.EnqueuedAt == "" || envelope.LastError != "temporary" {

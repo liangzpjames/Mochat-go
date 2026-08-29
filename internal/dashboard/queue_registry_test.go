@@ -8,10 +8,10 @@ import (
 
 func TestQueuePayloadRegistryContainsWorkerQueues(t *testing.T) {
 	registry := QueuePayloadRegistry()
-	if len(registry) != 11 {
+	if len(registry) != 10 {
 		t.Fatalf("registry length = %d", len(registry))
 	}
-	for _, name := range []string{QueueNameWeWorkCallback, QueueNameEmployeeApply, QueueNameContactWelcome, QueueNameAsyncFileUpload, QueueNameMarkTags, QueueNameMessageRemind, QueueNameWorkRoomSync, QueueNameWorkContactSync, QueueNameWorkDepartmentList, QueueNameMediumMediaIDUpdate, QueueNameEmployeeStatisticApply} {
+	for _, name := range []string{QueueNameEmployeeApply, QueueNameContactWelcome, QueueNameAsyncFileUpload, QueueNameMarkTags, QueueNameMessageRemind, QueueNameWorkRoomSync, QueueNameWorkContactSync, QueueNameWorkDepartmentList, QueueNameMediumMediaIDUpdate, QueueNameEmployeeStatisticApply} {
 		descriptor, ok := QueuePayloadDescriptorByName(name)
 		if !ok {
 			t.Fatalf("descriptor %s not found", name)
@@ -250,45 +250,5 @@ func TestEmployeeApplyIdempotencyKeyIgnoresQueueTicket(t *testing.T) {
 	right := EmployeeApplyIdempotencyKey(EmployeeApplyEvent{BindingID: 7, Source: "manual", QueueTicket: "ticket-2"})
 	if left == "" || left != right {
 		t.Fatalf("queue ticket changed idempotency key: %q %q", left, right)
-	}
-}
-
-func TestWeWorkCallbackIdempotencyKeyUsesBusinessIdentity(t *testing.T) {
-	base := WeWorkCallbackEvent{
-		CorpID:    7,
-		WxCorpID:  " ww-go ",
-		EventPath: " event.change_contact.create_user ",
-		Message:   map[string]string{"ToUserName": "ww-go", "CreateTime": "1710000000", "UserID": "go-user", "Event": "change_contact"},
-		RawXML:    " <xml/> ",
-	}
-	left := base
-	left.ReceivedAt = "2026-07-04 12:00:00"
-	left.RawXML = "<xml><UserID>go-user</UserID><CreateTime>1710000000</CreateTime></xml>"
-	right := base
-	right.ReceivedAt = "2026-07-04 12:01:00"
-	right.RawXML = "<xml><CreateTime>1710000000</CreateTime><UserID>go-user</UserID></xml>"
-
-	leftKey := WeWorkCallbackIdempotencyKey(left)
-	rightKey := WeWorkCallbackIdempotencyKey(right)
-	if leftKey == "" || leftKey != rightKey {
-		t.Fatalf("keys differ: %q %q", leftKey, rightKey)
-	}
-	if !strings.HasPrefix(leftKey, "mochat-go:queue-idempotency:wework-callback:") {
-		t.Fatalf("key prefix = %q", leftKey)
-	}
-
-	changed := base
-	changed.Message = map[string]string{"ToUserName": "ww-go", "CreateTime": "1710000001", "UserID": "go-user", "Event": "change_contact"}
-	if WeWorkCallbackIdempotencyKey(changed) == leftKey {
-		t.Fatalf("different business event should produce a different key")
-	}
-}
-
-func TestWeWorkCallbackIdempotencyKeyFallsBackToRawXML(t *testing.T) {
-	left := WeWorkCallbackEvent{CorpID: 7, EventPath: "unknown", RawXML: "<xml><A>1</A></xml>"}
-	right := left
-	right.RawXML = "<xml><A>2</A></xml>"
-	if WeWorkCallbackIdempotencyKey(left) == WeWorkCallbackIdempotencyKey(right) {
-		t.Fatalf("different raw xml fallback should produce a different key")
 	}
 }

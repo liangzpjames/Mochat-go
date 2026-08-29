@@ -132,56 +132,6 @@ func TestRedisStoreQueueIdempotencyIntegration(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	weworkDescriptor := dashboard.WeWorkCallbackQueueDescriptor()
-	weworkEvent := dashboard.WeWorkCallbackEvent{
-		CorpID:    7,
-		WxCorpID:  "ww-go",
-		EventPath: "event.change_external_contact.add_external_contact",
-		Message: map[string]string{
-			"ToUserName":     "ww-go",
-			"CreateTime":     "1710000000",
-			"UserID":         "go-user",
-			"ExternalUserID": "external-user",
-		},
-		RawXML:     "<xml><UserID>go-user</UserID><ExternalUserID>external-user</ExternalUserID></xml>",
-		ReceivedAt: "2026-07-04 12:00:00",
-	}
-	weworkDuplicate := weworkEvent
-	weworkDuplicate.RawXML = "<xml><ExternalUserID>external-user</ExternalUserID><UserID>go-user</UserID></xml>"
-	weworkDuplicate.ReceivedAt = "2026-07-04 12:01:00"
-	weworkIDKey := dashboard.WeWorkCallbackIdempotencyKey(weworkEvent)
-	if err := store.client.Del(ctx, weworkDescriptor.SourceKey, weworkDescriptor.ProcessingKey, weworkDescriptor.DeadLetterKey, weworkIDKey).Err(); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.EnqueueWeWorkCallback(ctx, weworkEvent); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.EnqueueWeWorkCallback(ctx, weworkDuplicate); err != nil {
-		t.Fatal(err)
-	}
-	if length, err := store.client.LLen(ctx, weworkDescriptor.SourceKey).Result(); err != nil || length != 1 {
-		t.Fatalf("wework source queue length = %d err=%v", length, err)
-	}
-	if ttl, err := store.client.TTL(ctx, weworkIDKey).Result(); err != nil || ttl <= 0 {
-		t.Fatalf("wework idempotency ttl = %s err=%v", ttl, err)
-	}
-	weworkDelivery, ok, err := store.DequeueWeWorkCallback(ctx, time.Second)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !ok {
-		t.Fatal("expected wework delivery")
-	}
-	if weworkDelivery.Event.EventPath != weworkEvent.EventPath || weworkDelivery.Event.Message["ExternalUserID"] != "external-user" {
-		t.Fatalf("wework delivery = %+v", weworkDelivery)
-	}
-	if err := store.AckWeWorkCallback(ctx, weworkDelivery); err != nil {
-		t.Fatal(err)
-	}
-	if length, err := store.client.LLen(ctx, weworkDescriptor.ProcessingKey).Result(); err != nil || length != 0 {
-		t.Fatalf("wework processing queue length = %d err=%v", length, err)
-	}
-
 	welcomeDescriptor := dashboard.ContactWelcomeQueueDescriptor()
 	welcomeEvent := dashboard.ContactWelcomeEvent{
 		CorpID:      7,

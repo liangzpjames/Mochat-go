@@ -16,8 +16,8 @@ import (
 )
 
 const (
-	SaaSAdminExpectedMigrationVersion = "0171_archive_fixture_dataset_ledger"
-	SaaSAdminExpectedMigrationCount   = 171
+	SaaSAdminExpectedMigrationVersion = "0172_wework_callback_inbox"
+	SaaSAdminExpectedMigrationCount   = 172
 
 	SaaSAdminSystemHealthStateHealthy  = "healthy"
 	SaaSAdminSystemHealthStateWarning  = "warning"

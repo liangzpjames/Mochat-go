@@ -92,59 +92,8 @@ func (s *RedisStore) AddJWTBlacklist(ctx context.Context, key string, ttl time.D
 	return s.client.Set(ctx, key, time.Now().Unix(), ttl).Err()
 }
 
-func (s *RedisStore) EnqueueWeWorkCallback(ctx context.Context, event dashboard.WeWorkCallbackEvent) error {
-	return s.enqueueReliableQueueItem(ctx, dashboard.WeWorkCallbackQueueDescriptor(), event, dashboard.WeWorkCallbackIdempotencyKey(event))
-}
-
-func (s *RedisStore) DequeueWeWorkCallback(ctx context.Context, timeout time.Duration) (dashboard.WeWorkCallbackDelivery, bool, error) {
-	descriptor := dashboard.WeWorkCallbackQueueDescriptor()
-	raw, err := s.client.BLMove(ctx, descriptor.SourceKey, descriptor.ProcessingKey, "LEFT", "RIGHT", timeout).Result()
-	if err == redis.Nil {
-		return dashboard.WeWorkCallbackDelivery{}, false, nil
-	}
-	if err != nil {
-		return dashboard.WeWorkCallbackDelivery{}, false, err
-	}
-	var event dashboard.WeWorkCallbackEvent
-	attempts, err := decodeReliableQueuePayload(raw, &event)
-	if err != nil {
-		_ = s.moveMalformedQueueItem(ctx, descriptor.ProcessingKey, descriptor.DeadLetterKey, raw, err.Error())
-		return dashboard.WeWorkCallbackDelivery{}, false, err
-	}
-	markedRaw, err := s.markReliableQueueProcessing(ctx, descriptor.ProcessingKey, raw, event, attempts)
-	if err != nil {
-		return dashboard.WeWorkCallbackDelivery{}, false, err
-	}
-	return dashboard.WeWorkCallbackDelivery{Event: event, Raw: markedRaw, Attempts: attempts}, true, nil
-}
-
-func (s *RedisStore) AckWeWorkCallback(ctx context.Context, delivery dashboard.WeWorkCallbackDelivery) error {
-	return s.ackReliableQueueItem(ctx, dashboard.WeWorkCallbackQueueDescriptor().ProcessingKey, delivery.Raw)
-}
-
-func (s *RedisStore) RetryWeWorkCallback(ctx context.Context, delivery dashboard.WeWorkCallbackDelivery, reason string, maxAttempts int) (bool, error) {
-	descriptor := dashboard.WeWorkCallbackQueueDescriptor()
-	return s.retryReliableQueueItem(ctx, reliableQueueRetryOptions{
-		SourceKey:      descriptor.SourceKey,
-		ProcessingKey:  descriptor.ProcessingKey,
-		DeadLetterKey:  descriptor.DeadLetterKey,
-		Raw:            delivery.Raw,
-		Event:          delivery.Event,
-		CurrentAttempt: delivery.Attempts,
-		Reason:         reason,
-		MaxAttempts:    maxAttempts,
-	})
-}
-
-func (s *RedisStore) RecoverWeWorkCallbackProcessing(ctx context.Context, staleAfter time.Duration, maxAttempts int) (int, error) {
-	descriptor := dashboard.WeWorkCallbackQueueDescriptor()
-	return s.recoverReliableQueueProcessing(ctx, reliableQueueRecoveryOptions{
-		SourceKey:     descriptor.SourceKey,
-		ProcessingKey: descriptor.ProcessingKey,
-		DeadLetterKey: descriptor.DeadLetterKey,
-		StaleAfter:    staleAfter,
-		MaxAttempts:   maxAttempts,
-	})
+func (s *RedisStore) WakeWeWorkCallback(ctx context.Context) error {
+	return s.client.Publish(ctx, "mochat-go:wework-callback:wakeup", "pending").Err()
 }
 
 func (s *RedisStore) EnqueueContactWelcome(ctx context.Context, event dashboard.ContactWelcomeEvent) error {

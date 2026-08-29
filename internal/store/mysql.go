@@ -2048,7 +2048,7 @@ func (s *MySQLStore) CorpDetailByID(ctx context.Context, corpID int) (dashboard.
 }
 
 func (s *MySQLStore) WeWorkCallbackCorpByID(ctx context.Context, corpID int) (dashboard.WeWorkCallbackCorp, bool, error) {
-	item, found, err := s.loadCorpCredentialByID(ctx, s.db, corpID, false)
+	item, found, err := s.loadAuthoritativeWeWorkCallbackCorpByID(ctx, corpID)
 	if err != nil || !found {
 		return dashboard.WeWorkCallbackCorp{}, found, err
 	}
@@ -2056,11 +2056,11 @@ func (s *MySQLStore) WeWorkCallbackCorpByID(ctx context.Context, corpID int) (da
 	if err != nil {
 		return dashboard.WeWorkCallbackCorp{}, false, err
 	}
-	return dashboard.WeWorkCallbackCorp{ID: item.ID, WxCorpID: item.WXCorpID, Token: credential.CallbackToken, EncodingAESKey: credential.EncodingAESKey}, true, nil
+	return dashboard.WeWorkCallbackCorp{TenantID: item.TenantID, ID: item.ID, WxCorpID: item.WXCorpID, Token: credential.CallbackToken, EncodingAESKey: credential.EncodingAESKey}, true, nil
 }
 
 func (s *MySQLStore) WeWorkCallbackCorpByWXID(ctx context.Context, wxCorpID string) (dashboard.WeWorkCallbackCorp, bool, error) {
-	item, found, err := s.loadCorpCredentialByWXCorpID(ctx, wxCorpID)
+	item, found, err := s.loadAuthoritativeWeWorkCallbackCorpByWXID(ctx, wxCorpID)
 	if err != nil || !found {
 		return dashboard.WeWorkCallbackCorp{}, found, err
 	}
@@ -2068,7 +2068,7 @@ func (s *MySQLStore) WeWorkCallbackCorpByWXID(ctx context.Context, wxCorpID stri
 	if err != nil {
 		return dashboard.WeWorkCallbackCorp{}, false, err
 	}
-	return dashboard.WeWorkCallbackCorp{ID: item.ID, WxCorpID: item.WXCorpID, Token: credential.CallbackToken, EncodingAESKey: credential.EncodingAESKey}, true, nil
+	return dashboard.WeWorkCallbackCorp{TenantID: item.TenantID, ID: item.ID, WxCorpID: item.WXCorpID, Token: credential.CallbackToken, EncodingAESKey: credential.EncodingAESKey}, true, nil
 }
 
 func (s *MySQLStore) CorpList(ctx context.Context, filter dashboard.CorpListFilter) (dashboard.CorpListPage, error) {

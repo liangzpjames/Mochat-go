@@ -201,6 +201,15 @@ func main() {
 		}
 		return redisStore
 	}
+	var weWorkCallbackRedisStore *store.RedisStore
+	getOptionalWeWorkCallbackRedisStore := func() *store.RedisStore {
+		if weWorkCallbackRedisStore == nil {
+			weWorkCallbackRedisStore = store.NewRedisStore(store.RedisConfig{
+				Addr: cfg.RedisAddr, Password: cfg.RedisPassword, DB: cfg.RedisDB,
+			})
+		}
+		return weWorkCallbackRedisStore
+	}
 	var identityManager *identitysecurity.Manager
 	var identitySessionChecker authjwt.SessionChecker
 	var tenantDomainVerifier *dashboard.SaaSTenantDomainDNSVerifier
@@ -573,7 +582,9 @@ func main() {
 
 	if cfg.MigrateWeWorkCallback {
 		mysqlStore := getMySQLStore()
-		weWorkCallback := dashboard.NewWeWorkCallbackHandler(mysqlStore, getRedisStore())
+		// The worker polls the durable MySQL inbox. Do not publish an unconsumed
+		// Redis wakeup or make callback ACK latency depend on Redis at all.
+		weWorkCallback := dashboard.NewWeWorkCallbackHandler(mysqlStore, nil)
 		options = append(options, compatserver.WithWeWorkCallbackHandler(weWorkCallback))
 		routeDebugf("go migrated route enabled: GET/POST /weWork/callback")
 		routeDebugf("go migrated route enabled: GET/POST /dashboard/corp/weWorkCallback")
@@ -3118,7 +3129,7 @@ func main() {
 	}
 	if cfg.EnableWeWorkCallbackWorker {
 		worker := dashboard.NewWeWorkCallbackWorker(
-			getRedisStore(),
+			getOptionalWeWorkCallbackRedisStore(),
 			getMySQLStore(),
 			dashboard.NewRoomWelcomeWeComClient(cfg.WeComAPIBaseURL),
 			"",
@@ -3132,7 +3143,7 @@ func main() {
 			worker.WithArchiveSyncTrigger(workMessageArchiveCron)
 		}
 		workerGroup.Add("wework-callback", worker.Run)
-		debugf("go worker enabled: WeWork callback Redis consumer")
+		debugf("go worker enabled: durable MySQL WeWork callback inbox consumer (Redis only used by optional downstream queues)")
 
 		contactWelcomeWorker := dashboard.NewContactWelcomeWorker(
 			getRedisStore(),
