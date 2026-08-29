@@ -29,6 +29,7 @@
 - Phase 3.4 新测试初始因 direct ESLint invocation 不存在失败。
 - smoke 合同初始因共享 inventory lifecycle 不存在失败。
 - 真实 MySQL 5.7 fresh apply 初始仅落账 108 条，最新 `0108_scrm_public_pool_parity`，0109 失败。
+- metadata-guarded 兼容修复后，同一 fresh schema 重试成功越过 0109，到达 0130 controlled boundary；正式执行 0130、credential encryption 与 0131 后，自动迁移继续到 0138。0139 在 MySQL 5.7 因动态 guard 生成的 `SIGNAL` 不能经 prepared statement 执行而失败。
 
 ### GREEN / PASS
 
@@ -43,7 +44,8 @@
 
 ### FAIL / SKIP
 
-- FAIL（已修代码、待提交后复跑）：首轮 MySQL 5.7 fresh apply 在旧执行器下仅到 0108；metadata-guarded 修复后的 0001→0173 容器长跑尚未完成，不能把单测称作数据库 PASS。
+- PASS（真实 MySQL 5.7）：metadata-guarded conditional ALTER 修复已把账本从 0108 推进到 0129；0130、credential encryption、0131 controlled 流程成功，随后自动迁移推进到 0138。
+- FAIL（新发现、未完成）：0139 的动态 schema guard 在 MySQL 5.7 命中 `SIGNAL` prepared-statement 限制，完整 0001→0173 尚未闭环；因此 rollback-reapply/baseline/drift 的脚本路径仍未取得真实数据库 PASS，不能把脚本/单测称作数据库完成。
 - SKIP：当前 Windows 主机无可用 `/bin/bash`，两个 shell entrypoint 的 `bash -n` 无法本机执行；Node 结构合同已 PASS，Linux CI/父任务需执行脚本本体。
 - SKIP：本任务没有调用真实企微、AI Provider 或生产环境。
 

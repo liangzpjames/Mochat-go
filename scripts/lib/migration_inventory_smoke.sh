@@ -52,8 +52,9 @@ expect_apply_blocked_by() {
 
 apply_full_inventory() {
   expect_apply_blocked_by 0130_identity_realms_single_corp_backfill
+  mysql_scalar "$MYSQL_SCHEMA" "INSERT INTO mc_tenant (id,name,status) SELECT 1,'migration-smoke-platform',1 FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM mc_tenant WHERE id=1)" >/dev/null
   run_identity_action up migration-smoke-0130
-  run_identity_action encrypt-credentials migration-smoke-0130-encrypt
+  run_identity_action encrypt-credentials migration-smoke-0130
   expect_apply_blocked_by 0131_identity_realms_single_corp_cutover
   run_identity_action cutover migration-smoke-0131
   expect_apply_blocked_by 0165_ai_daily_insight_unification
