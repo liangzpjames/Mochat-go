@@ -71,20 +71,26 @@ apply_full_inventory() {
   "$MIGRATE_BIN" -dsn "$MYSQL_DSN" -project-root "$PWD" -action apply >"$WORK_DIR/apply-final.out"
 }
 
+assert_mysql_scalar() {
+  local schema="$1" query="$2" expected="$3" actual
+  actual="$(mysql_scalar "$schema" "$query")"
+  test "$actual" = "$expected"
+}
+
 verify_full_inventory_ledger() {
   "$MIGRATE_BIN" -dsn "$MYSQL_DSN" -project-root "$PWD" -action status >"$WORK_DIR/status.out"
   while IFS=$'\t' read -r version checksum kind description; do
     grep -q "^${version}"$'\t''applied$' "$WORK_DIR/status.out"
   done <"$INVENTORY_FILE"
-  test "$(mysql_scalar "$MYSQL_SCHEMA" "SELECT COUNT(*) FROM mochat_go_schema_migrations")" = "$INVENTORY_COUNT"
-  test "$(mysql_scalar "$MYSQL_SCHEMA" "SELECT COUNT(*) FROM mochat_go_schema_migrations WHERE version='$INVENTORY_FIRST')" = "1"
-  test "$(mysql_scalar "$MYSQL_SCHEMA" "SELECT COUNT(*) FROM mochat_go_schema_migrations WHERE version='$INVENTORY_LATEST' AND checksum='$INVENTORY_LATEST_CHECKSUM')" = "1"
+  assert_mysql_scalar "$MYSQL_SCHEMA" "SELECT COUNT(*) FROM mochat_go_schema_migrations" "$INVENTORY_COUNT"
+  assert_mysql_scalar "$MYSQL_SCHEMA" "SELECT COUNT(*) FROM mochat_go_schema_migrations WHERE version='$INVENTORY_FIRST'" "1"
+  assert_mysql_scalar "$MYSQL_SCHEMA" "SELECT COUNT(*) FROM mochat_go_schema_migrations WHERE version='$INVENTORY_LATEST' AND checksum='$INVENTORY_LATEST_CHECKSUM'" "1"
 }
 
 verify_latest_rollback_reapply() {
   "$MIGRATE_BIN" -dsn "$MYSQL_DSN" -project-root "$PWD" -action rollback >"$WORK_DIR/rollback-latest.out"
   grep -q "^${INVENTORY_LATEST}"$'\t''rolled_back$' "$WORK_DIR/rollback-latest.out"
-  test "$(mysql_scalar "$MYSQL_SCHEMA" "SELECT COUNT(*) FROM mochat_go_schema_migrations")" = "$((INVENTORY_COUNT - 1))"
+  assert_mysql_scalar "$MYSQL_SCHEMA" "SELECT COUNT(*) FROM mochat_go_schema_migrations" "$((INVENTORY_COUNT - 1))"
   "$MIGRATE_BIN" -dsn "$MYSQL_DSN" -project-root "$PWD" -action apply >"$WORK_DIR/reapply-latest.out"
   grep -q "^${INVENTORY_LATEST}"$'\t''applied_now$' "$WORK_DIR/reapply-latest.out"
 }
@@ -104,7 +110,7 @@ verify_checksum_drift_rejected() {
 verify_baseline_from_full_schema() {
   mysql_scalar "$MYSQL_SCHEMA" "DROP TABLE mochat_go_schema_migrations" >/dev/null
   "$MIGRATE_BIN" -dsn "$MYSQL_DSN" -project-root "$PWD" -action baseline >"$WORK_DIR/baseline.out"
-  test "$(mysql_scalar "$MYSQL_SCHEMA" "SELECT COUNT(*) FROM mochat_go_schema_migrations")" = "$INVENTORY_COUNT"
+  assert_mysql_scalar "$MYSQL_SCHEMA" "SELECT COUNT(*) FROM mochat_go_schema_migrations" "$INVENTORY_COUNT"
 }
 
 run_migration_inventory_smoke() {

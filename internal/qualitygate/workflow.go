@@ -470,9 +470,11 @@ func validateLifecycle(contents, inventoryLifecycle string) []string {
 	cleanupCommand := "compose down --remove-orphans >/dev/null 2>&1"
 	cleanupMarkers := []string{
 		"trap cleanup EXIT INT TERM",
-		"compose up -d mysql",
+		"start_mysql",
+		"wait_healthy",
 	}
 	if !containsExecutableCommandsInOrder(contents, cleanupMarkers) ||
+		!shellFunctionExecutes(contents, "start_mysql", "compose up -d mysql") ||
 		!shellFunctionExecutes(contents, "cleanup", cleanupCommand) {
 		failures = append(failures, "authoritative lifecycle cleanup trap must be installed before startup without deleting volumes")
 	}

@@ -939,6 +939,20 @@ func TestValidateWorkflowRejectsCleanupCommandInNestedFunction(t *testing.T) {
 	)
 }
 
+func TestValidateLifecycleAcceptsRepositoryScripts(t *testing.T) {
+	lifecycle := readRepositoryFile(t, "scripts/smoke_schema_migrate.sh")
+	inventoryLifecycle := readRepositoryFile(t, "scripts/lib/migration_inventory_smoke.sh")
+	if _, err := parseShell(lifecycle); err != nil {
+		t.Fatalf("parse authoritative lifecycle: %v", err)
+	}
+	if _, err := parseShell(inventoryLifecycle); err != nil {
+		t.Fatalf("parse shared lifecycle: %v", err)
+	}
+	if failures := validateLifecycle(lifecycle, inventoryLifecycle); len(failures) != 0 {
+		t.Fatalf("repository migration lifecycle failed validation: %v", failures)
+	}
+}
+
 func TestValidateLifecycleRejectsCommentedCriticalCommand(t *testing.T) {
 	lifecycle := readRepositoryFile(t, "scripts/smoke_schema_migrate.sh")
 	inventoryLifecycle := readRepositoryFile(t, "scripts/lib/migration_inventory_smoke.sh")

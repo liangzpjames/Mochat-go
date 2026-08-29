@@ -23,8 +23,15 @@ compose() {
   MOCHAT_SAAS_ADMIN_JWT_SECRET=smoke-saas-jwt MOCHAT_DASHBOARD_JWT_SECRET=smoke-dashboard-jwt \
   docker compose -p "$PROJECT_NAME" -f "$COMPOSE_FILE" "$@"
 }
+start_mysql() {
+  if [ "${MOCHAT_REUSE_MIGRATION_STACK:-0}" != "1" ]; then
+    compose up -d mysql
+  fi
+}
 cleanup() {
-  if [ "${KEEP_STACK:-0}" != "1" ]; then compose down --remove-orphans >/dev/null 2>&1 || true; fi
+  if [ "${KEEP_STACK:-0}" != "1" ]; then
+    compose down --remove-orphans >/dev/null 2>&1 || true
+  fi
   rm -rf "$WORK_DIR"
 }
 trap cleanup EXIT INT TERM
@@ -40,7 +47,7 @@ wait_healthy() {
   return 1
 }
 
-if [ "${MOCHAT_REUSE_MIGRATION_STACK:-0}" != "1" ]; then compose up -d mysql; fi
+start_mysql
 wait_healthy
 compose exec -T mysql mariadb -uroot -pmochat_root -e "DROP DATABASE IF EXISTS \`$MYSQL_SCHEMA\`; CREATE DATABASE \`$MYSQL_SCHEMA\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci; GRANT ALL PRIVILEGES ON \`$MYSQL_SCHEMA\`.* TO 'mochat'@'%'; FLUSH PRIVILEGES;"
 
