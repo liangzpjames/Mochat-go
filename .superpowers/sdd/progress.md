@@ -27,3 +27,7 @@ Task 9: complete (commits b0dc60b + 13f7969 + cb2cd80, review PASS; target Vites
 Task 10: complete (commits 8787fa7 + d2b60ee, review PASS; target Vitest 26/26 and ESLint pass)
 Task 11: complete (commit 42eb452, independent review PASS; style contract 3/3 pass)
 Task 12: in_progress (Docker/browser acceptance, Chinese implementation document, final verification)
+
+Plan: docs/superpowers/plans/2026-08-29-p0-local-production-readiness.zh-CN.md
+
+Task 1: complete (commit 22445e1, spec and quality review clean; parent Go and scheduler contract verification pass)
