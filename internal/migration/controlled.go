@@ -35,11 +35,12 @@ type ControlledMigration struct {
 }
 
 type ControlledMigrationPendingError struct {
-	Version string
+	Version     string
+	RequiredCLI string
 }
 
 func (e *ControlledMigrationPendingError) Error() string {
-	return fmt.Sprintf("controlled migration %s is pending; run mochat-identity-migrate before automatic migrations can continue", e.Version)
+	return fmt.Sprintf("controlled migration %s is pending; run %s before automatic migrations can continue", e.Version, e.RequiredCLI)
 }
 
 var controlledMigrationRegistry = map[string]ControlledMigration{
@@ -60,6 +61,15 @@ var controlledMigrationRegistry = map[string]ControlledMigration{
 		CompletionTable: "mochat_go_identity_cutover_batches",
 		RequiredCLI:     "mochat-identity-migrate",
 		SuccessStatus:   "success",
+	},
+	AIInsight0165Version: {
+		Version:         AIInsight0165Version,
+		LedgerTable:     aiInsight0165ControlTable,
+		LedgerName:      AIInsight0165Version,
+		SuccessPhase:    "verify",
+		CompletionTable: aiInsight0165ControlTable,
+		RequiredCLI:     "preflight_0165_ai_daily_insight_unification",
+		SuccessStatus:   "verified",
 	},
 }
 
@@ -87,11 +97,21 @@ func ControlledMigrationRegistry() []ControlledMigration {
 }
 
 func ControlledMigrationBlocked(version string) error {
-	return &ControlledMigrationPendingError{Version: version}
+	_, metadata := MigrationMetadata(version)
+	requiredCLI := "the dedicated controlled migration CLI"
+	if metadata != nil && strings.TrimSpace(metadata.RequiredCLI) != "" {
+		requiredCLI = metadata.RequiredCLI
+	}
+	return &ControlledMigrationPendingError{Version: version, RequiredCLI: requiredCLI}
 }
 
 func ControlledMigrationRollbackRequired(version string) error {
-	return fmt.Errorf("controlled migration %s must be rolled back with mochat-identity-migrate", version)
+	_, metadata := MigrationMetadata(version)
+	requiredCLI := "the dedicated controlled migration CLI"
+	if metadata != nil && strings.TrimSpace(metadata.RequiredCLI) != "" {
+		requiredCLI = metadata.RequiredCLI
+	}
+	return fmt.Errorf("controlled migration %s must be rolled back with %s", version, requiredCLI)
 }
 
 // RecordControlledMigration writes the normal migration-table fact only after
