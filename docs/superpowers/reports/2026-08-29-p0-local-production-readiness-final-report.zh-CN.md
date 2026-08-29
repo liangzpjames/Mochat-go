@@ -1,6 +1,6 @@
 # 2026-08-29 本地 P0 生产准备最终验收报告
 
-日期：2026-08-29
+开始日期：2026-08-29；最终收口：2026-08-30
 
 分支：`fix/p0-local-closure-20260829`
 
@@ -8,7 +8,7 @@
 
 实施基线：`f2b57f31f2baa93dc871b9157a04b0a8f7e2ae36`
 
-代码与供应链收口提交：`95c26a0c7f0c086e6c4956e2ff37c50589eb5e11`
+代码与供应链收口提交：`f0c5bedcf75d4e6199b81d2a05ace9c1ccebd6df`
 
 设计：`docs/superpowers/specs/2026-08-29-p0-local-production-readiness-design.zh-CN.md`
 
@@ -38,6 +38,8 @@
 
 新增迁移 `0172_wework_callback_inbox`，以租户/企业范围的稳定事件键建立数据库 durable inbox。只有数据库返回 `accepted` 或 `duplicate` 才 ACK；数据库故障返回失败以触发上游重试。Redis 仅作可恢复的唤醒加速，不再决定 ACK。lease/fence、失败重试、dead 状态、重放去重和日志脱敏均有故障注入与并发测试。
 
+最终累计审查进一步发现：数据库 durable inbox 只能保证事件不丢，不能自动保证外部企微副作用 exactly-once。外发成功后若 receipt 或 inbox 完结写库失败，旧实现会在 lease 到期后重复外发；裂变的历史 best-effort 分支还会吞掉 durable 错误。迁移 `0174_wework_callback_side_effects` 为 `tenant/corp/event/action` 建立唯一 intent/receipt，业务变更与 intent 同事务，状态严格按 `pending → unknown → sent` 推进。Provider 调用前先进入 `unknown`；结果不可证明时停止自动外发并要求 reconcile。两个 action 独立推进，durable 路径的所有错误均阻止 inbox 完结，非 durable 路径继续保持历史 best-effort。
+
 ### 2.3 HTTP 生命周期、readiness 与 periodic task
 
 根因是三端监听方式不一致、缺少统一根 context 和完整 graceful shutdown；旧 `/readyz` 不能稳定区分存活与依赖就绪；periodic goroutine 的单次 panic 会永久退出。
@@ -64,7 +66,7 @@
 - Phase 3/3.5、Dashboard auth、single-corp 和 archive activation 从当前运行注册表/行为合同派生；
 - phase2、phase2.1 和 docs 检查绑定当前 82 个 manifest/正确链接；
 - CI 调整为 build-before-audit；
-- MySQL 5.7 smoke 从真实 `0001` 到最新迁移注册表生成，本次为 173 个迁移，覆盖 apply、status、status-read-only、baseline、down/up 生命周期；
+- MySQL 5.7 smoke 从真实 `0001` 到最新迁移注册表生成，本次为 174 个迁移，覆盖 apply、status、status-read-only、baseline、down/up 生命周期；
 - 修复 `0131` baseline 的实际后置条件，确保 `mc_corp.tenant_id` 非空合同被验证。
 
 ### 2.7 0165 与供应链
@@ -79,7 +81,7 @@ Go 工具链升级到 1.26.7（包含 1.26.6 后续安全修复）；Golang、No
 
 每个实现任务均先提交或运行可复现的失败测试，再实现到 GREEN；任务之间进行了规格与质量复核。累计审阅发现并修复了：bridge fixture fallback、callback 权威身份和 lease fence、HTTP drain/stale 判定、风险规则锁顺序、`0131` baseline 后置条件、0165 证据原子性/内容 hash，以及 workflow 权限过宽等问题。
 
-最终代码收口 `95c26a0c` 后的独立复核未发现 Critical/Important 问题；最终报告提交后仍需以最新 HEAD 再运行 `git diff --check` 和合并可达性检查。
+首次累计审查在 `5a730a4d` 抓到 callback 外部副作用可重放的重要问题；随后三轮复审又抓到 receipt 完结错误被 best-effort 吞掉、action 短路、pre-Begin/Begin 错误被吞等相邻路径。提交 `688407b0`、`8de6477e`、`f0c5bedc` 逐项以 RED→GREEN 修复。最终独立复核结果为 APPROVED，无残余 Critical/Important。
 
 ## 4. PASS 证据
 
@@ -105,9 +107,10 @@ Go 工具链升级到 1.26.7（包含 1.26.6 后续安全修复）；Golang、No
 ### 4.3 数据库与并发
 
 - MariaDB 10.6：风险、关键词、callback inbox 聚焦集成测试 PASS。
+- MariaDB 10.6 与 MySQL 5.7：callback side-effect intent 事务回滚、32 路并发唯一 execute owner、重放和 `0174` up/down PASS。
 - MariaDB 10.6：超过 100 条规则、重复、回滚、并发版本测试 PASS。
 - MySQL 5.7：订单 repository/idempotency migration 集成测试（`-tags integration`）PASS。
-- MySQL 5.7：真实 173 个迁移 apply/status/status-read-only/baseline/down/up 生命周期 PASS。
+- MySQL 5.7：真实 174 个迁移 apply/status/status-read-only/baseline/down/up 生命周期 PASS。
 - 0165 受控备份、验证、回滚与恢复测试 PASS。
 
 ### 4.4 Linux/CGO race 与 Finance 合同
@@ -118,22 +121,24 @@ Go 工具链升级到 1.26.7（包含 1.26.6 后续安全修复）；Golang、No
 
 结果：全部 PASS。两个 Alpine 尝试因 apk 镜像网络失败而中止，临时容器已自动清理；改用本地缓存的 Debian 工具链后完成等价 race 覆盖。
 
-### 4.5 精确 SHA Docker 与运行态
+### 4.5 代码收口前运行态与最终精确 SHA 产物
 
-镜像：`mochat-go:p0-local-95c26a0`
+首次完整故障恢复与浏览器验收镜像：`mochat-go:p0-local-95c26a0`
 
 镜像 ID：`sha256:5d25cb01b4eb5dcca06b8e0b1547160f2f91d97d82e1609047f018fb9d77b842`
 
 OCI revision：`95c26a0c7f0c086e6c4956e2ff37c50589eb5e11`
 
 - 构建四端前端、全部 Go 二进制和 source fingerprint：PASS。
-- MySQL 5.7 迁移状态：173/173 applied，`/readyz` 显示 migration_current=true。
+- 当次 MySQL 5.7 迁移状态：173/173 applied，`/readyz` 显示 migration_current=true。
 - `/healthz` 200；`/readyz` 200；Dashboard、SaaS Admin、Sidebar、Operation 四入口均返回有效 HTML。
 - json-file 日志轮转配置：`max-size=1m`、`max-file=2`。
 - Redis 停止：health=200、ready=503 且仅 redis_connection=false；恢复后 ready=200。
 - MySQL 暂停：health=200、ready=503 且 mysql_connection/migration_current=false；恢复后 ready=200。
 - `docker stop --timeout 70`：优雅退出码 0；重新启动后 ready=200。
 - 本次临时 app、Redis 容器和临时网络已删除；两个本地数据库测试账户已删除；版本化镜像保留；所有既有命名卷未删除。
+
+callback side-effect 收口后将以最终报告提交的精确 HEAD 再构建版本化镜像，并在临时 174/174 MySQL 5.7 schema 上复验 health/ready；最终 tag、镜像 ID 和 OCI revision 以交付时新鲜命令输出为准。此前四端浏览器与依赖故障恢复验证仍对应同一主程序，后续 callback 变更不涉及前端或 HTTP 生命周期。
 
 ### 4.6 浏览器
 
@@ -150,7 +155,7 @@ OCI revision：`95c26a0c7f0c086e6c4956e2ff37c50589eb5e11`
 
 ### 5.1 历史全量 store/migration MariaDB 集成：FAIL
 
-设置 `MOCHAT_GO_MYSQL_INTEGRATION_DSN` 后直接运行历史全量 `go test ./internal/store ./internal/migration` 会失败。根因是多组旧集成 fixture 只构造当时所需的局部表/列，与当前 173 个迁移和 `0130` 受控身份 staging 合同不一致；这不是本次 P0 聚焦实现的运行路径失败，也不能记为 PASS。
+设置 `MOCHAT_GO_MYSQL_INTEGRATION_DSN` 后直接运行历史全量 `go test ./internal/store ./internal/migration` 会失败。根因是多组旧集成 fixture 只构造当时所需的局部表/列，与当前 174 个迁移和 `0130` 受控身份 staging 合同不一致；这不是本次 P0 聚焦实现的运行路径失败，也不能记为 PASS。
 
 本次没有用临时补丁放宽迁移或伪造旧表来骗过全量测试。P0 涉及的风险、关键词、callback、订单、0165 和全生命周期迁移均在隔离数据库单独通过。后续应建立“从真实 migration registry 创建 schema，再加载场景 seed”的统一 integration harness，逐步替换历史手写局部 schema。
 
@@ -178,6 +183,9 @@ OCI revision：`95c26a0c7f0c086e6c4956e2ff37c50589eb5e11`
 - `a4d9114`：修复共享迁移门禁解析与生命周期合同。
 - `b1c3ace`：0165 证据账本原子性和内容 hash。
 - `95c26a0`：workflow 最小权限与路径覆盖。
+- `688407b0`：callback 外部副作用 durable intent/receipt 与 `0174`。
+- `8de6477e`：reconcile-required 冒泡与双 action 独立推进。
+- `f0c5bedc`：durable pre-Begin/Begin 等全部裂变错误阻止 inbox 完结。
 
 最终交付 HEAD 以本报告提交后的新鲜 `git rev-parse HEAD` 为准。
 
