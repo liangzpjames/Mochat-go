@@ -217,8 +217,8 @@
 ### Task 11: unknown side effect 权限化恢复
 
 **Files:**
-- Create: `deploy/standalone/migrations/0175_wework_callback_side_effect_reconciliation.up.sql`
-- Create: `deploy/standalone/migrations/0175_wework_callback_side_effect_reconciliation.down.sql`
+- Create: `deploy/standalone/migrations/0176_wework_callback_side_effect_reconciliation.up.sql`
+- Create: `deploy/standalone/migrations/0176_wework_callback_side_effect_reconciliation.down.sql`
 - Create: `internal/dashboard/wework_callback_side_effect_admin.go`
 - Test: `internal/dashboard/wework_callback_side_effect_admin_test.go`
 - Modify: `internal/dashboard/wework_callback_inbox.go`
@@ -236,7 +236,7 @@
 
 - [ ] RED：无权限 403、跨租户/企业 404、列表/详情不泄露；同请求重放首次响应、异义 409；并发双操作仅一成功。
 - [ ] RED：审计失败/inbox 更新失败整体回滚；活动 lease 或 fence 变化 409；两个 action 可独立 confirm/retry，已 sent action 不回退。
-- [ ] 写 0175 up/down 并运行 MySQL 5.7 合同测试；实现 store 事务、租户范围 query、乐观版本和审计。
+- [ ] 写 0176 up/down 并运行 MySQL 5.7 合同测试；实现 store 事务、租户范围 query、乐观版本和审计。
 - [ ] 注册三个 Dashboard 路由及 `dashboard.company_setting.website` RBAC 映射；实现 400/401/403/404/409/503 稳定错误语义和 body limit。
 - [ ] 用 fake Provider 证明 `confirm_sent` 后跳过已发 action、`confirm_not_sent_and_retry` 后仅对应 action 重试；不发真实网络请求。
 - [ ] 编写中文运维说明，明确取证、双人复核建议、命令幂等键、审计查询和绝不“猜测已发送”。
@@ -249,7 +249,7 @@
 
 - [ ] 复跑全量 Go test/vet、前端 lint/typecheck/test/build、全部仓库门禁、govulncheck、pnpm audit、migration lifecycle、`git diff --check`。
 - [ ] MariaDB 10.6 与 MySQL 5.7 完整运行 `go test ./internal/store ./internal/migration -count=1`；Linux/CGO race 覆盖新增 harness/reconcile。
-- [ ] 构建候选精确 SHA Docker 产物，验证 175/175 migration、health/ready、故障恢复、四端入口和相关本地浏览器/API 流程。
+- [ ] 构建候选精确 SHA Docker 产物，验证 176/176 migration、health/ready、故障恢复、四端入口和相关本地浏览器/API 流程。
 - [ ] 独立 reviewer 对续作提交和 whole branch 给出规格/质量结论，修复全部 Critical/Important。
 - [ ] `git fetch origin --prune` 并核对 `ls-remote`；从最新 `origin/main` 创建新的干净临时 integration worktree，普通 merge 候选，复跑合入后关键门禁。
 - [ ] 非 force 推送临时集成 HEAD 到 `origin/main`；再次以 `git ls-remote origin refs/heads/main` 与本地集成提交双核验精确 SHA。

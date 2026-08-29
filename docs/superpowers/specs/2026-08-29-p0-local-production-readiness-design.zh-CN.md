@@ -155,7 +155,7 @@ pnpm audit 按调用可达性分类：生产 bundle/runtime 可达项必须升�
 - `confirm_not_sent_and_retry`：操作员确认未发送；同一事务将指定 action 从 `unknown` 重置为 `pending`、递增 reconciliation fence、写审计并重新激活 inbox。Provider 调用仍只由正式 worker 执行，管理 API 不直接调用企微。
 - 同一事件的两个 action 独立解析和推进；确认一个 action 不得修改另一个 action。已经 `sent` 的 action 永不因另一个 action 的恢复而回退。
 
-新增 `0175_wework_callback_side_effect_reconciliation`：为 intent 增加乐观版本、最后 reconciliation fence/决议信息；新增不可变 command receipt/audit 表，唯一键覆盖 `(tenant_id, corp_id, request_id)`，payload hash 防止同请求键异义重放。所有变更提供 MySQL 5.7 兼容 up/down；down 只移除本迁移字段和表，不删除 0174 intent。
+新增 `0176_wework_callback_side_effect_reconciliation`：Task 10 的 `0175_contact_batch_title` 已占用前一版本；本迁移为 intent 增加乐观版本、最后 reconciliation fence/决议信息，并新增不可变 command receipt/audit 表，唯一键覆盖 `(tenant_id, corp_id, request_id)`，payload hash 防止同请求键异义重放。所有变更提供 MySQL 5.7 兼容 up/down；down 只移除本迁移字段和表，不删除 0174 intent。
 
 管理面使用 Dashboard 企业设置权限 `dashboard.company_setting.website`，路由进入现有 principal、tenant gate、corp binding 和 page RBAC：
 

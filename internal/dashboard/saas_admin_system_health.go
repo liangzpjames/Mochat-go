@@ -16,8 +16,8 @@ import (
 )
 
 const (
-	SaaSAdminExpectedMigrationVersion = "0174_wework_callback_side_effects"
-	SaaSAdminExpectedMigrationCount   = 174
+	SaaSAdminExpectedMigrationVersion = "0175_contact_batch_title"
+	SaaSAdminExpectedMigrationCount   = 175
 
 	SaaSAdminSystemHealthStateHealthy  = "healthy"
 	SaaSAdminSystemHealthStateWarning  = "warning"
