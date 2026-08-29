@@ -941,34 +941,36 @@ func TestValidateWorkflowRejectsCleanupCommandInNestedFunction(t *testing.T) {
 
 func TestValidateLifecycleRejectsCommentedCriticalCommand(t *testing.T) {
 	lifecycle := readRepositoryFile(t, "scripts/smoke_schema_migrate.sh")
-	command := `"$MIGRATE_BIN" -dsn "$MIGRATE_DSN" -project-root "$PWD" -action apply >"$WORK_DIR/apply.out"`
-	if !strings.Contains(lifecycle, command) {
+	inventoryLifecycle := readRepositoryFile(t, "scripts/lib/migration_inventory_smoke.sh")
+	command := `"$MIGRATE_BIN" -project-root "$PWD" -action inventory >"$INVENTORY_FILE"`
+	if !strings.Contains(inventoryLifecycle, command) {
 		t.Fatalf("lifecycle fixture no longer contains %q", command)
 	}
 
-	failures := validateLifecycle(strings.Replace(lifecycle, command, "# "+command, 1))
+	failures := validateLifecycle(lifecycle, strings.Replace(inventoryLifecycle, command, "# "+command, 1))
 	assertFailureContains(
 		t,
 		failures,
-		"authoritative lifecycle script must execute 0098 apply/checksum/rollback/replay in order",
+		"shared lifecycle must derive the migration registry from runtime inventory",
 	)
 }
 
 func TestValidateLifecycleRejectsCleanupCommandInNestedFunction(t *testing.T) {
 	lifecycle := readRepositoryFile(t, "scripts/smoke_schema_migrate.sh")
-	const original = "compose down -v --remove-orphans >/dev/null 2>&1 || true"
+	inventoryLifecycle := readRepositoryFile(t, "scripts/lib/migration_inventory_smoke.sh")
+	const original = "compose down --remove-orphans >/dev/null 2>&1 || true"
 	const replacement = "never_called() {\n" +
-		"      compose down -v --remove-orphans >/dev/null 2>&1 || true\n" +
+		"      compose down --remove-orphans >/dev/null 2>&1 || true\n" +
 		"    }"
 	if !strings.Contains(lifecycle, original) {
 		t.Fatalf("lifecycle fixture no longer contains cleanup command")
 	}
 
-	failures := validateLifecycle(strings.Replace(lifecycle, original, replacement, 1))
+	failures := validateLifecycle(strings.Replace(lifecycle, original, replacement, 1), inventoryLifecycle)
 	assertFailureContains(
 		t,
 		failures,
-		"authoritative lifecycle cleanup trap must be installed before startup",
+		"authoritative lifecycle cleanup trap must be installed before startup without deleting volumes",
 	)
 }
 

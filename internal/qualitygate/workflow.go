@@ -154,6 +154,7 @@ func Validate(root string) []string {
 		"scripts/test.sh",
 		phase3Plan,
 		"scripts/smoke_schema_migrate.sh",
+		"scripts/lib/migration_inventory_smoke.sh",
 	} {
 		contents, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(path)))
 		if err != nil {
@@ -164,7 +165,10 @@ func Validate(root string) []string {
 	}
 
 	failures = append(failures, validateDeveloperScripts(files)...)
-	failures = append(failures, validateLifecycle(files["scripts/smoke_schema_migrate.sh"])...)
+	failures = append(failures, validateLifecycle(
+		files["scripts/smoke_schema_migrate.sh"],
+		files["scripts/lib/migration_inventory_smoke.sh"],
+	)...)
 	failures = append(failures, validatePhase3Plan(files[phase3Plan])...)
 	sort.Strings(failures)
 	return failures
@@ -433,29 +437,44 @@ func validateDeveloperScripts(files map[string]string) []string {
 	return failures
 }
 
-func validateLifecycle(contents string) []string {
+func validateLifecycle(contents, inventoryLifecycle string) []string {
 	failures := make([]string, 0)
-	markers := []string{
-		`"$MIGRATE_BIN" -dsn "$MIGRATE_DSN" -project-root "$PWD" -action apply >"$WORK_DIR/apply.out"`,
-		`test "$(mysql_scalar mochat_migrate_check "SELECT COUNT(*) FROM mochat_go_schema_migrations WHERE version = '0098_scrm_lead_foundation' AND CHAR_LENGTH(checksum) = 64")" = "1"`,
-		`"$MIGRATE_BIN" -dsn "$MIGRATE_DSN" -project-root "$PWD" -action rollback >"$WORK_DIR/rollback-0098.out"`,
-		`grep -q $'0098_scrm_lead_foundation\trolled_back' "$WORK_DIR/rollback-0098.out"`,
-		`test "$(mysql_scalar mochat_migrate_check "SHOW TABLES LIKE 'mochat_go_scrm_leads'")" = ""`,
-		`"$MIGRATE_BIN" -dsn "$MIGRATE_DSN" -project-root "$PWD" -action apply >"$WORK_DIR/reapply-latest.out"`,
-		`grep -q $'0098_scrm_lead_foundation\tapplied_now' "$WORK_DIR/reapply-latest.out"`,
-	}
-	if !containsExecutableCommandsInOrder(contents, markers) {
-		failures = append(failures, "authoritative lifecycle script must execute 0098 apply/checksum/rollback/replay in order")
+	if !containsExecutableCommandsInOrder(contents, []string{
+		"source scripts/lib/migration_inventory_smoke.sh",
+		"run_migration_inventory_smoke",
+	}) {
+		failures = append(failures, "authoritative lifecycle wrapper must execute the shared runtime inventory smoke")
 	}
 
-	cleanupCommand := "compose down -v --remove-orphans >/dev/null 2>&1"
+	if strings.Contains(inventoryLifecycle, "0098_scrm_lead_foundation") ||
+		!shellFunctionExecutes(inventoryLifecycle, "load_migration_inventory", `"$MIGRATE_BIN" -project-root "$PWD" -action inventory >"$INVENTORY_FILE"`) {
+		failures = append(failures, "shared lifecycle must derive the migration registry from runtime inventory")
+	}
+	for _, stage := range []string{
+		"build_migration_smoke_binaries",
+		"load_migration_inventory",
+		"apply_full_inventory",
+		"verify_full_inventory_ledger",
+		"verify_latest_rollback_reapply",
+		"verify_checksum_drift_rejected",
+		"verify_baseline_from_full_schema",
+	} {
+		if !shellFunctionExecutes(inventoryLifecycle, "run_migration_inventory_smoke", stage) {
+			failures = append(failures, "shared lifecycle must execute inventory stage: "+stage)
+		}
+	}
+	if !shellFunctionExecutes(inventoryLifecycle, "run_migration_inventory_smoke", `echo "migration inventory smoke passed: count=$INVENTORY_COUNT first=$INVENTORY_FIRST latest=$INVENTORY_LATEST checksum=$INVENTORY_LATEST_CHECKSUM kind=$INVENTORY_LATEST_KIND schema=$MYSQL_SCHEMA"`) {
+		failures = append(failures, "shared lifecycle must emit dynamic count/first/latest/checksum/kind/schema evidence")
+	}
+
+	cleanupCommand := "compose down --remove-orphans >/dev/null 2>&1"
 	cleanupMarkers := []string{
 		"trap cleanup EXIT INT TERM",
 		"compose up -d mysql",
 	}
 	if !containsExecutableCommandsInOrder(contents, cleanupMarkers) ||
 		!shellFunctionExecutes(contents, "cleanup", cleanupCommand) {
-		failures = append(failures, "authoritative lifecycle cleanup trap must be installed before startup")
+		failures = append(failures, "authoritative lifecycle cleanup trap must be installed before startup without deleting volumes")
 	}
 	return failures
 }
