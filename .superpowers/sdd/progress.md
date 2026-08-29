@@ -34,4 +34,5 @@ Task 1: complete (commit 22445e1, spec and quality review clean; parent Go and s
 Task 2: complete (commits b7f1a2e + 55fb4ef + 7491b72, two review fix rounds then clean; parent package and Compose verification pass; real Provider SKIP)
 Task 3: complete (commits 923c639 + 872719f + c453197 + a77e35f + aae8f62, five review rounds then approved; parent focused packages pass; real Provider and race SKIP)
 Task 4: complete (commits a54ba1b + 0382b07 + c33c1c7 + 8f8cc14 + e771640 + 229743a + 289558a, six review rounds then approved; parent Windows focused and Linux race pass; real controlled migration and Docker SKIP)
+Task 5: complete (commits 18fe290 + 9621ebf, one review fix round then approved; parent focused Go and front-end pass; MariaDB 10.6 and MySQL 5.7 integration pass)
 Minor backlog: remove unused optionalWeWorkCallbackCapabilities helper and its narrow test before final branch review if still unused.
