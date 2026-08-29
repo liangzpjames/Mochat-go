@@ -294,6 +294,7 @@ services:
 
   archive-bridge:
     logging: *mochat-logging
+    restart: unless-stopped
     profiles:
       - app
     build:
@@ -323,6 +324,9 @@ services:
     volumes:
       - app-storage:/app/storage
       - "${MOCHAT_WECOM_FINANCE_SDK_DIR:-./wecom-sdk}:/opt/wecom-sdk:ro"
+    depends_on:
+      mysql:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:8083/readyz"]
       interval: 5s

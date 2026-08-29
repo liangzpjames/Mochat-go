@@ -248,19 +248,22 @@ func serve(ctx context.Context, server bridgeServer, registrar driverRegistrar) 
 		listenDone <- server.ListenAndServe()
 	}()
 	var listenErr, shutdownErr, forceCloseErr error
+	listenReturned := false
 	select {
 	case <-ctx.Done():
+	case listenErr = <-listenDone:
+		listenReturned = true
+	}
+	if !listenReturned || !errors.Is(listenErr, http.ErrServerClosed) {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		shutdownErr = server.Shutdown(shutdownCtx)
 		cancel()
 		if shutdownErr != nil {
 			forceCloseErr = server.Close()
 		}
+	}
+	if !listenReturned {
 		listenErr = <-listenDone
-	case listenErr = <-listenDone:
-		if !errors.Is(listenErr, http.ErrServerClosed) {
-			forceCloseErr = server.Close()
-		}
 	}
 	if errors.Is(listenErr, http.ErrServerClosed) {
 		listenErr = nil

@@ -262,7 +262,7 @@ func TestStandaloneComposeFailsClosedForArchiveSecretsAndFixtures(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	text := string(raw)
+	text := strings.ReplaceAll(string(raw), "\r\n", "\n")
 	for _, name := range []string{"MOCHAT_ARCHIVE_BRIDGE_BEARER", "MOCHAT_GO_WECOM_CREDENTIAL_ENCRYPTION_KEY"} {
 		if !strings.Contains(text, "${"+name+":?") || strings.Contains(text, "${"+name+":-local-") {
 			t.Fatalf("compose must require protected %s without a public default", name)
@@ -282,22 +282,32 @@ func TestStandaloneComposeFailsClosedForArchiveSecretsAndFixtures(t *testing.T) 
 			t.Fatalf("compose contains public suite callback fixture credential %q", value)
 		}
 	}
-	bridgeStart := strings.Index(text, "  archive-bridge:")
-	bridgeEnd := strings.Index(text, "  archive-simulator:")
+	bridgeStart := strings.Index(text, "\n  archive-bridge:\n")
+	bridgeEnd := strings.Index(text, "\n  archive-simulator:\n")
 	if bridgeStart < 0 || bridgeEnd <= bridgeStart {
 		t.Fatal("archive bridge compose service block is missing")
 	}
 	bridge := text[bridgeStart:bridgeEnd]
 	for _, fragment := range []string{
+		`restart: unless-stopped`,
 		`MOCHAT_MYSQL_DSN: "${MOCHAT_MYSQL_USER:-mochat}:${MOCHAT_MYSQL_PASSWORD:-mochat_pass}@tcp(mysql:3306)/${MOCHAT_MYSQL_DATABASE:-mochat}?parseTime=true&loc=Local"`,
 		`MOCHAT_GO_WECOM_CREDENTIAL_ENCRYPTION_KEY: "${MOCHAT_GO_WECOM_CREDENTIAL_ENCRYPTION_KEY:?MOCHAT_GO_WECOM_CREDENTIAL_ENCRYPTION_KEY must be set}"`,
 		`MOCHAT_ARCHIVE_BRIDGE_STATE_ROOT: "/app/storage/archive-bridge/finance"`,
 		`WECOM_FINANCE_SDK_PATH: "/opt/wecom-sdk/libWeWorkFinanceSdk_C.so"`,
 		`"${MOCHAT_WECOM_FINANCE_SDK_DIR:-./wecom-sdk}:/opt/wecom-sdk:ro"`,
+		"depends_on:\n      mysql:\n        condition: service_healthy",
+		`test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:8083/readyz"]`,
 	} {
 		if !strings.Contains(bridge, fragment) {
 			t.Fatalf("archive bridge production bootstrap is missing %q", fragment)
 		}
+	}
+	appStart := strings.Index(text, "\n  app:\n")
+	if appStart < 0 || !strings.Contains(text[appStart:bridgeStart], "archive-bridge:\n        condition: service_healthy") {
+		t.Fatal("app must wait for archive bridge readiness")
+	}
+	if strings.Contains(bridge, "\n      app:") {
+		t.Fatal("archive bridge must not depend on app and create a startup cycle")
 	}
 }
 

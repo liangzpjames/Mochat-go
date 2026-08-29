@@ -110,11 +110,30 @@ func (p *MySQLProductionProvider) NewFinanceDriver(ctx context.Context, binding 
 		       COALESCE(CAST(corp.wecom_credentials_ciphertext AS CHAR),''),
 		       COALESCE(corp.wecom_credentials_key_id,'')
 		FROM mc_corp corp
+		INNER JOIN mc_tenant tenant
+		        ON tenant.id=corp.tenant_id
+		       AND tenant.status=1
+		       AND tenant.deleted_at IS NULL
 		INNER JOIN mochat_go_tenant_corp_bindings binding
 		        ON binding.tenant_id=corp.tenant_id
 		       AND binding.corp_id=corp.id
 		       AND binding.status=2
+		       AND binding.verified_at IS NOT NULL
 		       AND binding.wecom_integration_mode='self_built'
+		INNER JOIN mochat_go_wecom_integrations integration
+		        ON integration.tenant_id=binding.tenant_id
+		       AND integration.corp_id=binding.corp_id
+		       AND integration.slot='current'
+		       AND integration.status='active'
+		       AND integration.mode=binding.wecom_integration_mode
+		       AND integration.verified_at IS NOT NULL
+		       AND integration.verified_wx_corpid<>''
+		       AND binding.verified_wx_corpid=integration.verified_wx_corpid
+		       AND JSON_VALID(integration.scope_json)=1
+		       AND JSON_CONTAINS(integration.scope_json,JSON_QUOTE('archive.read'))=1
+		       AND JSON_VALID(integration.missing_capabilities_json)=1
+		       AND JSON_LENGTH(integration.missing_capabilities_json)=0
+		       AND integration.verification_level<>'local_contract'
 		WHERE corp.tenant_id=?
 		  AND corp.id=?
 		  AND corp.deleted_at IS NULL

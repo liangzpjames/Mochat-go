@@ -269,8 +269,9 @@ func TestServeDrainsHTTPBeforeRegistrarCloseAndReturnsCloseFailure(t *testing.T)
 }
 
 type listenerErrorServer struct {
-	events *eventLog
-	err    error
+	events      *eventLog
+	err         error
+	shutdownErr error
 }
 
 func (s *listenerErrorServer) ListenAndServe() error {
@@ -279,8 +280,8 @@ func (s *listenerErrorServer) ListenAndServe() error {
 }
 
 func (s *listenerErrorServer) Shutdown(context.Context) error {
-	s.events.add("unexpected-drain")
-	return nil
+	s.events.add("drain")
+	return s.shutdownErr
 }
 
 func (s *listenerErrorServer) Close() error {
@@ -288,13 +289,25 @@ func (s *listenerErrorServer) Close() error {
 	return nil
 }
 
-func TestServeForceClosesHTTPBeforeRegistrarOnListenerError(t *testing.T) {
+func TestServeDrainsHTTPBeforeRegistrarOnListenerError(t *testing.T) {
 	events := &eventLog{}
 	listenErr := errors.New("controlled listener failure")
 	server := &listenerErrorServer{events: events, err: listenErr}
 	registrar := &fakeRegistrar{events: events}
 	err := serve(context.Background(), server, registrar)
-	if !errors.Is(err, listenErr) || events.joined() != "listen,force-close,close" {
+	if !errors.Is(err, listenErr) || events.joined() != "listen,drain,close" {
+		t.Fatalf("error=%v events=%s", err, events.joined())
+	}
+}
+
+func TestServeForceClosesHTTPAfterListenerErrorDrainFailure(t *testing.T) {
+	events := &eventLog{}
+	listenErr := errors.New("controlled listener failure")
+	drainErr := errors.New("controlled listener drain failure")
+	server := &listenerErrorServer{events: events, err: listenErr, shutdownErr: drainErr}
+	registrar := &fakeRegistrar{events: events}
+	err := serve(context.Background(), server, registrar)
+	if !errors.Is(err, listenErr) || !errors.Is(err, drainErr) || events.joined() != "listen,drain,force-close,close" {
 		t.Fatalf("error=%v events=%s", err, events.joined())
 	}
 }

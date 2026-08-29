@@ -19,6 +19,8 @@ type productionFinanceSDK struct {
 	closed bool
 }
 
+const productionCredentialEligibilityQuery = "(?s)FROM mc_corp corp.*INNER JOIN mc_tenant tenant.*tenant.status=1.*INNER JOIN mochat_go_tenant_corp_bindings binding.*binding.status=2.*binding.verified_at IS NOT NULL.*INNER JOIN mochat_go_wecom_integrations integration.*integration.slot='current'.*integration.status='active'.*integration.mode=binding.wecom_integration_mode.*integration.verified_at IS NOT NULL.*integration.verified_wx_corpid<>''.*binding.verified_wx_corpid=integration.verified_wx_corpid.*JSON_VALID\\(integration.scope_json\\)=1.*JSON_CONTAINS\\(integration.scope_json,JSON_QUOTE\\('archive.read'\\)\\)=1.*JSON_VALID\\(integration.missing_capabilities_json\\)=1.*JSON_LENGTH\\(integration.missing_capabilities_json\\)=0.*integration.verification_level<>'local_contract'.*WHERE corp.tenant_id=\\?.*corp.id=\\?"
+
 func (s *productionFinanceSDK) GetChatData(uint64, uint32, int) ([]byte, error) {
 	return []byte(`{"errcode":0,"chatdata":[]}`), nil
 }
@@ -60,7 +62,7 @@ func TestMySQLProductionProviderLoadsMetadataAndBuildsFinanceFromEncryptedCreden
 	mock.ExpectQuery("(?s)FROM mochat_go_tenant_corp_bindings.*integration.verified_wx_corpid<>''.*integration.verified_at IS NOT NULL.*binding.status=2.*binding.verified_at IS NOT NULL.*binding.verified_wx_corpid=integration.verified_wx_corpid.*JSON_VALID\\(integration.scope_json\\)=1.*JSON_CONTAINS\\(integration.scope_json,JSON_QUOTE\\('archive.read'\\)\\)=1.*JSON_VALID\\(integration.missing_capabilities_json\\)=1.*JSON_LENGTH\\(integration.missing_capabilities_json\\)=0.*integration.verification_level<>'local_contract'").WillReturnRows(
 		sqlmock.NewRows([]string{"tenant_id", "corp_id", "wx_corpid", "integration_mode"}).AddRow(binding.TenantID, binding.CorpID, binding.WXCorpID, binding.IntegrationMode),
 	)
-	mock.ExpectQuery("FROM mc_corp").WithArgs(binding.TenantID, binding.CorpID).WillReturnRows(
+	mock.ExpectQuery(productionCredentialEligibilityQuery).WithArgs(binding.TenantID, binding.CorpID).WillReturnRows(
 		sqlmock.NewRows([]string{"tenant_id", "corp_id", "wx_corpid", "credential_ciphertext", "credential_key_id"}).AddRow(binding.TenantID, binding.CorpID, binding.WXCorpID, ciphertext, keyID),
 	)
 	sdk := &productionFinanceSDK{}
@@ -90,6 +92,49 @@ func TestMySQLProductionProviderLoadsMetadataAndBuildsFinanceFromEncryptedCreden
 	}
 	if _, _, err := provider.NewDataZoneDriver(context.Background(), Binding{TenantID: 21, CorpID: 37, WXCorpID: "ww-delegated", IntegrationMode: ModeThirdPartyDelegated}); ErrorCode(err) != "ARCHIVE_DRIVER_UNAVAILABLE" {
 		t.Fatalf("data-zone error=%v code=%s", err, ErrorCode(err))
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestMySQLProductionProviderRejectsRevokedEligibilityBeforeCredentialUse(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	manager, err := wecomcredentials.NewManager(wecomcredentials.Config{
+		EncryptionKey:   base64.StdEncoding.EncodeToString([]byte("0123456789abcdef0123456789abcdef")),
+		EncryptionKeyID: "archive-production-v1", RequireEncryption: true, DedicatedConfigured: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding := Binding{TenantID: 11, CorpID: 27, WXCorpID: "ww-production", IntegrationMode: ModeSelfBuilt}
+	mock.ExpectQuery("(?s)FROM mochat_go_tenant_corp_bindings.*integration.verification_level<>'local_contract'").WillReturnRows(
+		sqlmock.NewRows([]string{"tenant_id", "corp_id", "wx_corpid", "integration_mode"}).AddRow(binding.TenantID, binding.CorpID, binding.WXCorpID, binding.IntegrationMode),
+	)
+	mock.ExpectQuery(productionCredentialEligibilityQuery).WithArgs(binding.TenantID, binding.CorpID).WillReturnRows(
+		sqlmock.NewRows([]string{"tenant_id", "corp_id", "wx_corpid", "credential_ciphertext", "credential_key_id"}),
+	)
+	factoryCalled := false
+	provider, err := NewMySQLProductionProvider(db, manager, t.TempDir(), func(string, string) (wecomarchivedemo.FinanceSDK, error) {
+		factoryCalled = true
+		return &productionFinanceSDK{}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bindings, err := provider.ProductionBindings(context.Background())
+	if err != nil || len(bindings) != 1 {
+		t.Fatalf("bindings=%+v err=%v", bindings, err)
+	}
+	if driver, closer, err := provider.NewFinanceDriver(context.Background(), bindings[0]); driver != nil || closer != nil || ErrorCode(err) != "ARCHIVE_DRIVER_UNAVAILABLE" {
+		t.Fatalf("driver=%v closer=%v err=%v code=%s", driver, closer, err, ErrorCode(err))
+	}
+	if factoryCalled {
+		t.Fatal("finance SDK factory ran after archive eligibility was revoked")
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)
