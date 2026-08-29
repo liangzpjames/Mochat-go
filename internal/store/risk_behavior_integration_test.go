@@ -36,9 +36,9 @@ func TestEvaluateRiskMessageReadsEveryEnabledRuleAndCommitsAtomically(t *testing
 		}
 		values = append(values, riskEvaluationRow{id: id, strategyID: id, pattern: pattern})
 	}
+	mock.ExpectBegin()
 	expectRiskHighWater(mock, 101)
 	expectRiskEvaluationBatch(mock, 0, 101, values[:100]...)
-	mock.ExpectCommit()
 	expectRiskEvaluationBatch(mock, 100, 101, values[100:]...)
 	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO mochat_go_risk_records")).
 		WillReturnResult(sqlmock.NewResult(901, 1))
@@ -68,6 +68,7 @@ func TestEvaluateRiskMessageRollsBackEveryRecordWhenLaterInsertFails(t *testing.
 	}
 	defer db.Close()
 
+	mock.ExpectBegin()
 	expectRiskHighWater(mock, 2)
 	expectRiskEvaluationBatch(mock, 0, 2,
 		riskEvaluationRow{id: 1, strategyID: 10, pattern: "needle"},
@@ -94,6 +95,7 @@ func TestEvaluateRiskMessageRollsBackWhenTriggerCountUpdateFails(t *testing.T) {
 	}
 	defer db.Close()
 
+	mock.ExpectBegin()
 	expectRiskHighWater(mock, 1)
 	expectRiskEvaluationBatch(mock, 0, 1, riskEvaluationRow{id: 1, strategyID: 10, pattern: "needle"})
 	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO mochat_go_risk_records")).WillReturnResult(sqlmock.NewResult(1, 1))
@@ -116,6 +118,7 @@ func TestEvaluateRiskMessageDuplicateDoesNotIncrementTriggerCount(t *testing.T) 
 	}
 	defer db.Close()
 
+	mock.ExpectBegin()
 	expectRiskHighWater(mock, 1)
 	expectRiskEvaluationBatch(mock, 0, 1, riskEvaluationRow{id: 1, strategyID: 10, pattern: "needle"})
 	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO mochat_go_risk_records")).WillReturnError(&mysql.MySQLError{Number: 1062, Message: "duplicate risk record"})
@@ -123,6 +126,36 @@ func TestEvaluateRiskMessageDuplicateDoesNotIncrementTriggerCount(t *testing.T) 
 
 	created, err := NewMySQLStore(db).EvaluateRiskMessage(context.Background(), dashboard.RiskMessage{TenantID: 11, CorpID: 27, MessageID: "msg-duplicate", ConversationType: "single", Content: "needle"})
 	if err != nil || created != 0 {
+		t.Fatalf("created=%d err=%v", created, err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestEvaluateRiskMessageRollsBackFirstBatchWhenRule101Fails(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	values := make([]riskEvaluationRow, 0, 101)
+	for id := 1; id <= 101; id++ {
+		values = append(values, riskEvaluationRow{id: id, strategyID: id, pattern: "needle"})
+	}
+	mock.ExpectBegin()
+	expectRiskHighWater(mock, 101)
+	expectRiskEvaluationBatch(mock, 0, 101, values[:100]...)
+	for id := 1; id <= 100; id++ {
+		mock.ExpectExec(regexp.QuoteMeta("INSERT INTO mochat_go_risk_records")).WillReturnResult(sqlmock.NewResult(int64(id), 1))
+		mock.ExpectExec(`UPDATE mochat_go_risk_rules SET trigger_count=trigger_count\+1`).WillReturnResult(sqlmock.NewResult(0, 1))
+	}
+	expectRiskEvaluationBatch(mock, 100, 101, values[100:]...)
+	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO mochat_go_risk_records")).WillReturnError(errors.New("injected rule 101 failure"))
+	mock.ExpectRollback()
+
+	created, err := NewMySQLStore(db).EvaluateRiskMessage(context.Background(), dashboard.RiskMessage{TenantID: 11, CorpID: 27, MessageID: "cross-batch-rollback", ConversationType: "single", Content: "needle"})
+	if err == nil || created != 0 {
 		t.Fatalf("created=%d err=%v", created, err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
@@ -221,10 +254,14 @@ func TestUpdateRiskRuleRequiresTenantAndCorpScope(t *testing.T) {
 	mock.ExpectQuery(`SELECT id FROM mochat_go_risk_rules.*FOR UPDATE`).
 		WithArgs(int64(77), int64(11), int64(27)).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(77))
-	mock.ExpectExec(`UPDATE mochat_go_risk_rules SET .* WHERE id=\? AND tenant_id=\? AND corp_id=\?`).
+	mock.ExpectExec(`UPDATE mochat_go_risk_rules SET name=\?,status=\?,subject=\?.* WHERE id=\? AND tenant_id=\? AND corp_id=\?`).
 		WillReturnResult(sqlmock.NewResult(0, 0))
-	mock.ExpectExec(`DELETE FROM mochat_go_risk_rule_strategies`).WithArgs(int64(77)).WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectExec(`INSERT INTO mochat_go_risk_rule_strategies`).WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectQuery(`SELECT id,behavior FROM mochat_go_risk_rule_strategies.*FOR UPDATE`).
+		WithArgs(int64(77)).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "behavior"}).AddRow(9001, "sensitive_word"))
+	mock.ExpectExec(`UPDATE mochat_go_risk_rule_strategies SET pattern=\?,notify_type=\?,risk_level=\? WHERE id=\? AND rule_id=\?`).
+		WithArgs("needle", "none", "high", int64(9001), int64(77)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
 	updated, err := NewMySQLStore(db).UpdateRiskRule(context.Background(), dashboard.RiskRule{
@@ -251,7 +288,6 @@ func expectRiskHighWater(mock sqlmock.Sqlmock, highWater int64) {
 }
 
 func expectRiskEvaluationBatch(mock sqlmock.Sqlmock, cursor, highWater int64, values ...riskEvaluationRow) {
-	mock.ExpectBegin()
 	ruleRows := sqlmock.NewRows([]string{"id", "tenant_id", "corp_id", "name", "status", "subject", "whitelist_json", "ai_insight_enabled", "trigger_count"})
 	strategyRows := sqlmock.NewRows([]string{"rule_id", "id", "behavior", "pattern", "notify_type", "risk_level"})
 	strategyArgs := make([]driver.Value, 0, len(values))
@@ -309,11 +345,41 @@ func TestRiskAndKeywordAtomicityAgainstIsolatedMySQL(t *testing.T) {
 	if err := db.QueryRow(`SELECT trigger_count FROM mochat_go_risk_rules WHERE id=?`, matchedRule).Scan(&triggerCount); err != nil || triggerCount != 1 {
 		t.Fatalf("trigger_count=%d err=%v", triggerCount, err)
 	}
-
-	if _, err := db.Exec(`CREATE TRIGGER task6_fail_risk_count BEFORE UPDATE ON mochat_go_risk_rules FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='task6 count failure'`); err != nil {
+	var strategyIDBefore, strategyIDAfter int64
+	if err := db.QueryRow(`SELECT id FROM mochat_go_risk_rule_strategies WHERE rule_id=? AND behavior='sensitive_word'`, matchedRule).Scan(&strategyIDBefore); err != nil {
 		t.Fatal(err)
 	}
-	created, err = store.EvaluateRiskMessage(ctx, dashboard.RiskMessage{TenantID: 11, CorpID: 27, MessageID: "real-rollback", ConversationType: "single", Content: "needle"})
+	updated, err := store.UpdateRiskRule(ctx, dashboard.RiskRule{ID: matchedRule, TenantID: 11, CorpID: 27, Name: "rule-101-updated", Status: dashboard.RiskRuleEnabled, Subject: dashboard.RiskSubjectBoth, Strategies: []dashboard.RiskRuleStrategy{{Behavior: "sensitive_word", Pattern: "needle", NotifyType: "none", RiskLevel: "medium"}}})
+	if err != nil || !updated {
+		t.Fatalf("update after evaluation updated=%v err=%v", updated, err)
+	}
+	if err := db.QueryRow(`SELECT id FROM mochat_go_risk_rule_strategies WHERE rule_id=? AND behavior='sensitive_word'`, matchedRule).Scan(&strategyIDAfter); err != nil || strategyIDAfter != strategyIDBefore {
+		t.Fatalf("strategy id before=%d after=%d err=%v", strategyIDBefore, strategyIDAfter, err)
+	}
+	created, err = store.EvaluateRiskMessage(ctx, dashboard.RiskMessage{TenantID: 11, CorpID: 27, MessageID: "real-101", ConversationType: "single", Content: "needle"})
+	if err != nil || created != 0 {
+		t.Fatalf("retry after update created=%d err=%v", created, err)
+	}
+	var replayRows int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM mochat_go_risk_records WHERE tenant_id=11 AND corp_id=27 AND message_id='real-101'`).Scan(&replayRows); err != nil || replayRows != 1 {
+		t.Fatalf("retry rows=%d err=%v", replayRows, err)
+	}
+	if err := db.QueryRow(`SELECT trigger_count FROM mochat_go_risk_rules WHERE id=?`, matchedRule).Scan(&triggerCount); err != nil || triggerCount != 1 {
+		t.Fatalf("retry trigger_count=%d err=%v", triggerCount, err)
+	}
+
+	var rule100 int64
+	if err := db.QueryRow(`SELECT id FROM mochat_go_risk_rules WHERE tenant_id=11 AND corp_id=27 ORDER BY id LIMIT 1 OFFSET 99`).Scan(&rule100); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE mochat_go_risk_rule_strategies SET pattern='needle' WHERE rule_id=?`, rule100); err != nil {
+		t.Fatal(err)
+	}
+	triggerSQL := fmt.Sprintf(`CREATE TRIGGER task6_fail_risk_count BEFORE UPDATE ON mochat_go_risk_rules FOR EACH ROW BEGIN IF OLD.id=%d THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='task6 count failure'; END IF; END`, matchedRule)
+	if _, err := db.Exec(triggerSQL); err != nil {
+		t.Fatal(err)
+	}
+	created, err = store.EvaluateRiskMessage(ctx, dashboard.RiskMessage{TenantID: 11, CorpID: 27, MessageID: "real-cross-batch-rollback", ConversationType: "single", Content: "needle"})
 	if err == nil || created != 0 {
 		t.Fatalf("created=%d err=%v, want rollback", created, err)
 	}
@@ -321,8 +387,12 @@ func TestRiskAndKeywordAtomicityAgainstIsolatedMySQL(t *testing.T) {
 		t.Fatal(err)
 	}
 	var rollbackRows int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM mochat_go_risk_records WHERE message_id='real-rollback'`).Scan(&rollbackRows); err != nil || rollbackRows != 0 {
+	if err := db.QueryRow(`SELECT COUNT(*) FROM mochat_go_risk_records WHERE message_id='real-cross-batch-rollback'`).Scan(&rollbackRows); err != nil || rollbackRows != 0 {
 		t.Fatalf("rollback rows=%d err=%v", rollbackRows, err)
+	}
+	var rule100Count int64
+	if err := db.QueryRow(`SELECT trigger_count FROM mochat_go_risk_rules WHERE id=?`, rule100).Scan(&rule100Count); err != nil || rule100Count != 0 {
+		t.Fatalf("rule100 trigger_count=%d err=%v", rule100Count, err)
 	}
 
 	const workers = 16

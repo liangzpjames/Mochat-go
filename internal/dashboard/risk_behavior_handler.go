@@ -147,6 +147,10 @@ func (h *RiskBehaviorHandler) CreateRule(w http.ResponseWriter, r *http.Request)
 	}
 	rule.TenantID = int64(tenant)
 	rule.CorpID = int64(corp)
+	if err := ValidateRiskRule(rule); err != nil {
+		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, err.Error(), nil)
+		return
+	}
 	id, err := writer.CreateRiskRule(r.Context(), rule)
 	if err != nil {
 		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, err.Error(), nil)
@@ -172,6 +176,10 @@ func (h *RiskBehaviorHandler) UpdateRule(w http.ResponseWriter, r *http.Request)
 	}
 	rule.TenantID = int64(tenant)
 	rule.CorpID = int64(corp)
+	if err := ValidateRiskRule(rule); err != nil {
+		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, err.Error(), nil)
+		return
+	}
 	updated, err := writer.UpdateRiskRule(r.Context(), rule)
 	if err != nil {
 		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, err.Error(), nil)
