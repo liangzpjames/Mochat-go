@@ -39,6 +39,19 @@ function Invoke-DeploymentPreview {
     return $output
 }
 
+function Invoke-ControlledResumePreview {
+    $output = & powershell -NoProfile -ExecutionPolicy Bypass -File $deployScript `
+        -DryRun `
+        -SkipHttpCheck `
+        -ApproveControlledMigrations `
+        -ControlledRequestID 'approved-test-request' `
+        -ControlledMaintenanceConfirmationFile 'approved-confirmation.txt' 2>&1 | Out-String
+    if ($LASTEXITCODE -ne 0) {
+        throw "受控迁移恢复预览失败：`n$output"
+    }
+    return $output
+}
+
 function Assert-Matches {
     param(
         [string]$Actual,
@@ -53,6 +66,7 @@ function Assert-Matches {
 
 $defaultOutput = Invoke-DeploymentPreview
 $resetOutput = Invoke-DeploymentPreview -ResetData
+$controlledResumeOutput = Invoke-ControlledResumePreview
 $previousPreference = $ErrorActionPreference
 $ErrorActionPreference = 'Continue'
 try {
@@ -86,32 +100,39 @@ Assert-Matches $defaultOutput 'up -d --build --force-recreate --remove-orphans' 
 Assert-Matches $defaultOutput '仅在迁移账本不存在时执行 baseline' '未声明安全的条件基线策略'
 Assert-Matches $defaultOutput 'exec -T app mochat-migrate -action up -project-root /app' '未执行数据库迁移'
 Assert-Matches $controlledPendingOutput '受控迁移维护检查点' 'controlled_pending 未输出明确维护检查点'
-Assert-Matches $controlledPendingOutput 'mochat-identity-preflight' '维护检查点缺少只读 preflight 命令'
-Assert-Matches $controlledPendingOutput 'mochat-identity-migrate app up --execute' '维护检查点缺少受控 up 命令'
-Assert-Matches $controlledPendingOutput '备份.*验证' '维护检查点缺少先备份并验证的要求'
-Assert-Matches $controlledPendingOutput 'run --rm --no-deps --entrypoint /usr/local/bin/mochat-saas-maintenance app -action backup-create' '维护检查点备份命令不能在 app 容器环境直接执行'
-Assert-Matches $controlledPendingOutput 'run --rm --no-deps --entrypoint /usr/local/bin/mochat-saas-maintenance app -action backup-verify' '维护检查点缺少容器内备份验证命令'
-Assert-Matches $controlledPendingOutput 'run --rm --no-deps --entrypoint /usr/local/bin/mochat-identity-preflight app' '维护检查点 preflight 未复用 app 容器拓扑'
-Assert-Matches $controlledPendingOutput 'run --rm --no-deps --entrypoint /usr/local/bin/mochat-identity-migrate app up' '维护检查点缺少容器内 0130 命令'
-Assert-Matches $controlledPendingOutput 'run --rm --no-deps --entrypoint /usr/local/bin/mochat-identity-migrate app cutover' '维护检查点缺少容器内 0131 命令'
-Assert-Matches $controlledPendingOutput 'exec -T app mochat-migrate -action up -project-root /app' '维护检查点缺少 controlled 完成后的 automatic up 重跑命令'
+Assert-Matches $controlledPendingOutput 'stop app' 'controlled_pending 未实际停止 app'
+Assert-Matches $controlledPendingOutput '已确认服务停止：app' 'controlled_pending 未确认 app 已停止'
+Assert-Matches $controlledPendingOutput '-ApproveControlledMigrations' '维护检查点缺少可复制的显式恢复命令'
+Assert-Matches $controlledResumeOutput 'run --rm --no-deps --entrypoint /usr/local/bin/mochat-saas-maintenance app -action backup-create' '显式恢复缺少容器内备份创建'
+Assert-Matches $controlledResumeOutput 'run --rm --no-deps --entrypoint /usr/local/bin/mochat-saas-maintenance app -action backup-verify' '显式恢复缺少容器内备份验证'
+Assert-Matches $controlledResumeOutput 'run --rm --no-deps --entrypoint /usr/local/bin/mochat-identity-preflight app' '显式恢复 preflight 未复用 app 容器拓扑'
+Assert-Matches $controlledResumeOutput 'run --rm --no-deps --entrypoint /usr/local/bin/mochat-identity-migrate app up' '显式恢复缺少容器内 0130 命令'
+Assert-Matches $controlledResumeOutput 'run --rm --no-deps --entrypoint /usr/local/bin/mochat-identity-migrate app cutover' '显式恢复缺少容器内 0131 命令'
+Assert-Matches $controlledResumeOutput 'run --rm --no-deps --entrypoint /usr/local/bin/mochat-migrate app -action up -project-root /app' '显式恢复缺少 controlled 完成后的 automatic up'
 if ($controlledPendingOutput -match '@tcp\(|mochat_pass|--dsn(?:\s|=)') {
     throw "维护检查点输出泄露 DSN 或密码：`n$controlledPendingOutput"
 }
+if ($controlledPendingOutput -match 'mochat-saas-maintenance app -action backup-create|mochat-identity-migrate app (?:up|cutover)') {
+    throw "未授权 controlled_pending 路径执行或展开了受控写入命令：`n$controlledPendingOutput"
+}
 $controlledOrder = @(
+    'stop app',
     'mochat-saas-maintenance app -action backup-create',
     'mochat-saas-maintenance app -action backup-verify',
     'mochat-identity-preflight app',
     'mochat-identity-migrate app up',
     'mochat-identity-migrate app encrypt-credentials',
     'mochat-identity-migrate app cutover',
-    'exec -T app mochat-migrate -action up'
+    'mochat-migrate app -action up',
+    'up -d app',
+    '/healthz',
+    '/readyz'
 )
 $previousControlledIndex = -1
 foreach ($step in $controlledOrder) {
-    $stepIndex = $controlledPendingOutput.IndexOf($step)
+    $stepIndex = $controlledResumeOutput.IndexOf($step)
     if ($stepIndex -le $previousControlledIndex) {
-        throw "受控维护顺序不完整或错序（$step）：`n$controlledPendingOutput"
+        throw "受控维护顺序不完整或错序（$step）：`n$controlledResumeOutput"
     }
     $previousControlledIndex = $stepIndex
 }
@@ -168,8 +189,11 @@ $fakeDocker = Join-Path $fakeRoot 'docker.cmd'
 New-Item -ItemType Directory -Path $fakeRoot | Out-Null
 $previousSecretDirectory = $env:MOCHAT_DOCKER_DESKTOP_SECRET_DIR
 $previousFakeComposeFile = $env:MOCHAT_TEST_COMPOSE_FILE
+$previousBackupEncryptionKey = $env:MOCHAT_GO_SAAS_BACKUP_ENCRYPTION_KEY
 $env:MOCHAT_DOCKER_DESKTOP_SECRET_DIR = Join-Path $fakeRoot 'secrets'
 $env:MOCHAT_TEST_COMPOSE_FILE = Join-Path $repositoryRoot 'deploy\standalone\docker-compose.yml'
+$env:MOCHAT_TEST_STOP_STATE = Join-Path $fakeRoot 'app-stopped'
+Remove-Item Env:MOCHAT_GO_SAAS_BACKUP_ENCRYPTION_KEY -ErrorAction SilentlyContinue
 try {
 @'
 @echo off
@@ -180,20 +204,52 @@ if "%1"=="info" (
   if defined MOCHAT_GO_SAAS_IDENTITY_ENCRYPTION_KEY echo identity_key=set 1>&2
   if exist "%MOCHAT_SAAS_ADMIN_MFA_ENCRYPTION_KEY_FILE%" if exist "%MOCHAT_DASHBOARD_MFA_ENCRYPTION_KEY_FILE%" echo mfa_files=ready 1>&2
   if not "%MOCHAT_SAAS_ADMIN_JWT_SECRET%"=="%MOCHAT_DASHBOARD_JWT_SECRET%" echo realm_jwt=separate 1>&2
+  if defined MOCHAT_GO_SAAS_BACKUP_ENCRYPTION_KEY echo backup_key=set 1>&2
   exit /b 0
 )
 if "%1"=="inspect" (
+  if exist "%MOCHAT_TEST_STOP_STATE%" (
+    echo exited^|
+    exit /b 0
+  )
   echo running^|healthy
   exit /b 0
 )
+echo %* | findstr /C:" stop app" >nul
+if not errorlevel 1 (
+  type nul > "%MOCHAT_TEST_STOP_STATE%"
+  echo app_stop=done 1>&2
+  exit /b 0
+)
+echo %* | findstr /C:" up -d app" >nul
+if not errorlevel 1 (
+  del /q "%MOCHAT_TEST_STOP_STATE%" >nul 2>&1
+  echo app_start=done 1>&2
+  exit /b 0
+)
+echo %* | findstr /C:"/bin/sh app -c" | findstr /C:"MOCHAT_GO_SAAS_BACKUP_ENCRYPTION_KEY" >nul
+if not errorlevel 1 (
+  findstr /C:"MOCHAT_MYSQL_DSN:" "%MOCHAT_TEST_COMPOSE_FILE%" >nul
+  if errorlevel 1 exit /b 42
+  findstr /C:"MOCHAT_GO_SAAS_BACKUP_ENCRYPTION_KEY:" "%MOCHAT_TEST_COMPOSE_FILE%" >nul
+  if errorlevel 1 exit /b 43
+  if not defined MOCHAT_GO_SAAS_BACKUP_ENCRYPTION_KEY exit /b 44
+  echo controlled_secrets=ready 1>&2
+  exit /b 0
+)
+echo %* | findstr /C:"mochat-saas-maintenance app -action backup-create" >nul
+if not errorlevel 1 (
+  echo backup_run_id 77
+  echo status succeeded
+  echo encrypted true
+  exit /b 0
+)
+echo %* | findstr /C:"mochat-saas-maintenance app -action backup-verify" >nul
+if not errorlevel 1 (
+  echo verification_status passed
+  exit /b 0
+)
 if "%MOCHAT_TEST_CONTROLLED_PENDING%"=="1" (
-  echo %* | findstr /C:"/bin/sh app -c" | findstr /C:"MOCHAT_MYSQL_DSN" >nul
-  if not errorlevel 1 (
-    findstr /C:"MOCHAT_MYSQL_DSN:" "%MOCHAT_TEST_COMPOSE_FILE%" >nul
-    if errorlevel 1 exit /b 42
-    echo maintenance_env=ready 1>&2
-    exit /b 0
-  )
   echo %* | findstr /C:"mochat-migrate -action up" >nul
   if not errorlevel 1 (
     echo MIGRATION_CONTROLLED_PENDING 0130_identity_realms_single_corp_backfill 1>&2
@@ -227,6 +283,12 @@ exit /b 0
     Assert-Matches $fakeOutput 'identity_key=set' '启用身份安全登录时未配置本地加密密钥'
     Assert-Matches $fakeOutput 'mfa_files=ready' '本地部署未提供两个可读取的 MFA 密钥文件'
     Assert-Matches $fakeOutput 'realm_jwt=separate' 'SaaS 与 Dashboard 仍共享同一个 JWT 密钥'
+    Assert-Matches $fakeOutput 'backup_key=set' '本地部署未生成持久备份加密密钥'
+    $backupKeyFile = Join-Path $env:MOCHAT_DOCKER_DESKTOP_SECRET_DIR 'saas-backup-encryption.key'
+    if (-not (Test-Path -LiteralPath $backupKeyFile -PathType Leaf) -or ((Get-Content -LiteralPath $backupKeyFile -Raw).Trim() -notmatch '^[a-f0-9]{64}$')) {
+        throw '本地部署未在受控 secret 目录持久生成高熵备份加密密钥'
+    }
+    $backupKeyValue = (Get-Content -LiteralPath $backupKeyFile -Raw).Trim()
     if ($fakeOutput -match 'mochat-migrate -action baseline') {
         throw '已有迁移账本时仍执行 baseline，会跳过新的增量迁移'
     }
@@ -246,13 +308,75 @@ exit /b 0
         throw "真实 Docker controlled pending 必须非零退出：`n$fakeControlledOutput"
     }
     Assert-Matches $fakeControlledOutput '受控迁移维护检查点' '真实 Docker stable code 未进入维护检查点'
-    Assert-Matches $fakeControlledOutput 'maintenance_env=ready' '受控维护命令未实际验证 app 容器收到非空 MOCHAT_MYSQL_DSN'
+    Assert-Matches $fakeControlledOutput 'controlled_secrets=ready' '受控维护未实际验证 app 容器收到非空 DSN 与备份密钥'
+    Assert-Matches $fakeControlledOutput 'app_stop=done' '受控维护检查点未实际停止 app'
     if ($fakeControlledOutput -match '\[跳过 HTTP 检查\] 应用就绪状态|访问检查通过：应用就绪状态') {
         throw "真实 Docker controlled pending 后仍进入 ready 等待：`n$fakeControlledOutput"
     }
+
+    $confirmationFile = Join-Path $fakeRoot 'approved-confirmation.txt'
+    Set-Content -LiteralPath $confirmationFile -Value 'approved test artifact' -Encoding Ascii
+    $ErrorActionPreference = 'Continue'
+    try {
+        $fakeResumeOutput = & powershell -NoProfile -ExecutionPolicy Bypass -File $deployScript `
+            -DockerCommand $fakeDocker `
+            -SkipHttpCheck `
+            -ApproveControlledMigrations `
+            -ControlledRequestID 'approved-test-request' `
+            -ControlledMaintenanceConfirmationFile $confirmationFile 2>&1 | Out-String
+        $fakeResumeExitCode = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $previousPreference
+    }
+    if ($fakeResumeExitCode -ne 0) {
+        throw "显式受控迁移 fake Docker 链失败：`n$fakeResumeOutput"
+    }
+    Assert-Matches $fakeResumeOutput 'controlled_secrets=ready' '显式恢复的一次性容器未收到非空 DSN 与备份加密密钥'
+    if (($fakeOutput + $fakeControlledOutput + $fakeResumeOutput) -match [regex]::Escape($backupKeyValue)) {
+        throw '部署、检查点或显式恢复输出泄露了备份加密密钥值'
+    }
+    $fakeControlledOrder = @(
+        'stop app',
+        'mochat-saas-maintenance app -action backup-create',
+        'mochat-saas-maintenance app -action backup-verify',
+        'mochat-identity-preflight app',
+        'mochat-identity-migrate app up',
+        'mochat-identity-migrate app encrypt-credentials',
+        'mochat-identity-migrate app cutover',
+        'mochat-migrate app -action up',
+        'up -d app',
+        '/healthz',
+        '/readyz'
+    )
+    $previousFakeIndex = -1
+    foreach ($step in $fakeControlledOrder) {
+        $stepIndex = $fakeResumeOutput.IndexOf($step)
+        if ($stepIndex -le $previousFakeIndex) {
+            throw "fake Docker 受控维护链不完整或错序（$step）：`n$fakeResumeOutput"
+        }
+        $previousFakeIndex = $stepIndex
+    }
+
+    [System.IO.File]::WriteAllText($backupKeyFile, '', [System.Text.Encoding]::ASCII)
+    Remove-Item Env:MOCHAT_GO_SAAS_BACKUP_ENCRYPTION_KEY -ErrorAction SilentlyContinue
+    $ErrorActionPreference = 'Continue'
+    try {
+        $emptyBackupKeyOutput = & powershell -NoProfile -ExecutionPolicy Bypass -File $deployScript `
+            -DockerCommand $fakeDocker `
+            -SkipHttpCheck 2>&1 | Out-String
+        $emptyBackupKeyExitCode = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $previousPreference
+    }
+    if ($emptyBackupKeyExitCode -eq 0) {
+        throw "空备份加密密钥文件必须在部署前 fail-fast：`n$emptyBackupKeyOutput"
+    }
+    Assert-Matches $emptyBackupKeyOutput '本地密钥文件格式无效' '空备份加密密钥未阻断部署'
 } finally {
     $env:MOCHAT_DOCKER_DESKTOP_SECRET_DIR = $previousSecretDirectory
 	$env:MOCHAT_TEST_COMPOSE_FILE = $previousFakeComposeFile
+    $env:MOCHAT_GO_SAAS_BACKUP_ENCRYPTION_KEY = $previousBackupEncryptionKey
+    Remove-Item Env:MOCHAT_TEST_STOP_STATE -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath $fakeRoot -Recurse -Force -ErrorAction SilentlyContinue
 }
 

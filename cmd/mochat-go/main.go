@@ -195,24 +195,33 @@ func main() {
 
 	var options []compatserver.Option
 	var mysqlStore *store.MySQLStore
-	getMySQLStore := func() *store.MySQLStore {
+	openMySQLStore := func() (*store.MySQLStore, error) {
 		if mysqlStore != nil {
-			return mysqlStore
+			return mysqlStore, nil
 		}
 		db, err := mysqlconn.Open(cfg.MySQLDSN)
 		if err != nil {
-			fatalf("open mysql: %v", err)
+			return nil, fmt.Errorf("open mysql: %w", err)
 		}
 		if err := db.Ping(); err != nil {
-			fatalf("ping mysql: %v", err)
+			_ = db.Close()
+			return nil, fmt.Errorf("ping mysql: %w", err)
 		}
-		mysqlStore = store.NewMySQLStore(db).
+		candidate := store.NewMySQLStore(db).
 			WithSaaSAlertCredentialCipher(alertCredentialManager).
 			WithWeComCredentialCipher(weComCredentialManager).
 			WithWeChatOpenCredentialCipher(weChatOpenCredentialManager).
 			WithAIProviderCredentialCipher(aiProviderCredentialManager).
 			WithAIProviderOutboundGuard(outboundhttp.MustDefaultGuard())
-		return mysqlStore
+		return candidate, nil
+	}
+	getMySQLStore := func() *store.MySQLStore {
+		candidate, err := openMySQLStore()
+		if err != nil {
+			fatalf("initialize mysql store: %v", err)
+		}
+		mysqlStore = candidate
+		return candidate
 	}
 	if cfg.EnableWeComSuiteCallback {
 		exchanger, exchangeErr := wecomsuitecallback.NewBridgeAuthorizationExchanger(cfg.WorkMessageArchiveBridgeBaseURL, cfg.WorkMessageArchiveBridgeToken, nil)
@@ -3607,22 +3616,27 @@ func main() {
 		debugf("runtime role %s stopping after shutdown signal", cfg.RuntimeRole)
 		return
 	}
+	if err := initializeRuntimeMySQLStore(&mysqlStore, openMySQLStore); err != nil {
+		runtimeErr = err
+		return
+	}
+	getInitializedMySQLStore := func() *store.MySQLStore { return mysqlStore }
 
 	modulePrincipalResolver := dashboardModulePrincipalResolver{}
-	moduleRouter, err := newSCRMModuleRouter(cfg, getMySQLStore, modulePrincipalResolver)
+	moduleRouter, err := newSCRMModuleRouter(cfg, getInitializedMySQLStore, modulePrincipalResolver)
 	if err != nil {
 		runtimeErr = err
 		return
 	}
-	if err := registerAIDebtClearanceModules(moduleRouter, cfg, getMySQLStore, modulePrincipalResolver); err != nil {
+	if err := registerAIDebtClearanceModules(moduleRouter, cfg, getInitializedMySQLStore, modulePrincipalResolver); err != nil {
 		runtimeErr = err
 		return
 	}
-	if err := registerChatMediaModule(moduleRouter, cfg, getMySQLStore, modulePrincipalResolver); err != nil {
+	if err := registerChatMediaModule(moduleRouter, cfg, getInitializedMySQLStore, modulePrincipalResolver); err != nil {
 		runtimeErr = err
 		return
 	}
-	dashboardAccessStore := getMySQLStore()
+	dashboardAccessStore := getInitializedMySQLStore()
 	dashboardAccessService := dashboard.NewDashboardAccessService(dashboardAccessStore)
 	dashboardAccessGuard := dashboard.NewDashboardAccessGuard(dashboardAccessStore, dashboardAccessService)
 	dashboardAccessAdminService := dashboard.NewDashboardAccessAdminService(dashboardAccessStore, dashboardAccessService)
@@ -3733,6 +3747,27 @@ func main() {
 	}
 	serviceGroupOwnsListeners = true
 	runtimeErr = httpServices.Run(shutdownCtx)
+}
+
+func initializeRuntimeMySQLStore(target **store.MySQLStore, open func() (*store.MySQLStore, error)) error {
+	if target == nil {
+		return errors.New("runtime mysql target is required")
+	}
+	if *target != nil {
+		return nil
+	}
+	if open == nil {
+		return errors.New("runtime mysql initializer is required")
+	}
+	candidate, err := open()
+	if err != nil {
+		return err
+	}
+	if candidate == nil {
+		return errors.New("runtime mysql initializer returned nil store")
+	}
+	*target = candidate
+	return nil
 }
 
 type durableArchiveMediaBatchRunner interface {

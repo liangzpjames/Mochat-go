@@ -389,16 +389,20 @@ func RequiredTasksReady(snapshots []Snapshot, now time.Time) bool {
 		if snapshot.Status != StatusRunning || snapshot.ConsecutiveFailures >= periodicReadinessFailureThreshold {
 			return false
 		}
-		if snapshot.LastSuccessAt == "" && snapshot.ReadinessGraceUntil != "" {
-			graceUntil, err := time.Parse(time.RFC3339, snapshot.ReadinessGraceUntil)
-			if err != nil || now.After(graceUntil) {
-				return false
-			}
-		}
-		if snapshot.LastSuccessAt != "" && snapshot.CurrentExecutionStartedAt != "" {
+		// A running execution owns its explicit/computed budget even when it is
+		// the task's first tick. Startup grace only covers tasks that have not
+		// started an execution yet.
+		if snapshot.CurrentExecutionStartedAt != "" {
 			startedAt, startedErr := time.Parse(time.RFC3339Nano, snapshot.CurrentExecutionStartedAt)
 			maxRunDuration, durationErr := time.ParseDuration(snapshot.PeriodicMaxRunDuration)
 			if startedErr != nil || durationErr != nil || maxRunDuration <= 0 || now.After(startedAt.Add(maxRunDuration)) {
+				return false
+			}
+			continue
+		}
+		if snapshot.LastSuccessAt == "" && snapshot.ReadinessGraceUntil != "" {
+			graceUntil, err := time.Parse(time.RFC3339, snapshot.ReadinessGraceUntil)
+			if err != nil || now.After(graceUntil) {
 				return false
 			}
 		}

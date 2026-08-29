@@ -346,6 +346,27 @@ func TestRequiredTasksReadyFailsNeverSuccessfulPeriodicAfterItsStartupGrace(t *t
 	}
 }
 
+func TestRequiredTasksReadyUsesCurrentFirstRunBudgetBeforeStartupGrace(t *testing.T) {
+	startedAt := time.Now()
+	snapshot := Snapshot{
+		Name: "cron-first-long", Status: StatusRunning, Periodic: true,
+		CurrentExecutionStartedAt: startedAt.Format(time.RFC3339Nano),
+		PeriodicMaxRunDuration:    (30 * time.Minute).String(),
+		ReadinessGraceUntil:       startedAt.Add(30 * time.Second).Format(time.RFC3339),
+	}
+	if !RequiredTasksReady([]Snapshot{snapshot}, startedAt.Add(time.Minute)) {
+		t.Fatalf("first long run was removed after startup grace but within max duration: %+v", snapshot)
+	}
+	if RequiredTasksReady([]Snapshot{snapshot}, startedAt.Add(30*time.Minute+time.Nanosecond)) {
+		t.Fatalf("first long run remained ready after max duration: %+v", snapshot)
+	}
+
+	snapshot.PeriodicMaxRunDuration = (3 * time.Second).String()
+	if RequiredTasksReady([]Snapshot{snapshot}, startedAt.Add(4*time.Second)) {
+		t.Fatalf("ordinary short first run ignored its computed budget: %+v", snapshot)
+	}
+}
+
 func TestPeriodicCompactsSuccessAndKeepsUniqueFailure(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	recorder := &memoryRecorder{executions: make(chan ExecutionSnapshot, 8)}

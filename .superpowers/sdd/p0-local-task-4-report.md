@@ -237,3 +237,40 @@ git diff --check
 ```
 
 结果全部退出码 `0`。真实 controlled migration/备份恢复、真实 Docker image build、真实 Redis/MySQL 故障、Provider 与生产继续明确 SKIP；未修改项目进度文档、未 reset/clean、未触碰命名卷。
+
+## Reviewer 第三轮复审修复（2026-08-29）
+
+### RED 与根因
+
+- periodic 首次执行 RED：`go test ./internal/taskrunner -run TestRequiredTasksReadyUsesCurrentFirstRunBudget -count=1` 最初失败。根因是 readiness 先应用 startup grace，且只有 `LastSuccessAt` 非空时才检查 `CurrentExecutionStartedAt`；首次合法长任务会在自己的 30 分钟预算内被 30 秒启动宽限错误摘流。
+- MySQL post-start RED：新增 DSN 为空/连接打开失败清理测试时，`initializeRuntimeMySQLStore` 尚不存在而编译失败。根因是 lazy `getMySQLStore` 直接 fatal，worker 启动后的 API module 构建仍可间接触发 `os.Exit`，跳过 root cancel 与有界 wait。
+- 部署链审计确认旧检查点只打印维护命令，没有真正 quiesce app；备份加密 key 也依赖外部偶然注入，没有默认持久 secret。这会让维护写入与在线请求并发，或在维护窗口才因空 key 失败。
+
+### GREEN、故障注入与部署顺序
+
+- `CurrentExecutionStartedAt` 现在优先于 startup grace：只要当前 tick 已开始，就按显式 `MaxRunDuration` 或计算预算判断。测试证明首次 30 分钟任务在 30 秒后仍 ready，超过 30 分钟变 stale；普通 3 秒预算任务超过阈值同样摘流。
+- lazy MySQL opener 改为返回 error，并在 worker 启动后的唯一初始化点设置 `runtimeErr` 后 return。DSN 空与 open failure 注入均证明 defer 会先取消 root、再等待 worker；源码审计同时禁止 post-start 范围调用 fatal compatibility getter、`fatal/fatalf/os.Exit`。
+- ordinary `controlled_pending` 路径首先执行 `docker compose stop app` 并通过 inspect 确认 stopped；MySQL、Redis 和命名卷不停止。随后仅验证一次性 app 容器获得非空 DSN/备份 key，打印可复制的 `-ApproveControlledMigrations` 恢复命令并非零退出，默认不执行或展开受控写入。
+- 显式恢复必须同时提供 `-ApproveControlledMigrations`、已审批 request ID 和维护确认工件。实际链为 `stop/confirm -> backup-create(encrypted=true) -> backup-verify(passed) -> preflight -> 0130 up -> encrypt-credentials -> 0131 cutover -> automatic up -> 清理临时秘密 -> up -d app -> health -> ready`。任一步失败时 app 保持停止，不会把未完成迁移重新接流。
+- 本地 secret 初始化新增独立 32-byte CSPRNG `MOCHAT_GO_SAAS_BACKUP_ENCRYPTION_KEY`，持久文件为 `saas-backup-encryption.key`，并用 Windows ACL 限制到当前用户、SYSTEM 与 Administrators。密钥值不进入 argv、日志或 Git；Compose 继续只通过环境注入。fake Docker 证明一次性容器实际收到非空 key，空持久文件在 Docker 操作前 fail-fast。
+
+DryRun 与 fake Docker 都断言完整顺序；fake Docker 还维护 app stopped 状态、解析真实 backup-create/verify 结构化输出，并证明 ordinary checkpoint 不进入 ready wait。真实 controlled migration 没有执行。
+
+### 最终验证与自审
+
+```text
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/test_deploy_docker_desktop.ps1
+go test ./internal/taskrunner -count=1
+go test ./cmd/mochat-go -run 'TestPostWorkerMySQLInitialization|TestNoFatalExit|TestPostWorkerBuildFailure' -count=1
+go test ./... -count=1
+go vet ./...
+git diff --check
+```
+
+结果全部退出码 `0`。自审确认：默认路径仅停止 `app`，不执行 controlled write、不停止 MySQL/Redis、不删除卷；恢复路径只有显式授权 flag 才可达；密钥值未出现在命令或测试输出；Task 1 角色职责与 Task 3 callback defer/Redis 恢复合同未改写；未修改 `docs/PROJECT_PROGRESS.zh-CN.md`。
+
+### 本轮 SKIP
+
+- 真实 0130/0131、真实备份创建/恢复验证与真实维护窗口：SKIP，缺少生产授权和审批工件。
+- 真实 Docker image/Compose、真实 MySQL/Redis 故障与恢复：SKIP；本轮使用无副作用 DryRun 和隔离 fake Docker 状态机验证控制流。
+- 真实 Provider、浏览器、生产部署与命名卷操作：SKIP，均超出 Task 4 授权范围。
