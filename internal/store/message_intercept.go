@@ -161,27 +161,61 @@ func (s *MySQLStore) SaveKeywordEntry(ctx context.Context, t, c int, v dashboard
 	if err := dashboard.ValidateKeywordEntry(v); err != nil {
 		return 0, err
 	}
-	if v.ID > 0 {
-		r, e := s.db.ExecContext(ctx, `UPDATE mochat_go_keyword_entries SET keyword=?,status=? WHERE id=? AND tenant_id=? AND corp_id=? AND library_id=?`, strings.TrimSpace(v.Keyword), v.Status, v.ID, t, c, v.LibraryID)
-		if e != nil {
-			return 0, e
-		}
-		n, _ := r.RowsAffected()
-		if n == 0 {
-			return 0, sql.ErrNoRows
-		}
-		_, _ = s.db.ExecContext(ctx, "UPDATE mochat_go_keyword_libraries SET draft_version=draft_version+1 WHERE id=? AND tenant_id=? AND corp_id=?", v.LibraryID, t, c)
-		return v.ID, nil
-	}
-	r, e := s.db.ExecContext(ctx, `INSERT INTO mochat_go_keyword_entries(tenant_id,corp_id,library_id,keyword,status) SELECT ?,?,?,?,? FROM mochat_go_keyword_libraries WHERE id=? AND tenant_id=? AND corp_id=?`, t, c, v.LibraryID, strings.TrimSpace(v.Keyword), v.Status, v.LibraryID, t, c)
+	tx, e := s.db.BeginTx(ctx, nil)
 	if e != nil {
 		return 0, e
 	}
-	id, e := r.LastInsertId()
-	if e == nil {
-		_, _ = s.db.ExecContext(ctx, "UPDATE mochat_go_keyword_libraries SET draft_version=draft_version+1 WHERE id=? AND tenant_id=? AND corp_id=?", v.LibraryID, t, c)
+	defer tx.Rollback()
+	var lockedLibraryID int64
+	if e = tx.QueryRowContext(ctx, `SELECT id FROM mochat_go_keyword_libraries WHERE id=? AND tenant_id=? AND corp_id=? FOR UPDATE`, v.LibraryID, t, c).Scan(&lockedLibraryID); e != nil {
+		return 0, e
 	}
-	return id, e
+	var id int64
+	if v.ID > 0 {
+		r, e := tx.ExecContext(ctx, `UPDATE mochat_go_keyword_entries SET keyword=?,status=? WHERE id=? AND tenant_id=? AND corp_id=? AND library_id=?`, strings.TrimSpace(v.Keyword), v.Status, v.ID, t, c, v.LibraryID)
+		if e != nil {
+			return 0, e
+		}
+		n, e := r.RowsAffected()
+		if e != nil {
+			return 0, e
+		}
+		if n == 0 {
+			return 0, sql.ErrNoRows
+		}
+		id = v.ID
+	} else {
+		r, e := tx.ExecContext(ctx, `INSERT INTO mochat_go_keyword_entries(tenant_id,corp_id,library_id,keyword,status) VALUES(?,?,?,?,?)`, t, c, v.LibraryID, strings.TrimSpace(v.Keyword), v.Status)
+		if e != nil {
+			return 0, e
+		}
+		n, e := r.RowsAffected()
+		if e != nil {
+			return 0, e
+		}
+		if n != 1 {
+			return 0, fmt.Errorf("关键词保存失败")
+		}
+		id, e = r.LastInsertId()
+		if e != nil {
+			return 0, e
+		}
+	}
+	versionResult, e := tx.ExecContext(ctx, "UPDATE mochat_go_keyword_libraries SET draft_version=draft_version+1 WHERE id=? AND tenant_id=? AND corp_id=?", v.LibraryID, t, c)
+	if e != nil {
+		return 0, e
+	}
+	versionRows, e := versionResult.RowsAffected()
+	if e != nil {
+		return 0, e
+	}
+	if versionRows != 1 {
+		return 0, fmt.Errorf("关键词库版本更新失败")
+	}
+	if e = tx.Commit(); e != nil {
+		return 0, e
+	}
+	return id, nil
 }
 func (s *MySQLStore) SetKeywordEntryStatus(ctx context.Context, t, c int, id int64, status string) (bool, error) {
 	if status != "enabled" && status != "disabled" {
