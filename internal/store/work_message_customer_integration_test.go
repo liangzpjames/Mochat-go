@@ -188,7 +188,8 @@ func TestCustomerDetailMariaDBIntegration(t *testing.T) {
 	}
 	seen := map[string]struct{}{}
 	lastSentAt := ""
-	for _, message := range append(first.Messages, second.Messages...) {
+	chronological := append(append([]dashboard.WorkMessageStaffMessage{}, second.Messages...), first.Messages...)
+	for _, message := range chronological {
 		if _, duplicate := seen[message.ID]; duplicate {
 			t.Fatalf("cursor pages overlap at %s", message.ID)
 		}
