@@ -20,7 +20,10 @@ const (
 	weWorkCallbackDependencyDeferMaxDelay   = 5 * time.Minute
 )
 
-var ErrWeWorkCallbackDependencyUnavailable = errors.New("wework callback dependency is unavailable")
+var (
+	ErrWeWorkCallbackDependencyUnavailable       = errors.New("wework callback dependency is unavailable")
+	ErrWeWorkCallbackSideEffectReconcileRequired = errors.New("wework callback side effect requires reconciliation")
+)
 
 type WeWorkCallbackWorkerStore interface {
 	SOPLogCronStore
@@ -839,26 +842,82 @@ func (w *WeWorkCallbackWorker) sendWorkFissionEmployeeReminder(ctx context.Conte
 	if !found || strings.TrimSpace(agent.WXCorpID) == "" || strings.TrimSpace(agent.WXAgentID) == "" || strings.TrimSpace(agent.WXSecret) == "" {
 		return fmt.Errorf("work fission employee reminder agent is incomplete")
 	}
-	return w.client.SendAgentTextMessageWithDuplicateCheck(ctx, agent, result.EmployeeReminder.ToUser, result.EmployeeReminder.Content)
+	execute, complete, err := w.beginDurableSideEffect(ctx, WeWorkCallbackActionFissionEmployeeReminder, result.EmployeeReminder)
+	if err != nil || !execute {
+		return err
+	}
+	if err := w.client.SendAgentTextMessageWithDuplicateCheck(ctx, agent, result.EmployeeReminder.ToUser, result.EmployeeReminder.Content); err != nil {
+		return errors.Join(ErrWeWorkCallbackSideEffectReconcileRequired, err)
+	}
+	return complete(ctx)
 }
 
 func (w *WeWorkCallbackWorker) sendWorkFissionCustomerPush(ctx context.Context, credential RoomWelcomeCorpCredential, result WorkFissionAddContactResult) error {
 	if !result.Completed || result.CustomerPush == nil || strings.TrimSpace(result.CustomerPush.Sender) == "" || strings.TrimSpace(result.CustomerPush.ExternalUserID) == "" || len(result.CustomerPush.Content) == 0 {
 		return nil
 	}
-	content, err := prepareContactMessageBatchSendContent(ctx, w.client, credential, w.fileStorageRoot, result.CustomerPush.Content)
-	if err != nil {
+	execute, complete, err := w.beginDurableSideEffect(ctx, WeWorkCallbackActionFissionCustomerPush, result.CustomerPush)
+	if err != nil || !execute {
 		return err
 	}
+	content, err := prepareContactMessageBatchSendContent(ctx, w.client, credential, w.fileStorageRoot, result.CustomerPush.Content)
+	if err != nil {
+		return errors.Join(ErrWeWorkCallbackSideEffectReconcileRequired, err)
+	}
 	if len(content) == 0 {
-		return nil
+		return errors.Join(ErrWeWorkCallbackSideEffectReconcileRequired, errors.New("work fission customer push content is empty"))
 	}
 	_, err = w.client.SubmitContactMessageBatchSend(ctx, credential, ContactMessageBatchSendMessagePayload{
 		Content:        content,
 		Sender:         result.CustomerPush.Sender,
 		ExternalUserID: []string{result.CustomerPush.ExternalUserID},
 	})
-	return err
+	if err != nil {
+		return errors.Join(ErrWeWorkCallbackSideEffectReconcileRequired, err)
+	}
+	return complete(ctx)
+}
+
+func (w *WeWorkCallbackWorker) beginDurableSideEffect(ctx context.Context, actionKey string, payload any) (bool, func(context.Context) error, error) {
+	execution, durable := WeWorkCallbackExecutionFromContext(ctx)
+	if !durable {
+		return true, func(context.Context) error { return nil }, nil
+	}
+	if execution.TenantID <= 0 || execution.CorpID <= 0 {
+		return false, nil, errors.Join(ErrWeWorkCallbackSideEffectReconcileRequired, errors.New("callback side effect scope is incomplete"))
+	}
+	store, ok := w.store.(WeWorkCallbackSideEffectStore)
+	if !ok {
+		return false, nil, errors.Join(ErrWeWorkCallbackSideEffectReconcileRequired, errors.New("callback side effect store is unavailable"))
+	}
+	payloadHash, err := WeWorkCallbackSideEffectPayloadHash(actionKey, payload)
+	if err != nil {
+		return false, nil, err
+	}
+	execute, status, err := store.BeginWeWorkCallbackSideEffect(ctx, execution.TenantID, execution.CorpID, execution.EventKey, actionKey, payloadHash)
+	if err != nil {
+		return false, nil, err
+	}
+	if !execute {
+		switch status {
+		case WeWorkCallbackSideEffectSent:
+			return false, nil, nil
+		case WeWorkCallbackSideEffectUnknown:
+			return false, nil, ErrWeWorkCallbackSideEffectReconcileRequired
+		default:
+			return false, nil, errors.Join(ErrWeWorkCallbackSideEffectReconcileRequired, fmt.Errorf("invalid callback side effect status %q", status))
+		}
+	}
+	if status != WeWorkCallbackSideEffectUnknown {
+		return false, nil, errors.Join(ErrWeWorkCallbackSideEffectReconcileRequired, fmt.Errorf("callback side effect did not enter unknown state: %q", status))
+	}
+	complete := func(completeCtx context.Context) error {
+		if err := store.CompleteWeWorkCallbackSideEffect(completeCtx, execution.TenantID, execution.CorpID, execution.EventKey, actionKey, payloadHash); err != nil {
+			return errors.Join(ErrWeWorkCallbackSideEffectReconcileRequired, err)
+		}
+		return nil
+	}
+	return true, complete, nil
 }
 
 func (w *WeWorkCallbackWorker) markContactTagsFromState(ctx context.Context, corpID int, credential RoomWelcomeCorpCredential, employeeID int, contactID int, event WeWorkCallbackEvent) error {

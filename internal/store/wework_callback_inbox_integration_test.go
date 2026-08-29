@@ -21,6 +21,106 @@ import (
 
 var weWorkCallbackInboxSchemaSequence atomic.Int64
 
+func TestMySQLStoreWeWorkCallbackSideEffectIntentIsTransactionalAndConcurrentReplayExecutesOnce(t *testing.T) {
+	store, db, _ := newWeWorkCallbackInboxIntegrationStore(t)
+	root := filepath.Join("..", "..")
+	runner, err := migration.NewRunner(db, []migration.Migration{
+		{
+			Version: "0172_wework_callback_inbox", Description: "durable WeWork callback inbox",
+			Path:     filepath.Join(root, "deploy", "standalone", "migrations", "0172_wework_callback_inbox.up.sql"),
+			DownPath: filepath.Join(root, "deploy", "standalone", "migrations", "0172_wework_callback_inbox.down.sql"),
+		},
+		{
+			Version: "0174_wework_callback_side_effects", Description: "durable callback external side effects",
+			Path:     filepath.Join(root, "deploy", "standalone", "migrations", "0174_wework_callback_side_effects.up.sql"),
+			DownPath: filepath.Join(root, "deploy", "standalone", "migrations", "0174_wework_callback_side_effects.down.sql"),
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runner.Apply(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	event := dashboard.WeWorkCallbackEvent{
+		TenantID: 11, CorpID: 1101, WxCorpID: "wx-corp-1101", EventPath: "event.change_external_contact.add_external_contact",
+		Message: map[string]string{"MsgId": "side-effect-intent"}, ReceivedAt: "2026-08-30 00:00:00",
+	}
+	eventKey := dashboard.WeWorkCallbackEventKey(event)
+	if _, err := store.AcceptWeWorkCallback(context.Background(), event, eventKey, dashboard.WeWorkCallbackPayloadFingerprint(event)); err != nil {
+		t.Fatal(err)
+	}
+	payload := dashboard.WorkFissionCustomerPush{Sender: "go-user", ExternalUserID: "external-parent", Content: []dashboard.ContactMessageBatchSendContent{{MsgType: "text", Content: "完成任务"}}}
+	payloadHash, err := dashboard.WeWorkCallbackSideEffectPayloadHash(dashboard.WeWorkCallbackActionFissionCustomerPush, &payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	execution := dashboard.WeWorkCallbackExecution{TenantID: 11, CorpID: 1101, EventKey: eventKey, LeaseFence: 1}
+	tx, err := db.BeginTx(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := insertWeWorkCallbackSideEffectIntent(context.Background(), tx, execution, dashboard.WeWorkCallbackActionFissionCustomerPush, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Rollback(); err != nil {
+		t.Fatal(err)
+	}
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM mochat_go_wework_callback_side_effects WHERE tenant_id=11 AND corp_id=1101 AND event_key=?`, eventKey).Scan(&count); err != nil || count != 0 {
+		t.Fatalf("rolled-back intent count=%d err=%v", count, err)
+	}
+	tx, err = db.BeginTx(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := insertWeWorkCallbackSideEffectIntent(context.Background(), tx, execution, dashboard.WeWorkCallbackActionFissionCustomerPush, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+
+	const concurrency = 32
+	var executeCount atomic.Int64
+	errCh := make(chan error, concurrency)
+	var wg sync.WaitGroup
+	for range concurrency {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			execute, status, err := store.BeginWeWorkCallbackSideEffect(context.Background(), 11, 1101, eventKey, dashboard.WeWorkCallbackActionFissionCustomerPush, payloadHash)
+			if err != nil {
+				errCh <- err
+				return
+			}
+			if execute {
+				executeCount.Add(1)
+			} else if status != dashboard.WeWorkCallbackSideEffectUnknown {
+				errCh <- fmt.Errorf("concurrent replay status=%q", status)
+			}
+		}()
+	}
+	wg.Wait()
+	close(errCh)
+	for err := range errCh {
+		t.Fatal(err)
+	}
+	if executeCount.Load() != 1 {
+		t.Fatalf("external execution owners=%d, want 1", executeCount.Load())
+	}
+	if err := store.CompleteWeWorkCallbackSideEffect(context.Background(), 11, 1101, eventKey, dashboard.WeWorkCallbackActionFissionCustomerPush, payloadHash); err != nil {
+		t.Fatal(err)
+	}
+	if execute, status, err := store.BeginWeWorkCallbackSideEffect(context.Background(), 11, 1101, eventKey, dashboard.WeWorkCallbackActionFissionCustomerPush, payloadHash); err != nil || execute || status != dashboard.WeWorkCallbackSideEffectSent {
+		t.Fatalf("sent replay execute=%t status=%q err=%v", execute, status, err)
+	}
+	rolledBack, err := runner.RollbackLast(context.Background())
+	if err != nil || rolledBack != "0174_wework_callback_side_effects" {
+		t.Fatalf("rollback=%q err=%v", rolledBack, err)
+	}
+}
+
 func TestMySQLStoreWeWorkCallbackInboxConcurrentAcceptanceAndLeaseFencing(t *testing.T) {
 	store, db, runner := newWeWorkCallbackInboxIntegrationStore(t)
 	state, err := store.WeWorkCallbackLegacyCutover(context.Background())

@@ -17565,6 +17565,21 @@ func (s *MySQLStore) HandleWorkFissionAddContact(ctx context.Context, event dash
 	}
 	reminder := workFissionEmployeeReminder(activity, event, completed)
 	customerPush := workFissionCustomerPush(activity, parent, event, completed)
+	if execution, ok := dashboard.WeWorkCallbackExecutionFromContext(ctx); ok {
+		if execution.CorpID != event.CorpID {
+			return dashboard.WorkFissionAddContactResult{}, false, errors.New("wework callback side effect corp scope mismatch")
+		}
+		if reminder != nil {
+			if err := insertWeWorkCallbackSideEffectIntent(ctx, tx, execution, dashboard.WeWorkCallbackActionFissionEmployeeReminder, reminder); err != nil {
+				return dashboard.WorkFissionAddContactResult{}, false, err
+			}
+		}
+		if customerPush != nil {
+			if err := insertWeWorkCallbackSideEffectIntent(ctx, tx, execution, dashboard.WeWorkCallbackActionFissionCustomerPush, customerPush); err != nil {
+				return dashboard.WorkFissionAddContactResult{}, false, err
+			}
+		}
+	}
 	if err := tx.Commit(); err != nil {
 		return dashboard.WorkFissionAddContactResult{}, false, err
 	}

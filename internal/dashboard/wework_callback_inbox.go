@@ -28,6 +28,15 @@ var (
 
 const LegacyWeWorkCallbackCutoverName = "legacy-redis-v1"
 
+const (
+	WeWorkCallbackSideEffectPending = "pending"
+	WeWorkCallbackSideEffectUnknown = "unknown"
+	WeWorkCallbackSideEffectSent    = "sent"
+
+	WeWorkCallbackActionFissionEmployeeReminder = "fission.employee_reminder"
+	WeWorkCallbackActionFissionCustomerPush     = "fission.customer_push"
+)
+
 type WeWorkCallbackInboxStore interface {
 	AcceptWeWorkCallback(ctx context.Context, event WeWorkCallbackEvent, eventKey string, fingerprint string) (replayed bool, err error)
 }
@@ -54,6 +63,11 @@ type WeWorkCallbackInbox interface {
 	CompleteWeWorkCallback(ctx context.Context, claim WeWorkCallbackClaim) error
 	DeferWeWorkCallbackDependency(ctx context.Context, claim WeWorkCallbackClaim, reason string, retryDelay time.Duration) error
 	FailWeWorkCallback(ctx context.Context, claim WeWorkCallbackClaim, reason string, maxAttempts int, retryDelay time.Duration) (deadLettered bool, err error)
+}
+
+type WeWorkCallbackSideEffectStore interface {
+	BeginWeWorkCallbackSideEffect(ctx context.Context, tenantID, corpID int, eventKey, actionKey, payloadHash string) (execute bool, status string, err error)
+	CompleteWeWorkCallbackSideEffect(ctx context.Context, tenantID, corpID int, eventKey, actionKey, payloadHash string) error
 }
 
 type LegacyWeWorkCallbackBacklogStats struct {
@@ -98,12 +112,17 @@ type LegacyWeWorkCallbackCutover struct {
 type weWorkCallbackExecutionContextKey struct{}
 
 type WeWorkCallbackExecution struct {
+	TenantID   int
+	CorpID     int
 	EventKey   string
 	LeaseFence uint64
 }
 
 func withWeWorkCallbackExecution(ctx context.Context, claim WeWorkCallbackClaim) context.Context {
-	return context.WithValue(ctx, weWorkCallbackExecutionContextKey{}, WeWorkCallbackExecution{EventKey: claim.EventKey, LeaseFence: claim.LeaseFence})
+	return context.WithValue(ctx, weWorkCallbackExecutionContextKey{}, WeWorkCallbackExecution{
+		TenantID: claim.Event.TenantID, CorpID: claim.Event.CorpID,
+		EventKey: claim.EventKey, LeaseFence: claim.LeaseFence,
+	})
 }
 
 func WeWorkCallbackExecutionFromContext(ctx context.Context) (WeWorkCallbackExecution, bool) {
@@ -112,6 +131,22 @@ func WeWorkCallbackExecutionFromContext(ctx context.Context) (WeWorkCallbackExec
 	}
 	execution, ok := ctx.Value(weWorkCallbackExecutionContextKey{}).(WeWorkCallbackExecution)
 	return execution, ok && strings.TrimSpace(execution.EventKey) != "" && execution.LeaseFence > 0
+}
+
+func WeWorkCallbackSideEffectPayloadHash(actionKey string, payload any) (string, error) {
+	actionKey = strings.TrimSpace(actionKey)
+	if actionKey == "" || payload == nil {
+		return "", errors.New("wework callback side effect payload is invalid")
+	}
+	raw, err := json.Marshal(struct {
+		ActionKey string `json:"actionKey"`
+		Payload   any    `json:"payload"`
+	}{ActionKey: actionKey, Payload: payload})
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(raw)
+	return hex.EncodeToString(sum[:]), nil
 }
 
 // SanitizeWeWorkCallbackFailure prevents Provider URL query credentials from
