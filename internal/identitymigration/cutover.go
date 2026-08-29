@@ -10,7 +10,7 @@ import (
 	"os"
 	"strings"
 
-	"jiyi/mochat-go/internal/migration"
+	"jiyi/mochat-go/internal/sqlscript"
 	"jiyi/mochat-go/internal/wecomcredentials"
 )
 
@@ -66,7 +66,7 @@ func ApplyCutover(ctx context.Context, db *sql.DB, options DatabaseOptions, upPa
 	if _, err := conn.ExecContext(ctx, "SET @identity_0131_platform_tenant_id = ?, @identity_0131_request_id = CONVERT(? USING utf8mb4) COLLATE utf8mb4_unicode_ci, @identity_0131_script_checksum = ?", options.PlatformTenantID, options.RequestID, hex.EncodeToString(checksum[:])); err != nil {
 		return CutoverResult{}, phaseFailure("preflight", "session_bind")
 	}
-	statements, err := migration.SplitSQLStatements(string(body))
+	statements, err := sqlscript.Split(string(body))
 	if err != nil {
 		return CutoverResult{}, phaseFailure("cutover", "script_parse")
 	}

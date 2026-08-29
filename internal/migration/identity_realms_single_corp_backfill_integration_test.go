@@ -13,6 +13,8 @@ import (
 	"testing"
 
 	mysqldriver "github.com/go-sql-driver/mysql"
+
+	"jiyi/mochat-go/internal/identitymigration"
 )
 
 func TestIdentityRealmsSingleCorpBackfillRealMariaDB(t *testing.T) {
@@ -34,8 +36,7 @@ func TestIdentityRealmsSingleCorpBackfillRealMariaDB(t *testing.T) {
 	if _, err := db.Exec(`INSERT INTO mochat_go_saas_admin_user_access (user_id) VALUES (11)`); err != nil {
 		t.Fatal(err)
 	}
-	stageIdentityMigrationBatch(t, db, "task8-real-1", 1, nil)
-	if err := execIdentitySingleCorpMigration(t, db, "0130_identity_realms_single_corp_backfill.up.sql", false); err != nil {
+	if err := applyIdentityBackfillWithEvidence(t, db, "task8-real-1", 1, nil); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(`CREATE TABLE mochat_go_schema_migrations (version varchar(64) NOT NULL, description varchar(255) NOT NULL DEFAULT '', checksum char(64) NOT NULL DEFAULT '', applied_at timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP, execution_ms int(10) unsigned NOT NULL DEFAULT 0, PRIMARY KEY (version)) ENGINE=InnoDB`); err != nil {
@@ -105,8 +106,7 @@ func TestIdentityRealmsSingleCorpBackfillRealMariaDB(t *testing.T) {
 	}
 	assertIdentityForeignKeyMissing(t, db, "mochat_go_saas_admin_user_access", "fk_saas_admin_user_access_identity")
 	assertIdentityTableMissing(t, db, "mochat_go_identity_migration_ledger")
-	stageIdentityMigrationBatch(t, db, "task8-real-1-reapply", 1, nil)
-	if err := execIdentitySingleCorpMigration(t, db, "0130_identity_realms_single_corp_backfill.up.sql", false); err != nil {
+	if err := applyIdentityBackfillWithEvidence(t, db, "task8-real-1-reapply", 1, nil); err != nil {
 		t.Fatal(err)
 	}
 	assertIdentityForeignKeyExists(t, db, "mochat_go_saas_admin_user_access", "fk_saas_admin_user_access_identity")
@@ -124,8 +124,7 @@ func TestIdentityRealmsSingleCorpBackfillRejectsSaaSIdentityConflictBeforeDDL(t 
 	if _, err := db.Exec(`INSERT INTO mochat_go_saas_admin_users (id, login_name, phone, password_hash, name, status, must_rotate_password, auth_version, mfa_required) VALUES (11, 'wrong-login', '13800000009', 'wrong-hash', 'Wrong', 1, 0, 9, 0)`); err != nil {
 		t.Fatal(err)
 	}
-	stageIdentityMigrationBatch(t, db, "task8-conflict", 1, nil)
-	err := execIdentitySingleCorpMigration(t, db, "0130_identity_realms_single_corp_backfill.up.sql", true)
+	err := applyIdentityBackfillWithEvidence(t, db, "task8-conflict", 1, nil)
 	assertIdentityBackfillError(t, err, "0130 SaaS platform identity phone/login conflict")
 	assertIdentityTableMissing(t, db, "mochat_go_identity_migration_ledger")
 	assertIdentityForeignKeyMissing(t, db, "mochat_go_saas_admin_user_access", "fk_saas_admin_user_access_identity")
@@ -143,8 +142,7 @@ func TestIdentityRealmsSingleCorpBackfillDownPreservesPreexistingDashboardIdenti
 	if _, err := db.Exec(`INSERT INTO mochat_go_dashboard_identities (user_id, login_identifier, password_hash, status, must_rotate_password, auth_version, mfa_required, activated_at) VALUES (13, '13800000013', 'legacy-business-hash', 1, 0, 1, 0, NOW())`); err != nil {
 		t.Fatal(err)
 	}
-	stageIdentityMigrationBatch(t, db, "task8-preexisting-dashboard", 1, nil)
-	if err := execIdentitySingleCorpMigration(t, db, "0130_identity_realms_single_corp_backfill.up.sql", false); err != nil {
+	if err := applyIdentityBackfillWithEvidence(t, db, "task8-preexisting-dashboard", 1, nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := execIdentitySingleCorpMigration(t, db, "0130_identity_realms_single_corp_backfill.down.sql", false); err != nil {
@@ -168,8 +166,7 @@ func TestIdentityRealmsSingleCorpBackfillRejectsDuplicatePlatformActorPhoneBefor
 	if _, err := db.Exec(`INSERT INTO mc_user (id, tenant_id, phone, password, name, status, deleted_at, isSuperAdmin) VALUES (11, 1, '13800000011', 'hash-11', 'Platform one', 1, NULL, 1), (12, 1, '13800000011', 'hash-12', 'Platform two', 1, NULL, 1)`); err != nil {
 		t.Fatal(err)
 	}
-	stageIdentityMigrationBatch(t, db, "task8-platform-phone-conflict", 1, nil)
-	err := execIdentitySingleCorpMigration(t, db, "0130_identity_realms_single_corp_backfill.up.sql", true)
+	err := applyIdentityBackfillWithEvidence(t, db, "task8-platform-phone-conflict", 1, nil)
 	if !strings.Contains(strings.ToLower(err.Error()), "phone/login conflict") {
 		t.Fatalf("error=%v, want platform phone/login conflict", err)
 	}
@@ -188,8 +185,7 @@ func TestIdentityRealmsSingleCorpBackfillRejectsBusinessTenantSuperadminAsSaaSAc
 	if _, err := db.Exec(`INSERT INTO mochat_go_saas_admin_user_access (user_id) VALUES (12)`); err != nil {
 		t.Fatal(err)
 	}
-	stageIdentityMigrationBatch(t, db, "task8-business-actor", 1, nil)
-	err := execIdentitySingleCorpMigration(t, db, "0130_identity_realms_single_corp_backfill.up.sql", true)
+	err := applyIdentityBackfillWithEvidence(t, db, "task8-business-actor", 1, nil)
 	if !strings.Contains(strings.ToLower(err.Error()), "business tenant superadmin") {
 		t.Fatalf("error=%v, want business tenant superadmin failure", err)
 	}
@@ -205,8 +201,7 @@ func TestIdentityRealmsSingleCorpBackfillRejectsMultipleCorpsBeforeDDL(t *testin
 	if err := execIdentitySingleCorpMigration(t, db, "0129_identity_realms_single_corp_schema.up.sql", false); err != nil {
 		t.Fatal(err)
 	}
-	stageIdentityMigrationBatch(t, db, "task8-multiple-corps", 1, nil)
-	err := execIdentitySingleCorpMigration(t, db, "0130_identity_realms_single_corp_backfill.up.sql", true)
+	err := applyIdentityBackfillWithEvidence(t, db, "task8-multiple-corps", 1, nil)
 	assertIdentityBackfillError(t, err, "0130 multiple valid corp requires signed mapping")
 	assertIdentityTableMissing(t, db, "mochat_go_identity_migration_ledger")
 	assertIdentityForeignKeyMissing(t, db, "mochat_go_saas_admin_user_access", "fk_saas_admin_user_access_identity")
@@ -217,8 +212,7 @@ func TestIdentityRealmsSingleCorpBackfillRejectsMultipleCorpsBeforeDDL(t *testin
 	if _, err := db.Exec(`DELETE FROM mochat_go_identity_migration_batches WHERE request_id=?`, "task8-multiple-corps"); err != nil {
 		t.Fatal(err)
 	}
-	stageIdentityMigrationBatch(t, db, "task8-real-multi", 1, []CorpMappingFixture{{TenantID: 1, CorpID: 101}})
-	if err := execIdentitySingleCorpMigration(t, db, "0130_identity_realms_single_corp_backfill.up.sql", false); err != nil {
+	if err := applyIdentityBackfillWithEvidence(t, db, "task8-real-multi", 1, []CorpMappingFixture{{TenantID: 1, CorpID: 101}}); err != nil {
 		t.Fatal(err)
 	}
 	var mappedCorpID int64
@@ -236,8 +230,7 @@ func TestIdentityRealmsSingleCorpBackfillDownToleratesPartialDDL(t *testing.T) {
 	if err := execIdentitySingleCorpMigration(t, db, "0129_identity_realms_single_corp_schema.up.sql", false); err != nil {
 		t.Fatal(err)
 	}
-	stageIdentityMigrationBatch(t, db, "task8-partial", 1, nil)
-	if err := execIdentitySingleCorpMigration(t, db, "0130_identity_realms_single_corp_backfill.up.sql", false); err != nil {
+	if err := applyIdentityBackfillWithEvidence(t, db, "task8-partial", 1, nil); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(`ALTER TABLE mochat_go_saas_admin_user_access DROP FOREIGN KEY fk_saas_admin_user_access_identity`); err != nil {
@@ -256,24 +249,42 @@ type CorpMappingFixture struct {
 	CorpID   int64
 }
 
-func stageIdentityMigrationBatch(t *testing.T, db *sql.DB, requestID string, platformTenantID int64, mappings []CorpMappingFixture) {
+func applyIdentityBackfillWithEvidence(t *testing.T, db *sql.DB, requestID string, platformTenantID int64, mappings []CorpMappingFixture) error {
 	t.Helper()
-	for _, statement := range []string{
-		`CREATE TABLE IF NOT EXISTS mochat_go_identity_migration_batches (request_id varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL, platform_tenant_id int(10) unsigned NOT NULL, status varchar(16) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL, mapping_digest char(64) NOT NULL DEFAULT '', script_checksum char(64) NOT NULL, preflight_status varchar(16) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'passed', credential_status varchar(16) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'verified', actor_inventory_status varchar(16) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'verified', migration_source varchar(96) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '0130_identity_realms_single_corp_backfill', PRIMARY KEY (request_id)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
-		`CREATE TABLE IF NOT EXISTS mochat_go_identity_migration_corp_map (request_id varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL, tenant_id int(10) unsigned NOT NULL, corp_id int(10) unsigned NOT NULL, status varchar(16) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL, migration_source varchar(96) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '0130_identity_realms_single_corp_backfill', PRIMARY KEY (request_id, tenant_id), UNIQUE KEY uni_task8_stage_corp (request_id, corp_id)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
-	} {
-		if _, err := db.Exec(statement); err != nil {
-			t.Fatal(err)
-		}
+	conn, err := db.Conn(context.Background())
+	if err != nil {
+		return err
 	}
-	if _, err := db.Exec(`INSERT INTO mochat_go_identity_migration_batches (request_id, platform_tenant_id, status, script_checksum, preflight_status, credential_status, actor_inventory_status) VALUES (?, ?, 'validated', ?, 'passed', 'verified', 'verified')`, requestID, platformTenantID, identityBackfillScriptChecksum(t)); err != nil {
-		t.Fatal(err)
+	defer conn.Close()
+	if _, err := conn.ExecContext(context.Background(), `SET @identity_0130_requested_request_id = ?`, requestID); err != nil {
+		return err
 	}
+	mappingDocument := identitymigration.MappingDocument{SignatureVerified: len(mappings) > 0}
 	for _, mapping := range mappings {
-		if _, err := db.Exec(`INSERT INTO mochat_go_identity_migration_corp_map (request_id, tenant_id, corp_id, status) VALUES (?, ?, ?, 'validated')`, requestID, mapping.TenantID, mapping.CorpID); err != nil {
-			t.Fatal(err)
+		mappingDocument.Entries = append(mappingDocument.Entries, identitymigration.CorpMapping{TenantID: mapping.TenantID, CorpID: mapping.CorpID})
+	}
+	if err := identitymigration.StageValidatedBatchOnConn(context.Background(), conn, identitymigration.DatabaseOptions{
+		PlatformTenantID: platformTenantID,
+		RequestID:        requestID,
+		ScriptChecksum:   identityBackfillScriptChecksum(t),
+		Mapping:          mappingDocument,
+	}); err != nil {
+		return err
+	}
+	body, err := os.ReadFile(filepath.Join("..", "..", "deploy", "standalone", "migrations", "0130_identity_realms_single_corp_backfill.up.sql"))
+	if err != nil {
+		return err
+	}
+	statements, err := SplitSQLStatements(string(body))
+	if err != nil {
+		return err
+	}
+	for _, statement := range statements {
+		if _, err := conn.ExecContext(context.Background(), statement); err != nil {
+			return err
 		}
 	}
+	return nil
 }
 
 func assertIdentityBackfillError(t *testing.T, err error, wantMessage string) {
