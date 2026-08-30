@@ -18,7 +18,12 @@ import (
 	"jiyi/mochat-go/internal/migration/testharness"
 )
 
-const aiInsight0165ExpectedChecksum = "4575a0d89e59cf0b87059c0d60575be3e5cc566ee7338cc6fb6f616e8431520f"
+const aiInsight0165PublishedCRLFChecksum = "4575a0d89e59cf0b87059c0d60575be3e5cc566ee7338cc6fb6f616e8431520f"
+const aiInsight0165PublishedLFChecksum = "eb6c469a0b46bccb44da6f51d10d517b600f6aa4e6bbfa10f9dbcfd7e1163d5b"
+
+func isPublishedAIInsight0165Checksum(value string) bool {
+	return value == aiInsight0165PublishedCRLFChecksum || value == aiInsight0165PublishedLFChecksum
+}
 
 func TestAIInsight0165IsRegisteredAsControlledWithoutChangingPublishedSQL(t *testing.T) {
 	kind, metadata := MigrationMetadata(AIInsight0165Version)
@@ -38,8 +43,24 @@ func TestAIInsight0165IsRegisteredAsControlledWithoutChangingPublishedSQL(t *tes
 		if item.Version != AIInsight0165Version {
 			continue
 		}
-		if item.Checksum != aiInsight0165ExpectedChecksum {
-			t.Fatalf("0165 checksum = %s, want immutable %s", item.Checksum, aiInsight0165ExpectedChecksum)
+		if !isPublishedAIInsight0165Checksum(item.Checksum) {
+			t.Fatalf("0165 checksum = %s, want a published LF/CRLF checksum", item.Checksum)
+		}
+		for _, migration := range DefaultMigrations(root) {
+			if migration.Version != AIInsight0165Version {
+				continue
+			}
+			other := aiInsight0165PublishedLFChecksum
+			if item.Checksum == other {
+				other = aiInsight0165PublishedCRLFChecksum
+			}
+			foundAlias := false
+			for _, alias := range migration.ChecksumAliases {
+				foundAlias = foundAlias || alias == other
+			}
+			if !foundAlias {
+				t.Fatalf("0165 registered aliases = %v, missing published line-ending checksum %s", migration.ChecksumAliases, other)
+			}
 		}
 		return
 	}
@@ -95,7 +116,7 @@ func TestAIInsight0165ControlledLifecycleMariaDB(t *testing.T) {
 	if inventory.InsightRows != 2 || inventory.DuplicateRows != 1 || inventory.LegacyRows != 1 {
 		t.Fatalf("inventory = %+v", inventory)
 	}
-	if inventory.MigrationChecksum != aiInsight0165ExpectedChecksum || inventory.Applied {
+	if !isPublishedAIInsight0165Checksum(inventory.MigrationChecksum) || inventory.Applied {
 		t.Fatalf("inventory checksum/applied = %+v", inventory)
 	}
 
@@ -165,7 +186,7 @@ func TestAIInsight0165ControlledLifecycleMariaDB(t *testing.T) {
 	if err := db.QueryRowContext(ctx, `SELECT checksum FROM mochat_go_schema_migrations WHERE version = ?`, AIInsight0165Version).Scan(&ledgerChecksum); err != nil {
 		t.Fatal(err)
 	}
-	if ledgerChecksum != aiInsight0165ExpectedChecksum {
+	if ledgerChecksum != result.MigrationChecksum {
 		t.Fatalf("ledger checksum = %s", ledgerChecksum)
 	}
 	if _, err := controller.Apply(ctx, AIInsight0165ApplyRequest{RequestID: "task8-request", ApprovalToken: preflight.ApprovalToken, DestructiveApproval: preflight.DestructiveApproval, TrafficStopped: true}); !errors.Is(err, ErrAIInsight0165AlreadyApplied) {
@@ -418,7 +439,6 @@ func TestAIInsight0165AdoptsHistoricalAppliedEnvironmentWithoutClaimingVerified(
 			t.Fatal(err)
 		}
 	}
-
 	latestEvidence, err := testharness.NewControlledEvidence("historical-adoption-latest")
 	if err != nil {
 		t.Fatal(err)
@@ -443,7 +463,7 @@ func TestAIInsight0165AdoptsHistoricalAppliedEnvironmentWithoutClaimingVerified(
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.Adopted || result.Verified || result.ExternalBackupSHA256 != backupSHA || result.RecoveryBoundary == "" {
+	if !result.Adopted || result.Verified || result.AppliedMigrationChecksum != result.MigrationChecksum || result.ExternalBackupSHA256 != backupSHA || result.RecoveryBoundary == "" {
 		t.Fatalf("adoption result = %+v", result)
 	}
 	repeated, err := controller.AdoptExisting(ctx, AIInsight0165AdoptExistingRequest{

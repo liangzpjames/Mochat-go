@@ -145,7 +145,7 @@ mochat-ai-insight-0165 adopt-existing \
   --confirm-traffic-stopped
 ```
 
-工具只在普通账本 checksum 精确一致且 0165 后置 schema 完整时写入 `adopted_existing`。输出固定为 `verified=false`，并保留“历史被删行无法由仓库重建”的恢复边界。该记录不能替代迁移前备份，未执行 0165 的环境也不能用它跳过完整流程。
+工具只在普通账本 checksum 等于当前脚本值或迁移注册表自动生成的同源 LF/CRLF 换行别名，且 0165 后置 schema 完整时写入 `adopted_existing`。控制记录同时保存当前脚本 checksum 与账本实际 checksum；任意其他历史值均拒绝。输出固定为 `verified=false`，并保留“历史被删行无法由仓库重建”的恢复边界。该记录不能替代迁移前备份，未执行 0165 的环境也不能用它跳过完整流程。
 
 ## 5. 失败与恢复
 

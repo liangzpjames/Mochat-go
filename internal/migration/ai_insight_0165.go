@@ -77,15 +77,16 @@ type AIInsight0165AdoptExistingRequest struct {
 }
 
 type AIInsight0165AdoptionResult struct {
-	RequestID            string `json:"requestId"`
-	Adopted              bool   `json:"adopted"`
-	Verified             bool   `json:"verified"`
-	SchemaName           string `json:"schemaName"`
-	MigrationChecksum    string `json:"migrationChecksum"`
-	ExternalBackupSHA256 string `json:"externalBackupSha256"`
-	InsightRows          int64  `json:"insightRows"`
-	InsightDigest        string `json:"insightDigest"`
-	RecoveryBoundary     string `json:"recoveryBoundary"`
+	RequestID                string `json:"requestId"`
+	Adopted                  bool   `json:"adopted"`
+	Verified                 bool   `json:"verified"`
+	SchemaName               string `json:"schemaName"`
+	MigrationChecksum        string `json:"migrationChecksum"`
+	AppliedMigrationChecksum string `json:"appliedMigrationChecksum"`
+	ExternalBackupSHA256     string `json:"externalBackupSha256"`
+	InsightRows              int64  `json:"insightRows"`
+	InsightDigest            string `json:"insightDigest"`
+	RecoveryBoundary         string `json:"recoveryBoundary"`
 }
 
 type AIInsight0165ApplyResult struct {
@@ -372,9 +373,10 @@ func (c *AIInsight0165Controller) AdoptExisting(ctx context.Context, request AII
 	if err := conn.QueryRowContext(ctx, `SELECT checksum FROM `+VersionTable+` WHERE version = ?`, AIInsight0165Version).Scan(&appliedChecksum); err != nil {
 		return result, fmt.Errorf("%w: historical 0165 ledger is missing", ErrAIInsight0165WrongSchema)
 	}
-	if appliedChecksum != c.checksum {
-		return result, fmt.Errorf("%w: applied checksum %s differs from immutable checksum %s", ErrAIInsight0165WrongSchema, appliedChecksum, c.checksum)
+	if !checksumMatches(appliedChecksum, c.checksum, c.migration.ChecksumAliases) {
+		return result, fmt.Errorf("%w: applied checksum %s is not the current 0165 checksum %s or a registered line-ending alias", ErrAIInsight0165WrongSchema, appliedChecksum, c.checksum)
 	}
+	result.AppliedMigrationChecksum = appliedChecksum
 	if err := validateAIInsight0165PostMigrationSchema(ctx, conn); err != nil {
 		return result, err
 	}
@@ -412,24 +414,26 @@ func (c *AIInsight0165Controller) AdoptExisting(ctx context.Context, request AII
 	if adoptedCount == 1 {
 		var existing AIInsight0165AdoptionResult
 		err := conn.QueryRowContext(ctx, `
-			SELECT request_id, schema_name, migration_checksum, external_backup_sha256,
+			SELECT request_id, schema_name, migration_checksum, applied_migration_checksum, external_backup_sha256,
 				insight_rows, insight_digest, recovery_boundary
 			FROM `+aiInsight0165ControlTable+` WHERE status = ?
 		`, aiInsight0165AdoptedStatus).Scan(
-			&existing.RequestID, &existing.SchemaName, &existing.MigrationChecksum, &existing.ExternalBackupSHA256,
+			&existing.RequestID, &existing.SchemaName, &existing.MigrationChecksum, &existing.AppliedMigrationChecksum, &existing.ExternalBackupSHA256,
 			&existing.InsightRows, &existing.InsightDigest, &existing.RecoveryBoundary,
 		)
 		if err != nil {
 			return result, err
 		}
 		if existing.RequestID != result.RequestID || existing.SchemaName != result.SchemaName ||
-			existing.MigrationChecksum != result.MigrationChecksum || existing.ExternalBackupSHA256 != result.ExternalBackupSHA256 ||
+			!checksumMatches(existing.MigrationChecksum, result.MigrationChecksum, c.migration.ChecksumAliases) ||
+			existing.AppliedMigrationChecksum != result.AppliedMigrationChecksum ||
+			existing.ExternalBackupSHA256 != result.ExternalBackupSHA256 ||
 			existing.InsightRows != result.InsightRows || existing.InsightDigest != result.InsightDigest ||
 			existing.RecoveryBoundary != result.RecoveryBoundary {
 			return result, ErrAIInsight0165AdoptionConflict
 		}
-		result.Adopted = true
-		return result, nil
+		existing.Adopted = true
+		return existing, nil
 	}
 	emptyDigest := emptyAIInsight0165Digest()
 	_, err = conn.ExecContext(ctx, `
@@ -437,11 +441,11 @@ func (c *AIInsight0165Controller) AdoptExisting(ctx context.Context, request AII
 			request_id, schema_name, migration_checksum,
 			insight_rows, insight_digest, duplicate_rows, legacy_rows, legacy_digest,
 			backup_insight_rows, backup_insight_digest, backup_legacy_rows, backup_legacy_digest,
-			status, recovery_boundary, external_backup_sha256, adopted_at,
+			status, recovery_boundary, applied_migration_checksum, external_backup_sha256, adopted_at,
 			created_at, updated_at, verified_at
-		) VALUES (?, ?, ?, ?, ?, 0, 0, ?, 0, ?, 0, ?, ?, ?, ?, NOW(), NOW(), NOW(), NULL)
+		) VALUES (?, ?, ?, ?, ?, 0, 0, ?, 0, ?, 0, ?, ?, ?, ?, ?, NOW(), NOW(), NOW(), NULL)
 	`, requestID, result.SchemaName, c.checksum, result.InsightRows, result.InsightDigest,
-		emptyDigest, emptyDigest, emptyDigest, aiInsight0165AdoptedStatus, result.RecoveryBoundary, backupSHA)
+		emptyDigest, emptyDigest, emptyDigest, aiInsight0165AdoptedStatus, result.RecoveryBoundary, appliedChecksum, backupSHA)
 	if err != nil {
 		return result, fmt.Errorf("record 0165 historical adoption: %w", err)
 	}
@@ -467,8 +471,8 @@ func (c *AIInsight0165Controller) inventoryWith(ctx context.Context, queryer aiI
 	case err == nil:
 		report.Applied = true
 		report.RecoveryBoundary = aiInsight0165RecoveryBoundaryText
-		if appliedChecksum != c.checksum {
-			return report, fmt.Errorf("%w: applied checksum %s differs from immutable checksum %s", ErrAIInsight0165WrongSchema, appliedChecksum, c.checksum)
+		if !checksumMatches(appliedChecksum, c.checksum, c.migration.ChecksumAliases) {
+			return report, fmt.Errorf("%w: applied checksum %s is not the current 0165 checksum %s or a registered line-ending alias", ErrAIInsight0165WrongSchema, appliedChecksum, c.checksum)
 		}
 		return report, ErrAIInsight0165AlreadyApplied
 	case !errors.Is(err, sql.ErrNoRows):
@@ -819,6 +823,7 @@ func createAIInsight0165ControlTable(ctx context.Context, queryer aiInsight0165Q
 		verified_at datetime NULL,
 		recovery_boundary text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL,
 		external_backup_sha256 char(64) CHARACTER SET ascii COLLATE ascii_bin NULL,
+		applied_migration_checksum char(64) CHARACTER SET ascii COLLATE ascii_bin NULL,
 		adopted_at datetime NULL,
 		PRIMARY KEY (request_id)
 	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`)
@@ -835,6 +840,7 @@ func ensureAIInsight0165AdoptionColumns(ctx context.Context, queryer aiInsight01
 	}{
 		{"recovery_boundary", "text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL"},
 		{"external_backup_sha256", "char(64) CHARACTER SET ascii COLLATE ascii_bin NULL"},
+		{"applied_migration_checksum", "char(64) CHARACTER SET ascii COLLATE ascii_bin NULL"},
 		{"adopted_at", "datetime NULL"},
 	}
 	for _, column := range columns {

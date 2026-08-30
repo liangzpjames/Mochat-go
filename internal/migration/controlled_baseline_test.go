@@ -85,7 +85,7 @@ func TestControlledMigrationBaselineEvidenceRejectsMissingAIInsightVerification(
 	metadata := controlledMigrationRegistry[AIInsight0165Version]
 	migration := Migration{Version: metadata.Version, Kind: MigrationControlled, Controlled: &metadata}
 	mock.ExpectQuery(regexp.QuoteMeta("SELECT COUNT(*)")).
-		WithArgs("expected-checksum", migration.Controlled.SuccessStatus).
+		WithArgs(migration.Controlled.SuccessStatus, aiInsight0165AdoptedStatus).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
 	if err := controlledMigrationBaselineEvidence(context.Background(), db, migration, "expected-checksum"); err == nil {
 		t.Fatal("missing verified 0165 evidence was accepted")

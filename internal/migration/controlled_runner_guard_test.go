@@ -43,10 +43,7 @@ func TestRunnerApplyRejectsAppliedControlledMigrationWithoutVerifiedEvidence(t *
 		WillReturnRows(sqlmock.NewRows([]string{"version", "description", "checksum", "applied_at", "execution_ms"}).
 			AddRow(migration.Version, migration.Description, checksum, time.Now(), 0))
 	mock.ExpectQuery(regexp.QuoteMeta("SELECT COUNT(*)")).
-		WithArgs(checksum, metadata.SuccessStatus).
-		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
-	mock.ExpectQuery(regexp.QuoteMeta("SELECT COUNT(*)")).
-		WithArgs(checksum, aiInsight0165AdoptedStatus, aiInsight0165RecoveryBoundaryText).
+		WithArgs(metadata.SuccessStatus, aiInsight0165AdoptedStatus).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
 
 	_, err = runner.Apply(context.Background())

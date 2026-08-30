@@ -121,30 +121,54 @@ func controlledMigrationBaselineEvidence(ctx context.Context, db *sql.DB, migrat
 	}
 	var count int
 	if migration.Version == AIInsight0165Version {
-		var verifiedCount int
 		if err := db.QueryRowContext(ctx, `
 			SELECT COUNT(*)
 			FROM `+aiInsight0165ControlTable+`
-			WHERE migration_checksum = ? AND status = ?
-		`, checksum, metadata.SuccessStatus).Scan(&verifiedCount); err != nil {
+			WHERE status IN (?, ?)
+		`, metadata.SuccessStatus, aiInsight0165AdoptedStatus).Scan(&count); err != nil {
 			return fmt.Errorf("inspect controlled migration %s baseline evidence: %w", migration.Version, err)
 		}
-		count = verifiedCount
-		if verifiedCount == 0 {
+		if count != 1 {
+			return fmt.Errorf("controlled migration %s baseline requires exactly one verified completion or historical adoption for checksum %s; found %d", migration.Version, checksum, count)
+		}
+		var status string
+		if err := db.QueryRowContext(ctx, `
+			SELECT status FROM `+aiInsight0165ControlTable+` WHERE status IN (?, ?)
+		`, metadata.SuccessStatus, aiInsight0165AdoptedStatus).Scan(&status); err != nil {
+			return fmt.Errorf("inspect controlled migration %s baseline status: %w", migration.Version, err)
+		}
+		if status == metadata.SuccessStatus {
+			var recordedChecksum string
+			if err := db.QueryRowContext(ctx, `SELECT migration_checksum FROM `+aiInsight0165ControlTable+` WHERE status = ?`, status).Scan(&recordedChecksum); err != nil {
+				return fmt.Errorf("inspect controlled migration %s verified checksum: %w", migration.Version, err)
+			}
+			if !checksumMatches(recordedChecksum, checksum, migration.ChecksumAliases) {
+				return fmt.Errorf("controlled migration %s verified checksum %s is not current or a registered line-ending alias", migration.Version, recordedChecksum)
+			}
+		} else {
+			var recordedChecksum, appliedChecksum, recoveryBoundary, backupSHA string
+			var adoptedAt sql.NullTime
 			if err := db.QueryRowContext(ctx, `
-				SELECT COUNT(*)
-				FROM `+aiInsight0165ControlTable+`
-				WHERE migration_checksum = ? AND status = ?
-					AND recovery_boundary = ?
-					AND external_backup_sha256 REGEXP '^[0-9a-f]{64}$'
-					AND adopted_at IS NOT NULL
-			`, checksum, aiInsight0165AdoptedStatus, aiInsight0165RecoveryBoundaryText).Scan(&count); err != nil {
+				SELECT migration_checksum, applied_migration_checksum, recovery_boundary,
+					external_backup_sha256, adopted_at
+				FROM `+aiInsight0165ControlTable+` WHERE status = ?
+			`, aiInsight0165AdoptedStatus).Scan(&recordedChecksum, &appliedChecksum, &recoveryBoundary, &backupSHA, &adoptedAt); err != nil {
 				return fmt.Errorf("inspect controlled migration %s historical adoption: %w", migration.Version, err)
 			}
-			if count == 1 {
-				if err := validateAIInsight0165PostMigrationSchema(ctx, db); err != nil {
-					return fmt.Errorf("inspect controlled migration %s historical postcondition: %w", migration.Version, err)
-				}
+			if !checksumMatches(recordedChecksum, checksum, migration.ChecksumAliases) ||
+				!checksumMatches(appliedChecksum, checksum, migration.ChecksumAliases) {
+				return fmt.Errorf("controlled migration %s historical adoption checksum is not current or a registered line-ending alias", migration.Version)
+			}
+			var ledgerChecksum string
+			if err := db.QueryRowContext(ctx, `SELECT checksum FROM `+VersionTable+` WHERE version = ?`, migration.Version).Scan(&ledgerChecksum); err != nil {
+				return fmt.Errorf("inspect controlled migration %s historical ledger checksum: %w", migration.Version, err)
+			}
+			if appliedChecksum != ledgerChecksum || recoveryBoundary != aiInsight0165RecoveryBoundaryText ||
+				!aiInsight0165SHA256Pattern.MatchString(strings.TrimSpace(backupSHA)) || !adoptedAt.Valid {
+				return fmt.Errorf("controlled migration %s historical adoption is incomplete or no longer matches the ledger", migration.Version)
+			}
+			if err := validateAIInsight0165PostMigrationSchema(ctx, db); err != nil {
+				return fmt.Errorf("inspect controlled migration %s historical postcondition: %w", migration.Version, err)
 			}
 		}
 	} else {
@@ -159,7 +183,7 @@ func controlledMigrationBaselineEvidence(ctx context.Context, db *sql.DB, migrat
 			return fmt.Errorf("inspect controlled migration %s baseline evidence: %w", migration.Version, err)
 		}
 	}
-	if count != 1 {
+	if migration.Version != AIInsight0165Version && count != 1 {
 		return fmt.Errorf("controlled migration %s baseline requires exactly one verified completion or historical adoption for checksum %s; found %d", migration.Version, checksum, count)
 	}
 	if migration.Version == "0131_identity_realms_single_corp_cutover" {
