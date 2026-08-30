@@ -37,10 +37,24 @@ type parsedFunction struct {
 	path        string
 	pkg         string
 	name        string
+	receiver    string
+	receiverVar string
 	declaration *ast.FuncDecl
 	calls       map[string]bool
+	callAliases map[string]string
 	globals     map[string]string
 	directRoot  bool
+}
+
+func (function parsedFunction) referenceName() string {
+	if function.receiver == "" {
+		return function.name
+	}
+	return function.receiver + "." + function.name
+}
+
+func (function parsedFunction) key() string {
+	return function.pkg + ":" + function.referenceName()
 }
 
 var (
@@ -110,6 +124,7 @@ func Audit(sources map[string][]byte, config Config) []string {
 	}
 	governed := governedFunctionClosure(functions, rootNames)
 	functionReturns := resolveFunctionReturns(functions)
+	stringFunctions := packageStringFunctions(functions)
 	issues := []string{}
 	seen := map[string]bool{}
 	addIssue := func(issue string) {
@@ -123,9 +138,9 @@ func Audit(sources map[string][]byte, config Config) []string {
 		if !governed[index] {
 			continue
 		}
-		ref := Ref(function.path, function.name)
+		ref := Ref(function.path, function.referenceName())
 		locals := copyStringMap(function.globals)
-		if returned, ok := functionReturns[function.pkg+":"+function.name]; ok {
+		if returned, ok := functionReturns[function.key()]; ok {
 			auditLedgerText(ref, returned, config.AllowedLedgerDelete, addIssue)
 		}
 		ast.Inspect(function.declaration.Body, func(node ast.Node) bool {
@@ -139,14 +154,15 @@ func Audit(sources map[string][]byte, config Config) []string {
 					if !ok {
 						continue
 					}
-					if value, ok := resolveStringExpression(expression, locals, functionReturns, function.pkg); ok {
+					if value, ok := resolveStringExpressionDeep(expression, locals, functionReturns, stringFunctions, function.pkg, 0); ok {
 						locals[name.Name] = value
 					}
 				}
 			case *ast.DeclStmt:
-				resolveLocalStringDeclaration(typed.Decl, locals, functionReturns, function.pkg)
+				resolveLocalStringDeclarationDeep(typed.Decl, locals, functionReturns, stringFunctions, function.pkg)
 			case *ast.CallExpr:
-				name := calledName(typed.Fun)
+				canonical := canonicalCall(typed.Fun, function.callAliases, function)
+				name := callableLeaf(canonical)
 				if name == "NewRunner" {
 					if !allowedRunnerRefs[ref] {
 						addIssue(fmt.Sprintf("%s constructs a local migration runner", ref))
@@ -157,7 +173,7 @@ func Audit(sources map[string][]byte, config Config) []string {
 				if forbiddenCalls[name] && !allowedCallRefs[ref+":"+name] {
 					addIssue(fmt.Sprintf("%s bypasses the production registry through %s", ref, name))
 				}
-				auditLedgerCall(ref, typed, locals, functionReturns, function.pkg, config.AllowedLedgerDelete, addIssue)
+				auditLedgerCall(ref, typed, locals, functionReturns, stringFunctions, function.pkg, config.AllowedLedgerDelete, addIssue)
 			case *ast.CompositeLit:
 				if isMigrationSlice(typed.Type) {
 					addIssue(fmt.Sprintf("%s handwrites a migration slice", ref))
@@ -205,21 +221,31 @@ func parseFunctions(sources map[string][]byte, rootNames map[string]bool) ([]par
 			if !ok || function.Body == nil {
 				continue
 			}
-			parsed := parsedFunction{path: path, pkg: file.Name.Name, name: function.Name.Name, declaration: function, calls: map[string]bool{}, globals: resolveFileStringValues(file)}
-			if rootNames[parsed.name] {
+			parsed := parsedFunction{
+				path:        path,
+				pkg:         file.Name.Name,
+				name:        function.Name.Name,
+				receiver:    receiverTypeName(function),
+				receiverVar: receiverVariableName(function),
+				declaration: function,
+				calls:       map[string]bool{},
+				globals:     resolveFileStringValues(file),
+			}
+			parsed.callAliases = resolveCallAliases(function, parsed)
+			if parsed.receiver == "" && rootNames[parsed.name] {
 				parsed.directRoot = true
 			}
 			ast.Inspect(function.Body, func(node ast.Node) bool {
 				switch typed := node.(type) {
 				case *ast.CallExpr:
-					name := calledName(typed.Fun)
-					if name != "" {
-						parsed.calls[name] = true
-						if rootNames[name] {
+					canonical := canonicalCall(typed.Fun, parsed.callAliases, parsed)
+					if canonical != "" {
+						parsed.calls[canonical] = true
+						if !strings.Contains(canonical, ".") && rootNames[canonical] {
 							parsed.directRoot = true
 						}
 					}
-					if isStructuredDatabaseSink(typed.Fun) {
+					if isStructuredDatabaseSink(canonical) {
 						parsed.directRoot = true
 					}
 				case *ast.BasicLit:
@@ -247,7 +273,7 @@ func governedFunctionClosure(functions []parsedFunction, rootNames map[string]bo
 			if governedNames[function.pkg] == nil {
 				governedNames[function.pkg] = map[string]bool{}
 			}
-			governedNames[function.pkg][function.name] = true
+			governedNames[function.pkg][function.referenceName()] = true
 		}
 	}
 	for changed := true; changed; {
@@ -257,12 +283,12 @@ func governedFunctionClosure(functions []parsedFunction, rootNames map[string]bo
 				continue
 			}
 			for call := range function.calls {
-				if rootNames[call] || governedNames[function.pkg][call] {
+				if (!strings.Contains(call, ".") && rootNames[call]) || governedNames[function.pkg][call] {
 					governed[index] = true
 					if governedNames[function.pkg] == nil {
 						governedNames[function.pkg] = map[string]bool{}
 					}
-					governedNames[function.pkg][function.name] = true
+					governedNames[function.pkg][function.referenceName()] = true
 					changed = true
 					break
 				}
@@ -278,7 +304,7 @@ func governedFunctionClosure(functions []parsedFunction, rootNames map[string]bo
 		if local[function.pkg] == nil {
 			local[function.pkg] = map[string][]int{}
 		}
-		local[function.pkg][function.name] = append(local[function.pkg][function.name], index)
+		local[function.pkg][function.referenceName()] = append(local[function.pkg][function.referenceName()], index)
 	}
 	queue := []int{}
 	for index := range entry {
@@ -326,10 +352,10 @@ func normalizedObject(object string) string {
 	return strings.ToLower(object)
 }
 
-func auditLedgerCall(ref string, call *ast.CallExpr, locals, functionReturns map[string]string, pkg string, allowedDeletes map[string]string, addIssue func(string)) {
+func auditLedgerCall(ref string, call *ast.CallExpr, locals, functionReturns map[string]string, stringFunctions map[string]parsedFunction, pkg string, allowedDeletes map[string]string, addIssue func(string)) {
 	values := []string{}
 	for _, argument := range call.Args {
-		if value, ok := resolveStringExpression(argument, locals, functionReturns, pkg); ok {
+		if value, ok := resolveStringExpressionDeep(argument, locals, functionReturns, stringFunctions, pkg, 0); ok {
 			values = append(values, value)
 		}
 	}
@@ -411,7 +437,7 @@ func resolveFunctionReturns(functions []parsedFunction) map[string]string {
 	for changed := true; changed; {
 		changed = false
 		for _, function := range functions {
-			key := function.pkg + ":" + function.name
+			key := function.key()
 			if _, exists := resolved[key]; exists {
 				continue
 			}
@@ -501,6 +527,122 @@ func resolveLocalStringDeclaration(declaration ast.Decl, locals, functionReturns
 	}
 }
 
+func packageStringFunctions(functions []parsedFunction) map[string]parsedFunction {
+	result := map[string]parsedFunction{}
+	for _, function := range functions {
+		if function.receiver == "" {
+			result[function.pkg+":"+function.name] = function
+		}
+	}
+	return result
+}
+
+func resolveLocalStringDeclarationDeep(declaration ast.Decl, locals, functionReturns map[string]string, stringFunctions map[string]parsedFunction, pkg string) {
+	general, ok := declaration.(*ast.GenDecl)
+	if !ok {
+		return
+	}
+	for _, specification := range general.Specs {
+		valueSpec, ok := specification.(*ast.ValueSpec)
+		if !ok {
+			continue
+		}
+		for index, expression := range valueSpec.Values {
+			if index >= len(valueSpec.Names) {
+				break
+			}
+			if value, ok := resolveStringExpressionDeep(expression, locals, functionReturns, stringFunctions, pkg, 0); ok {
+				locals[valueSpec.Names[index].Name] = value
+			}
+		}
+	}
+}
+
+func resolveStringExpressionDeep(expression ast.Expr, values, functionReturns map[string]string, stringFunctions map[string]parsedFunction, pkg string, depth int) (string, bool) {
+	if depth > 16 {
+		return "", false
+	}
+	switch typed := expression.(type) {
+	case *ast.BasicLit:
+		if typed.Kind != token.STRING {
+			return "", false
+		}
+		value, err := strconv.Unquote(typed.Value)
+		return value, err == nil
+	case *ast.Ident:
+		value, ok := values[typed.Name]
+		return value, ok
+	case *ast.ParenExpr:
+		return resolveStringExpressionDeep(typed.X, values, functionReturns, stringFunctions, pkg, depth+1)
+	case *ast.BinaryExpr:
+		if typed.Op != token.ADD {
+			return "", false
+		}
+		left, leftOK := resolveStringExpressionDeep(typed.X, values, functionReturns, stringFunctions, pkg, depth+1)
+		right, rightOK := resolveStringExpressionDeep(typed.Y, values, functionReturns, stringFunctions, pkg, depth+1)
+		return left + right, leftOK && rightOK
+	case *ast.CallExpr:
+		name := calledName(typed.Fun)
+		if value, ok := functionReturns[pkg+":"+name]; ok {
+			return value, true
+		}
+		function, ok := stringFunctions[pkg+":"+name]
+		if !ok {
+			return "", false
+		}
+		return resolveParameterizedStringReturn(function, typed.Args, values, functionReturns, stringFunctions, depth+1)
+	default:
+		return "", false
+	}
+}
+
+func resolveParameterizedStringReturn(function parsedFunction, arguments []ast.Expr, callerValues, functionReturns map[string]string, stringFunctions map[string]parsedFunction, depth int) (string, bool) {
+	locals := copyStringMap(function.globals)
+	argumentIndex := 0
+	if function.declaration.Type.Params != nil {
+		for _, field := range function.declaration.Type.Params.List {
+			for _, name := range field.Names {
+				if argumentIndex >= len(arguments) {
+					return "", false
+				}
+				value, ok := resolveStringExpressionDeep(arguments[argumentIndex], callerValues, functionReturns, stringFunctions, function.pkg, depth+1)
+				if !ok {
+					return "", false
+				}
+				locals[name.Name] = value
+				argumentIndex++
+			}
+		}
+	}
+	if argumentIndex != len(arguments) {
+		return "", false
+	}
+	for _, statement := range function.declaration.Body.List {
+		switch typed := statement.(type) {
+		case *ast.AssignStmt:
+			for valueIndex, expression := range typed.Rhs {
+				if valueIndex >= len(typed.Lhs) {
+					break
+				}
+				name, ok := typed.Lhs[valueIndex].(*ast.Ident)
+				if !ok {
+					continue
+				}
+				if value, ok := resolveStringExpressionDeep(expression, locals, functionReturns, stringFunctions, function.pkg, depth+1); ok {
+					locals[name.Name] = value
+				}
+			}
+		case *ast.DeclStmt:
+			resolveLocalStringDeclarationDeep(typed.Decl, locals, functionReturns, stringFunctions, function.pkg)
+		case *ast.ReturnStmt:
+			if len(typed.Results) == 1 {
+				return resolveStringExpressionDeep(typed.Results[0], locals, functionReturns, stringFunctions, function.pkg, depth+1)
+			}
+		}
+	}
+	return "", false
+}
+
 func resolveStringExpression(expression ast.Expr, values, functionReturns map[string]string, pkg string) (string, bool) {
 	switch typed := expression.(type) {
 	case *ast.BasicLit:
@@ -537,16 +679,153 @@ func copyStringMap(source map[string]string) map[string]string {
 	return copy
 }
 
-func isStructuredDatabaseSink(expression ast.Expr) bool {
-	selector, ok := expression.(*ast.SelectorExpr)
-	if !ok {
-		return false
+func isStructuredDatabaseSink(canonical string) bool {
+	return canonical == "integrationtestdb.NewIsolated" ||
+		canonical == "testharness.ApplyThrough" ||
+		canonical == "testharness.ApplyLatest" ||
+		canonical == "sql.Open"
+}
+
+func receiverTypeName(function *ast.FuncDecl) string {
+	if function.Recv == nil || len(function.Recv.List) != 1 {
+		return ""
 	}
-	if selector.Sel.Name == "NewIsolated" || selector.Sel.Name == "ApplyThrough" || selector.Sel.Name == "ApplyLatest" {
+	return typeExpressionName(function.Recv.List[0].Type)
+}
+
+func receiverVariableName(function *ast.FuncDecl) string {
+	if function.Recv == nil || len(function.Recv.List) != 1 || len(function.Recv.List[0].Names) != 1 {
+		return ""
+	}
+	return function.Recv.List[0].Names[0].Name
+}
+
+func typeExpressionName(expression ast.Expr) string {
+	switch typed := expression.(type) {
+	case *ast.Ident:
+		return typed.Name
+	case *ast.StarExpr:
+		return typeExpressionName(typed.X)
+	case *ast.IndexExpr:
+		return typeExpressionName(typed.X)
+	case *ast.IndexListExpr:
+		return typeExpressionName(typed.X)
+	case *ast.SelectorExpr:
+		prefix := typeExpressionName(typed.X)
+		if prefix == "" {
+			return typed.Sel.Name
+		}
+		return prefix + "." + typed.Sel.Name
+	default:
+		return ""
+	}
+}
+
+func resolveCallAliases(function *ast.FuncDecl, parsed parsedFunction) map[string]string {
+	aliases := map[string]string{}
+	ast.Inspect(function.Body, func(node ast.Node) bool {
+		switch typed := node.(type) {
+		case *ast.AssignStmt:
+			for index, expression := range typed.Rhs {
+				if index >= len(typed.Lhs) {
+					break
+				}
+				name, ok := typed.Lhs[index].(*ast.Ident)
+				if !ok {
+					continue
+				}
+				canonical := canonicalCallableValue(expression, aliases, parsed)
+				if canonical != "" {
+					aliases[name.Name] = canonical
+				}
+			}
+		case *ast.DeclStmt:
+			general, ok := typed.Decl.(*ast.GenDecl)
+			if !ok {
+				break
+			}
+			for _, specification := range general.Specs {
+				valueSpec, ok := specification.(*ast.ValueSpec)
+				if !ok {
+					continue
+				}
+				for index, expression := range valueSpec.Values {
+					if index >= len(valueSpec.Names) {
+						break
+					}
+					canonical := canonicalCallableValue(expression, aliases, parsed)
+					if canonical != "" {
+						aliases[valueSpec.Names[index].Name] = canonical
+					}
+				}
+			}
+		}
 		return true
+	})
+	return aliases
+}
+
+func canonicalCallableValue(expression ast.Expr, aliases map[string]string, function parsedFunction) string {
+	switch typed := expression.(type) {
+	case *ast.Ident:
+		if canonical := aliases[typed.Name]; canonical != "" {
+			return canonical
+		}
+		return typed.Name
+	case *ast.SelectorExpr:
+		return canonicalCall(typed, aliases, function)
+	case *ast.ParenExpr:
+		return canonicalCallableValue(typed.X, aliases, function)
+	default:
+		return ""
 	}
-	packageName, ok := selector.X.(*ast.Ident)
-	return ok && packageName.Name == "sql" && selector.Sel.Name == "Open"
+}
+
+func canonicalCall(expression ast.Expr, aliases map[string]string, function parsedFunction) string {
+	switch typed := expression.(type) {
+	case *ast.Ident:
+		if canonical := aliases[typed.Name]; canonical != "" {
+			return canonical
+		}
+		return typed.Name
+	case *ast.SelectorExpr:
+		prefix := selectorExpressionName(typed.X)
+		if prefix == function.receiverVar && function.receiver != "" {
+			prefix = function.receiver
+		}
+		if prefix == "" {
+			return typed.Sel.Name
+		}
+		return prefix + "." + typed.Sel.Name
+	case *ast.ParenExpr:
+		return canonicalCall(typed.X, aliases, function)
+	default:
+		return ""
+	}
+}
+
+func selectorExpressionName(expression ast.Expr) string {
+	switch typed := expression.(type) {
+	case *ast.Ident:
+		return typed.Name
+	case *ast.SelectorExpr:
+		prefix := selectorExpressionName(typed.X)
+		if prefix == "" {
+			return typed.Sel.Name
+		}
+		return prefix + "." + typed.Sel.Name
+	case *ast.ParenExpr:
+		return selectorExpressionName(typed.X)
+	default:
+		return ""
+	}
+}
+
+func callableLeaf(canonical string) string {
+	if index := strings.LastIndex(canonical, "."); index >= 0 {
+		return canonical[index+1:]
+	}
+	return canonical
 }
 
 func isMigrationSlice(expression ast.Expr) bool {

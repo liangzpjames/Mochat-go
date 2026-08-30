@@ -139,6 +139,93 @@ func newMigrationIntegrationDBThrough() {
 			})
 		}
 	})
+
+	t.Run("function value aliases keep canonical call policy", func(t *testing.T) {
+		for _, tc := range []struct {
+			name      string
+			source    string
+			function  string
+			fragments []string
+		}{
+			{
+				name: "NewRunner selector alias",
+				source: `package migration
+func newMigrationIntegrationDBThrough() {
+	run := NewRunner
+	var migrations []Migration
+	run(nil, migrations)
+}`,
+				function:  "newMigrationIntegrationDBThrough",
+				fragments: []string{"local migration runner"},
+			},
+			{
+				name: "sql Open selector alias",
+				source: `package migration
+import "database/sql"
+func openAliasedDatabase() {
+	open := sql.Open
+	open("mysql", "configured-indirectly")
+}
+func TestAliasedDatabaseEntry() {
+	openAliasedDatabase()
+	NewRunner(nil, []Migration{{Version: "0139"}})
+}`,
+				function:  "TestAliasedDatabaseEntry",
+				fragments: []string{"local migration runner", "migration slice"},
+			},
+			{
+				name: "0139 forbidden selector alias",
+				source: `package migration_test
+import "jiyi/mochat-go/internal/migration"
+func TestAliasedWeComProbe() {
+	_ = "MOCHAT_GO_MYSQL_INTEGRATION_DSN"
+	open := migration.ExecuteWeComCapabilityLedger0139UpProbe
+	open(nil, nil, "../..")
+}`,
+				function:  "TestAliasedWeComProbe",
+				fragments: []string{"bypasses"},
+			},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				issues := auditMigrationFixtureSources(map[string][]byte{"aliased_integration_test.go": []byte(tc.source)})
+				if !migrationIssuesContain(issues, tc.function, tc.fragments...) {
+					t.Fatalf("function-value alias mutation was not rejected: %v", issues)
+				}
+			})
+		}
+	})
+
+	t.Run("ledger helper propagates constant parameters", func(t *testing.T) {
+		sources := map[string][]byte{
+			"ledger_parameter_integration_test.go": []byte(`package migration
+func ledgerTable(table string) string {
+	return table
+}
+func newMigrationIntegrationDBThrough() {
+	query := "DELETE FROM " + ledgerTable("mochat_go_schema_migrations") + " WHERE version=?"
+	db.Exec(query, "0139_wecom_capability_ledger")
+}`),
+		}
+		issues := auditMigrationFixtureSources(sources)
+		if !migrationIssuesContain(issues, "newMigrationIntegrationDBThrough", "exact controlled version") {
+			t.Fatalf("ledger helper parameter mutation was not rejected: %v", issues)
+		}
+	})
+
+	t.Run("method cannot inherit package helper allowlist", func(t *testing.T) {
+		sources := map[string][]byte{
+			"identity_realms_single_corp_integration_test.go": []byte(`package migration
+type fixtureProbe struct{}
+func (fixtureProbe) createIdentityUnknownTenantDependencyProbe() {
+	newMigrationIntegrationDBThrough(nil, "0128")
+	db.Exec("CREATE TABLE identity_dependency_probe (id bigint)")
+}`),
+		}
+		issues := auditMigrationFixtureSources(sources)
+		if !migrationIssuesContain(issues, "fixtureProbe.createIdentityUnknownTenantDependencyProbe", "CREATE TABLE") {
+			t.Fatalf("same-name method inherited package helper allowlist: %v", issues)
+		}
+	})
 }
 
 func auditMigrationFixtureSources(sources map[string][]byte) []string {
