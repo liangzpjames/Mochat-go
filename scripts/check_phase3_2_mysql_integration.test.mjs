@@ -10,6 +10,7 @@ import {
 
 const source = readFileSync(new URL('./check_phase3_2_mysql_integration.mjs', import.meta.url), 'utf8');
 const leadFixtureSource = readFileSync(new URL('../internal/modules/scrm/adapters/mysql/lead_repository_integration_test.go', import.meta.url), 'utf8');
+const customerTagFixtureSource = readFileSync(new URL('../internal/modules/scrm/adapters/mysql/customer_tag_integration_test.go', import.meta.url), 'utf8');
 const opportunityFixtureSource = readFileSync(new URL('../internal/modules/scrm/adapters/mysql/opportunity_repository_integration_test.go', import.meta.url), 'utf8');
 const corpDataFixtureSource = readFileSync(new URL('../internal/store/corp_data_test.go', import.meta.url), 'utf8');
 
@@ -41,9 +42,11 @@ test('Phase 3.2 scenario fixtures use the current production migration registry'
   assert.match(leadFixtureSource, /integrationtestdb\.NewIsolated/);
   assert.match(leadFixtureSource, /testharness\.NewControlledEvidence/);
   assert.match(leadFixtureSource, /testharness\.ApplyLatest/);
+  assert.match(customerTagFixtureSource, /integrationRepository\(t\)/);
+  assert.doesNotMatch(customerTagFixtureSource, /applyCustomerTagMigration|os\.ReadFile|migration\.SplitSQLStatements/);
   assert.match(opportunityFixtureSource, /mysqlIntegrationDB\(t\)/);
-  assert.match(corpDataFixtureSource, /newCurrentStoreIntegrationDB\(t\)/);
-  assert.equal(phase32ScenarioTests.length, 9);
+  assert.match(corpDataFixtureSource, /newCurrentStoreIntegrationDBWithLocation\(t, businessLocation\)/);
+  assert.equal(phase32ScenarioTests.length, 10);
   assert.doesNotThrow(() => validateCurrentPhase32Tests(process.cwd()));
 });
 

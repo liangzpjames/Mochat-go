@@ -4,22 +4,17 @@ package mysql
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"sync"
 	"testing"
 	"time"
 
-	"jiyi/mochat-go/internal/migration"
 	"jiyi/mochat-go/internal/modules/scrm/ports"
 )
 
 func TestCustomerTagMariaDBCatalogIsolationVersionsAndIdempotency(t *testing.T) {
 	_, db, namespace := integrationRepository(t)
-	applyCustomerTagMigration(t, db)
 	ensureSCRMIdempotencyTable(t, db)
 	repository, err := NewTagRepository(db)
 	if err != nil {
@@ -176,23 +171,5 @@ func assertOneConcurrentDuplicate(t *testing.T, errorsChannel <-chan error) {
 	}
 	if succeeded != 1 || duplicated != 1 {
 		t.Fatalf("concurrent create succeeded=%d duplicated=%d", succeeded, duplicated)
-	}
-}
-
-func applyCustomerTagMigration(t *testing.T, db *sql.DB) {
-	t.Helper()
-	path := filepath.Join("..", "..", "..", "..", "..", "deploy", "standalone", "migrations", "0109_scrm_customer_tag_parity.up.sql")
-	body, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	statements, err := migration.SplitSQLStatements(string(body))
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, statement := range statements {
-		if _, err := db.Exec(statement); err != nil {
-			t.Fatalf("apply 0109 statement %q: %v", statement, err)
-		}
 	}
 }
