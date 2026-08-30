@@ -52,6 +52,7 @@ go test ./internal/companyprofile ./internal/migration -run "CallbackSideEffectR
 - 对 `4a418811` 的复审 RED：Service 缺 wakeup 注入与新响应字段导致编译失败；0176 contract 明确报缺 `reservation_token`、`remaining_unknown_actions` 且仍有 action FK；cursor 接受大写 event key。
 - reservation 实现后的首次 MariaDB RED 为四个 recovery fixture 全部 `TENANT_ACCESS_DENIED`。根因是旧专用 seed 把 binding 建成 pending，而生产合同要求事务内 active；修复仅把 recovery 场景 seed 激活，并新增 suspended binding/stale auth version 的 fail-closed 断言，没有放宽 Store。
 - 独立 diff 复审继续发现 wakeup 只有 Redis `Publish` 而全仓没有 subscriber，`wakeupAccepted=true` 会成为伪成功；另有 HTTP 唤醒无时间上界。修复为最多保留 64 个 list token、worker `BRPOP` 消费并在 Redis 故障时退回 MySQL poll，Service 使用 50ms 独立超时。
+- 最终复审又定位到 go-redis v9 默认 `ContextTimeoutEnabled=false`：受控无响应 TCP 下 50ms wakeup 实测耗时 `3.001s`，真实 Redis 空队列的 root cancel 在 `1.5s` 内没有返回。根因是客户端把命令 context 替换为 background，且 blocking command socket timeout 会额外放宽 10 秒。修复在统一 `NewRedisStore` 启用 context timeout；worker wait 内部使用最长 1 秒的 BRPOP 分片检查 root context，并在内部循环到原总 poll deadline，因此 shutdown 上界明确且没有把 MySQL claim 频率改成每秒一次。
 
 ### PASS：无外部依赖
 
@@ -60,7 +61,7 @@ go test ./internal/companyprofile ./internal/migration -run "CallbackSideEffectR
 - `node --test scripts/check_dashboard_page_rbac_catalog.test.mjs`：43/43 PASS。
 - `node scripts/check_dashboard_page_rbac_catalog.mjs`：53 pages、49 ordinary、4 superadmin_only、0 unmapped dashboard API usages。
 - `git diff --check`
-- 本地 Redis 7（隔离 DB 15 + 每次随机测试 key）真实 `LPUSH/LTRIM → BRPOP`：token 从 1 变 0，测试后只精确删除该随机 key；不会触碰生产 wakeup key，未删除命名卷。另有 waiter 故障注入证明 Redis 失败后 worker 回退有界 MySQL poll 并继续完成 claim。
+- 本地 Redis 7（隔离 DB 15 + 每次随机测试 key）真实 `LPUSH/LTRIM → BRPOP`：token 从 1 变 0；空队列 root cancel 在 1.5 秒断言上界内返回 `context.Canceled`；2.2 秒空队列 poll 断言至少等待 2 秒，证明内部 1 秒分片不会提高 MySQL claim 频率。测试后只精确删除随机 key，不触碰生产 key或命名卷。受控无响应 TCP 证明 50ms wakeup 在 500ms 断言上界内失败返回；另有 waiter 故障注入证明 Redis 失败后 worker 回退有界 MySQL poll 并继续完成 claim。
 - 覆盖 principal/RBAC 前置拒绝、body scope 注入、Idempotency-Key/decision 校验、路由、503 错误语义、post-commit wakeup 首次/重放语义、worker fake 双 action、unknown 两次 claim 都不自动重放、confirm_sent 外发 0 次、retry 只外发对应 action 1 次。
 
 ### PASS：MariaDB 10.6 本地真实数据库

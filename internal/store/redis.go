@@ -30,13 +30,15 @@ const (
 	legacyWeWorkCallbackProcessingKey = "mochat-go:wework-callback:processing"
 	legacyWeWorkCallbackDeadKey       = "mochat-go:wework-callback:dead"
 	weWorkCallbackWakeupKey           = "mochat-go:wework-callback:wakeup"
+	weWorkCallbackWakeupWaitSlice     = time.Second
 )
 
 func NewRedisStore(cfg RedisConfig) *RedisStore {
 	return &RedisStore{client: redis.NewClient(&redis.Options{
-		Addr:     cfg.Addr,
-		Password: cfg.Password,
-		DB:       cfg.DB,
+		Addr:                  cfg.Addr,
+		Password:              cfg.Password,
+		DB:                    cfg.DB,
+		ContextTimeoutEnabled: true,
 	})}
 }
 
@@ -116,11 +118,31 @@ func (s *RedisStore) WaitWeWorkCallbackWakeup(ctx context.Context, timeout time.
 	if timeout <= 0 {
 		timeout = time.Second
 	}
-	_, err := s.client.BRPop(ctx, timeout, s.weWorkCallbackWakeupKey()).Result()
-	if errors.Is(err, redis.Nil) {
-		return nil
+	waitDeadline := time.Now().Add(timeout)
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		remaining := time.Until(waitDeadline)
+		if remaining <= 0 {
+			return nil
+		}
+		slice := min(remaining, weWorkCallbackWakeupWaitSlice)
+		sliceCtx, cancelSlice := context.WithTimeout(ctx, slice)
+		_, err := s.client.BRPop(sliceCtx, slice, s.weWorkCallbackWakeupKey()).Result()
+		sliceExpired := errors.Is(sliceCtx.Err(), context.DeadlineExceeded)
+		cancelSlice()
+		if err == nil {
+			return nil
+		}
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
+		if errors.Is(err, redis.Nil) || errors.Is(err, context.DeadlineExceeded) || sliceExpired {
+			continue
+		}
+		return err
 	}
-	return err
 }
 
 func (s *RedisStore) weWorkCallbackWakeupKey() string {

@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"strconv"
 	"strings"
@@ -52,6 +53,63 @@ func TestRedisStoreWeWorkCallbackWakeupIsDurablyConsumedIntegration(t *testing.T
 	}
 	if length, err := store.client.LLen(ctx, store.weWorkCallbackWakeupTestKey).Result(); err != nil || length != 0 {
 		t.Fatalf("remaining wakeup tokens=%d err=%v", length, err)
+	}
+}
+
+func TestRedisStoreEmptyWeWorkCallbackWakeupWaitStopsOnRootCancelIntegration(t *testing.T) {
+	addr := os.Getenv("MOCHAT_REDIS_ADDR")
+	if addr == "" {
+		t.Skip("MOCHAT_REDIS_ADDR is not set")
+	}
+	store := newRedisIntegrationStore(t, addr)
+	store.weWorkCallbackWakeupTestKey = weWorkCallbackWakeupKey + ":cancel-integration:" + strconv.FormatInt(time.Now().UnixNano(), 10)
+	defer func() {
+		_ = store.client.Del(context.Background(), store.weWorkCallbackWakeupTestKey).Err()
+		_ = store.Close()
+	}()
+	ctx, cancel := context.WithCancel(context.Background())
+	result := make(chan error, 1)
+	go func() { result <- store.WaitWeWorkCallbackWakeup(ctx, 5*time.Second) }()
+	time.Sleep(50 * time.Millisecond)
+	started := time.Now()
+	cancel()
+	select {
+	case err := <-result:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("empty wakeup wait error=%v, want context canceled", err)
+		}
+		if elapsed := time.Since(started); elapsed > 1500*time.Millisecond {
+			t.Fatalf("empty wakeup wait cancellation took %s", elapsed)
+		}
+	case <-time.After(1500 * time.Millisecond):
+		_ = store.Close()
+		t.Fatal("empty wakeup wait ignored root context cancellation")
+	}
+}
+
+func TestRedisStoreEmptyWeWorkCallbackWakeupWaitPreservesTotalPollIntervalIntegration(t *testing.T) {
+	addr := os.Getenv("MOCHAT_REDIS_ADDR")
+	if addr == "" {
+		t.Skip("MOCHAT_REDIS_ADDR is not set")
+	}
+	store := newRedisIntegrationStore(t, addr)
+	store.weWorkCallbackWakeupTestKey = weWorkCallbackWakeupKey + ":poll-interval-integration:" + strconv.FormatInt(time.Now().UnixNano(), 10)
+	defer func() {
+		_ = store.client.Del(context.Background(), store.weWorkCallbackWakeupTestKey).Err()
+		_ = store.Close()
+	}()
+
+	const pollInterval = 2200 * time.Millisecond
+	started := time.Now()
+	if err := store.WaitWeWorkCallbackWakeup(context.Background(), pollInterval); err != nil {
+		t.Fatal(err)
+	}
+	elapsed := time.Since(started)
+	if elapsed < 2*time.Second {
+		t.Fatalf("empty wakeup wait returned after %s, internal slices changed the total poll interval", elapsed)
+	}
+	if elapsed > 4*time.Second {
+		t.Fatalf("empty wakeup wait exceeded its bounded poll interval: %s", elapsed)
 	}
 }
 

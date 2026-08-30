@@ -1,11 +1,65 @@
 package store
 
 import (
+	"context"
 	"encoding/json"
+	"net"
+	"sync"
 	"testing"
+	"time"
 
 	"jiyi/mochat-go/internal/dashboard"
 )
+
+func TestNewRedisStoreEnablesContextTimeouts(t *testing.T) {
+	store := NewRedisStore(RedisConfig{Addr: "127.0.0.1:1"})
+	defer store.Close()
+	if !store.client.Options().ContextTimeoutEnabled {
+		t.Fatal("go-redis context timeouts are disabled")
+	}
+}
+
+func TestRedisStoreWakeWeWorkCallbackHonorsDeadlineAgainstUnresponsiveServer(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var connectionsMu sync.Mutex
+	var connections []net.Conn
+	done := make(chan struct{})
+	go func() {
+		for {
+			connection, acceptErr := listener.Accept()
+			if acceptErr != nil {
+				close(done)
+				return
+			}
+			connectionsMu.Lock()
+			connections = append(connections, connection)
+			connectionsMu.Unlock()
+		}
+	}()
+	t.Cleanup(func() {
+		_ = listener.Close()
+		<-done
+		connectionsMu.Lock()
+		defer connectionsMu.Unlock()
+		for _, connection := range connections {
+			_ = connection.Close()
+		}
+	})
+	store := NewRedisStore(RedisConfig{Addr: listener.Addr().String()})
+	defer store.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	started := time.Now()
+	if err := store.WakeWeWorkCallback(ctx); err == nil {
+		t.Fatal("unresponsive Redis wakeup unexpectedly succeeded")
+	}
+	if elapsed := time.Since(started); elapsed > 500*time.Millisecond {
+		t.Fatalf("Redis wakeup ignored 50ms deadline: elapsed=%s", elapsed)
+	}
+}
 
 func TestDecodeReliableQueuePayloadSupportsEnvelopeMetadata(t *testing.T) {
 	payload, err := json.Marshal(dashboard.EmployeeApplyEvent{BindingID: 7, Source: "test"})
