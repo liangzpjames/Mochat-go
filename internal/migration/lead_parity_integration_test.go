@@ -5,24 +5,17 @@ package migration
 import (
 	"context"
 	"database/sql"
-	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
-	"sync/atomic"
 	"testing"
-
-	mysqldriver "github.com/go-sql-driver/mysql"
 )
-
-var leadParitySchemaSequence atomic.Int64
 
 func TestLeadParityMigrationHistoricalUpgradeAndRollbackSafety(t *testing.T) {
 	t.Run("unique active corp backfills historical leads and rolls back", func(t *testing.T) {
-		db := newLeadParityMigrationDB(t)
+		db := newMigrationIntegrationDBThrough(t, "0105_corp_data_realtime_indexes")
 		createLeadParityLegacyFixture(t, db, 41, 701, "history-one")
 
-		execLeadParityMigration(t, db, "0106_scrm_lead_parity.up.sql", false)
+		runner := newMigrationRunnerThrough(t, db, "0106_scrm_lead_parity")
+		applyLeadParityMigration(t, runner, false)
 		var corpID int64
 		if err := db.QueryRow("SELECT corp_id FROM mochat_go_scrm_leads WHERE id='history-one'").Scan(&corpID); err != nil {
 			t.Fatal(err)
@@ -31,7 +24,7 @@ func TestLeadParityMigrationHistoricalUpgradeAndRollbackSafety(t *testing.T) {
 			t.Fatalf("historical lead corp_id=%d, want 701", corpID)
 		}
 
-		execLeadParityMigration(t, db, "0106_scrm_lead_parity.down.sql", false)
+		rollbackLeadParityMigration(t, runner, false)
 		if columnExists(t, db, "mochat_go_scrm_leads", "corp_id") {
 			t.Fatal("corp_id still exists after successful rollback")
 		}
@@ -41,13 +34,14 @@ func TestLeadParityMigrationHistoricalUpgradeAndRollbackSafety(t *testing.T) {
 	})
 
 	t.Run("ambiguous historical tenant fails before schema mutation", func(t *testing.T) {
-		db := newLeadParityMigrationDB(t)
+		db := newMigrationIntegrationDBThrough(t, "0105_corp_data_realtime_indexes")
 		createLeadParityLegacyFixture(t, db, 42, 702, "history-ambiguous")
-		if _, err := db.Exec("INSERT INTO mc_corp (id,tenant_id,deleted_at) VALUES (703,42,NULL)"); err != nil {
+		if _, err := db.Exec("INSERT INTO mc_corp (id,tenant_id,name,deleted_at) VALUES (703,42,'Ambiguous corp',NULL)"); err != nil {
 			t.Fatal(err)
 		}
 
-		err := execLeadParityMigration(t, db, "0106_scrm_lead_parity.up.sql", true)
+		runner := newMigrationRunnerThrough(t, db, "0106_scrm_lead_parity")
+		err := applyLeadParityMigration(t, runner, true)
 		if !strings.Contains(err.Error(), "cannot uniquely map historical leads") {
 			t.Fatalf("upgrade error=%v", err)
 		}
@@ -60,17 +54,18 @@ func TestLeadParityMigrationHistoricalUpgradeAndRollbackSafety(t *testing.T) {
 	})
 
 	t.Run("cross-corp business-key conflict fails before rollback mutation", func(t *testing.T) {
-		db := newLeadParityMigrationDB(t)
+		db := newMigrationIntegrationDBThrough(t, "0105_corp_data_realtime_indexes")
 		createLeadParityLegacyFixture(t, db, 43, 704, "history-conflict")
-		execLeadParityMigration(t, db, "0106_scrm_lead_parity.up.sql", false)
-		if _, err := db.Exec("INSERT INTO mc_corp (id,tenant_id,deleted_at) VALUES (705,43,NULL)"); err != nil {
+		runner := newMigrationRunnerThrough(t, db, "0106_scrm_lead_parity")
+		applyLeadParityMigration(t, runner, false)
+		if _, err := db.Exec("INSERT INTO mc_corp (id,tenant_id,name,deleted_at) VALUES (705,43,'Conflict corp',NULL)"); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := db.Exec(`INSERT INTO mochat_go_scrm_leads (id,tenant_id,corp_id,business_key,name,source,status,version,created_at,updated_at) VALUES ('cross-corp',43,705,'legacy-key','Cross corp','manual','new',1,NOW(6),NOW(6))`); err != nil {
 			t.Fatal(err)
 		}
 
-		err := execLeadParityMigration(t, db, "0106_scrm_lead_parity.down.sql", true)
+		err := rollbackLeadParityMigration(t, runner, true)
 		if !strings.Contains(err.Error(), "cross-corp business_key conflict") {
 			t.Fatalf("rollback error=%v", err)
 		}
@@ -85,61 +80,9 @@ func TestLeadParityMigrationHistoricalUpgradeAndRollbackSafety(t *testing.T) {
 	})
 }
 
-func newLeadParityMigrationDB(t *testing.T) *sql.DB {
-	t.Helper()
-	dsn := os.Getenv("MOCHAT_MYSQL_DSN")
-	if dsn == "" {
-		if os.Getenv("MOCHAT_REQUIRE_MYSQL_INTEGRATION") == "1" {
-			t.Fatal("MOCHAT_MYSQL_DSN is required when MOCHAT_REQUIRE_MYSQL_INTEGRATION=1")
-		}
-		t.Skip("MOCHAT_MYSQL_DSN is required for MariaDB migration tests")
-	}
-	cfg, err := mysqldriver.ParseDSN(dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	adminCfg := *cfg
-	adminCfg.DBName = ""
-	admin, err := sql.Open("mysql", adminCfg.FormatDSN())
-	if err != nil {
-		t.Fatal(err)
-	}
-	schema := fmt.Sprintf("mochat_task6_migration_%d_%d", os.Getpid(), leadParitySchemaSequence.Add(1))
-	if _, err := admin.Exec("CREATE DATABASE `" + schema + "` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"); err != nil {
-		admin.Close()
-		t.Fatalf("create isolated migration schema: %v", err)
-	}
-	t.Cleanup(func() {
-		_, _ = admin.Exec("DROP DATABASE IF EXISTS `" + schema + "`")
-		_ = admin.Close()
-	})
-	testCfg := *cfg
-	testCfg.DBName = schema
-	db, err := sql.Open("mysql", testCfg.FormatDSN())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := db.PingContext(context.Background()); err != nil {
-		db.Close()
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
-	return db
-}
-
 func createLeadParityLegacyFixture(t *testing.T, db *sql.DB, tenantID, corpID int64, leadID string) {
 	t.Helper()
-	if _, err := db.Exec(`CREATE TABLE mc_corp (id bigint unsigned NOT NULL, tenant_id bigint NOT NULL, deleted_at timestamp NULL, PRIMARY KEY (id)) ENGINE=InnoDB`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec("INSERT INTO mc_corp (id,tenant_id,deleted_at) VALUES (?,?,NULL)", corpID, tenantID); err != nil {
-		t.Fatal(err)
-	}
-	body, err := os.ReadFile(filepath.Join("..", "..", "deploy", "standalone", "migrations", "0098_scrm_lead_foundation.up.sql"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := execSQLScript(context.Background(), db, string(body)); err != nil {
+	if _, err := db.Exec("INSERT INTO mc_corp (id,tenant_id,name,deleted_at) VALUES (?,?,'Historical corp',NULL)", corpID, tenantID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(`INSERT INTO mochat_go_scrm_leads (id,tenant_id,business_key,name,source,status,version,created_at,updated_at) VALUES (?,?,'legacy-key','Historical','manual','new',1,NOW(6),NOW(6))`, leadID, tenantID); err != nil {
@@ -147,18 +90,32 @@ func createLeadParityLegacyFixture(t *testing.T, db *sql.DB, tenantID, corpID in
 	}
 }
 
-func execLeadParityMigration(t *testing.T, db *sql.DB, name string, wantError bool) error {
+func applyLeadParityMigration(t *testing.T, runner *Runner, wantError bool) error {
 	t.Helper()
-	body, err := os.ReadFile(filepath.Join("..", "..", "deploy", "standalone", "migrations", name))
-	if err != nil {
-		t.Fatal(err)
-	}
-	err = execSQLScript(context.Background(), db, string(body))
+	items, err := runner.Apply(context.Background())
 	if wantError && err == nil {
-		t.Fatalf("%s unexpectedly succeeded", name)
+		t.Fatal("0106_scrm_lead_parity unexpectedly succeeded")
 	}
 	if !wantError && err != nil {
-		t.Fatalf("%s: %v", name, err)
+		t.Fatalf("apply production registry through 0106_scrm_lead_parity: %v", err)
+	}
+	if !wantError && (len(items) == 0 || items[len(items)-1].Migration.Version != "0106_scrm_lead_parity" || items[len(items)-1].State != "applied_now") {
+		t.Fatalf("0106 apply status=%#v", items)
+	}
+	return err
+}
+
+func rollbackLeadParityMigration(t *testing.T, runner *Runner, wantError bool) error {
+	t.Helper()
+	version, err := runner.RollbackLast(context.Background())
+	if wantError && err == nil {
+		t.Fatal("0106_scrm_lead_parity rollback unexpectedly succeeded")
+	}
+	if !wantError && err != nil {
+		t.Fatalf("rollback 0106_scrm_lead_parity: %v", err)
+	}
+	if !wantError && version != "0106_scrm_lead_parity" {
+		t.Fatalf("rollback version=%q, want 0106_scrm_lead_parity", version)
 	}
 	return err
 }

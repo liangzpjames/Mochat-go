@@ -3,8 +3,12 @@ ALTER TABLE `mochat_go_scrm_contact_tags`
 
 ALTER TABLE `mochat_go_scrm_tags`
   DROP INDEX IF EXISTS `uk_scrm_tag_active_group_name`,
-  DROP INDEX IF EXISTS `idx_scrm_tag_catalog`,
-  DROP COLUMN IF EXISTS `active_group_name`,
+  DROP INDEX IF EXISTS `idx_scrm_tag_catalog`;
+
+ALTER TABLE `mochat_go_scrm_tags`
+  DROP COLUMN IF EXISTS `active_group_name`;
+
+ALTER TABLE `mochat_go_scrm_tags`
   DROP COLUMN IF EXISTS `group_id`;
 
 ALTER TABLE `mochat_go_scrm_tag_groups`

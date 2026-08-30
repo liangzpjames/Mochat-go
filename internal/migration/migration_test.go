@@ -953,6 +953,23 @@ func TestCustomerTagParityMigrationIsReversible(t *testing.T) {
 			t.Errorf("down migration missing %q", fragment)
 		}
 	}
+	statements, err := SplitSQLStatements(string(down))
+	if err != nil {
+		t.Fatal(err)
+	}
+	activeNameDrop := -1
+	groupIDDrop := -1
+	for index, statement := range statements {
+		if strings.Contains(statement, "DROP COLUMN IF EXISTS `active_group_name`") {
+			activeNameDrop = index
+		}
+		if strings.Contains(statement, "DROP COLUMN IF EXISTS `group_id`") {
+			groupIDDrop = index
+		}
+	}
+	if activeNameDrop < 0 || groupIDDrop < 0 || activeNameDrop >= groupIDDrop {
+		t.Fatalf("0109 down must drop generated active_group_name in an earlier ALTER than dependency group_id; statements=%#v", statements)
+	}
 }
 
 func TestPublicPoolParityMigrationIsReversibleAndSynced(t *testing.T) {
