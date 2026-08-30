@@ -195,6 +195,7 @@ jobs:
         env:
           MOCHAT_STACK_PROJECT: mochat-go-scrm-integration
           MOCHAT_MYSQL57_PORT: "13333"
+          MOCHAT_GO_MYSQL_INTEGRATION_DSN: "root:mochat_root@tcp(127.0.0.1:13333)/mysql?parseTime=true&multiStatements=true"
           MOCHAT_MYSQL_DSN: "mochat:mochat_pass@tcp(127.0.0.1:13333)/mochat?parseTime=true&loc=UTC"
           MOCHAT_REQUIRE_MYSQL_INTEGRATION: "1"
         run: |
@@ -221,6 +222,11 @@ jobs:
             sleep 2
           done
           test "$status" = "healthy"
+
+          # Applying the complete production registry for every isolated fixture is
+          # intentionally expensive on MySQL 5.7; keep the full scope and give the
+          # package-level Go harness enough time to finish.
+          go test ./internal/store ./internal/migration -count=1 -timeout 20m
 
           inventory_file="$(mktemp)"
           go run ./cmd/mochat-migrate -project-root . -action inventory | tee "$inventory_file"

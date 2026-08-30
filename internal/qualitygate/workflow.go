@@ -129,6 +129,7 @@ var requiredStepEnvironments = map[string]map[string]string{
 	"SCRM MySQL integration gate": {
 		"MOCHAT_STACK_PROJECT":             "mochat-go-scrm-integration",
 		"MOCHAT_MYSQL57_PORT":              "13333",
+		"MOCHAT_GO_MYSQL_INTEGRATION_DSN":  "root:mochat_root@tcp(127.0.0.1:13333)/mysql?parseTime=true&multiStatements=true",
 		"MOCHAT_MYSQL_DSN":                 "mochat:mochat_pass@tcp(127.0.0.1:13333)/mochat?parseTime=true&loc=UTC",
 		"MOCHAT_REQUIRE_MYSQL_INTEGRATION": "1",
 	},
@@ -398,6 +399,10 @@ func validateWorkflow(path string) []string {
 	}
 	if integration.Env["MOCHAT_MYSQL57_PORT"] != "13333" {
 		failures = append(failures, "integration step must use dedicated port 13333")
+	}
+	const fullFixtureGate = "go test ./internal/store ./internal/migration -count=1 -timeout 20m"
+	if !containsExecutableCommandsInOrder(integration.Run, []string{fullFixtureGate}) {
+		failures = append(failures, "integration step must run the complete store/migration fixture gate with a 20m timeout budget")
 	}
 	integrationCleanup := `docker compose -p "$MOCHAT_STACK_PROJECT" -f deploy/mysql57/docker-compose.yml down -v --remove-orphans`
 	integrationMarkers := []string{

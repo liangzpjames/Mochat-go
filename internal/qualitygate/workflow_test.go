@@ -952,6 +952,26 @@ func TestValidateWorkflowRejectsLifecycleCommandInDeadBranch(t *testing.T) {
 	)
 }
 
+func TestValidateWorkflowRequiresTwentyMinuteFullFixtureBudget(t *testing.T) {
+	workflow := readRepositoryFile(t, ".github/workflows/mysql57-amd64.yml")
+	const required = "          go test ./internal/store ./internal/migration -count=1 -timeout 20m\n"
+	if !strings.Contains(workflow, required) {
+		t.Fatalf("workflow fixture no longer contains %q", required)
+	}
+	for _, replacement := range []string{
+		"          go test ./internal/store ./internal/migration -count=1\n",
+		"          go test ./internal/store ./internal/migration -count=1 -timeout 10m\n",
+		"          go test ./internal/store -count=1 -timeout 20m\n",
+	} {
+		path := writeWorkflow(t, strings.Replace(workflow, required, replacement, 1))
+		assertFailureContains(
+			t,
+			validateWorkflow(path),
+			"integration step must run the complete store/migration fixture gate with a 20m timeout budget",
+		)
+	}
+}
+
 func TestValidateWorkflowAllowsEnvironmentPrefixForRequiredCommand(t *testing.T) {
 	workflow := readRepositoryFile(t, ".github/workflows/mysql57-amd64.yml")
 	const original = "        run: go test ./...\n"
