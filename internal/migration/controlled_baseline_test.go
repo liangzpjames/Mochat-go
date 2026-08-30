@@ -15,12 +15,17 @@ func TestControlledMigrationBaselineEvidenceRequiresExactlyOneIdentityCompletion
 		t.Fatal(err)
 	}
 	defer db.Close()
+	currentChecksum := strings.Repeat("a", 64)
+	historicalChecksum := strings.Repeat("b", 64)
 	metadata := controlledMigrationRegistry["0130_identity_realms_single_corp_backfill"]
-	migration := Migration{Version: metadata.Version, Kind: MigrationControlled, Controlled: &metadata}
+	migration := Migration{Version: metadata.Version, Kind: MigrationControlled, Controlled: &metadata, ChecksumAliases: []string{historicalChecksum}}
 	mock.ExpectQuery(regexp.QuoteMeta("SELECT COUNT(*)")).
-		WithArgs(migration.Controlled.LedgerName, migration.Controlled.SuccessPhase, migration.Controlled.SuccessStatus, "expected-checksum").
+		WithArgs(migration.Controlled.LedgerName, migration.Controlled.SuccessPhase, migration.Controlled.SuccessStatus).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
-	if err := controlledMigrationBaselineEvidence(context.Background(), db, migration, "expected-checksum"); err != nil {
+	mock.ExpectQuery(regexp.QuoteMeta("JSON_UNQUOTE(JSON_EXTRACT")).
+		WithArgs(migration.Controlled.LedgerName, migration.Controlled.SuccessPhase, migration.Controlled.SuccessStatus).
+		WillReturnRows(sqlmock.NewRows([]string{"script_checksum"}).AddRow(historicalChecksum))
+	if err := controlledMigrationBaselineEvidence(context.Background(), db, migration, currentChecksum); err != nil {
 		t.Fatal(err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
@@ -34,15 +39,19 @@ func TestControlledMigrationBaselineEvidenceRequiresIdentityCutoverPostcondition
 		t.Fatal(err)
 	}
 	defer db.Close()
+	currentChecksum := strings.Repeat("a", 64)
 	metadata := controlledMigrationRegistry["0131_identity_realms_single_corp_cutover"]
 	migration := Migration{Version: metadata.Version, Kind: MigrationControlled, Controlled: &metadata}
 	mock.ExpectQuery(regexp.QuoteMeta("SELECT COUNT(*)")).
-		WithArgs(migration.Controlled.LedgerName, migration.Controlled.SuccessPhase, migration.Controlled.SuccessStatus, "expected-checksum").
+		WithArgs(migration.Controlled.LedgerName, migration.Controlled.SuccessPhase, migration.Controlled.SuccessStatus).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+	mock.ExpectQuery(regexp.QuoteMeta("JSON_UNQUOTE(JSON_EXTRACT")).
+		WithArgs(migration.Controlled.LedgerName, migration.Controlled.SuccessPhase, migration.Controlled.SuccessStatus).
+		WillReturnRows(sqlmock.NewRows([]string{"script_checksum"}).AddRow(currentChecksum))
 	mock.ExpectQuery(regexp.QuoteMeta("SELECT COUNT(*) FROM information_schema.columns")).
 		WithArgs("mc_corp", "tenant_id").
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
-	if err := controlledMigrationBaselineEvidence(context.Background(), db, migration, "expected-checksum"); err != nil {
+	if err := controlledMigrationBaselineEvidence(context.Background(), db, migration, currentChecksum); err != nil {
 		t.Fatal(err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
@@ -56,15 +65,19 @@ func TestControlledMigrationBaselineEvidenceRejectsNullableIdentityCutoverPostco
 		t.Fatal(err)
 	}
 	defer db.Close()
+	currentChecksum := strings.Repeat("a", 64)
 	metadata := controlledMigrationRegistry["0131_identity_realms_single_corp_cutover"]
 	migration := Migration{Version: metadata.Version, Kind: MigrationControlled, Controlled: &metadata}
 	mock.ExpectQuery(regexp.QuoteMeta("SELECT COUNT(*)")).
-		WithArgs(migration.Controlled.LedgerName, migration.Controlled.SuccessPhase, migration.Controlled.SuccessStatus, "expected-checksum").
+		WithArgs(migration.Controlled.LedgerName, migration.Controlled.SuccessPhase, migration.Controlled.SuccessStatus).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+	mock.ExpectQuery(regexp.QuoteMeta("JSON_UNQUOTE(JSON_EXTRACT")).
+		WithArgs(migration.Controlled.LedgerName, migration.Controlled.SuccessPhase, migration.Controlled.SuccessStatus).
+		WillReturnRows(sqlmock.NewRows([]string{"script_checksum"}).AddRow(currentChecksum))
 	mock.ExpectQuery(regexp.QuoteMeta("SELECT COUNT(*) FROM information_schema.columns")).
 		WithArgs("mc_corp", "tenant_id").
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
-	err = controlledMigrationBaselineEvidence(context.Background(), db, migration, "expected-checksum")
+	err = controlledMigrationBaselineEvidence(context.Background(), db, migration, currentChecksum)
 	if err == nil {
 		t.Fatal("nullable mc_corp.tenant_id was accepted after successful 0131 control evidence")
 	}

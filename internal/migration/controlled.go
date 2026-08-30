@@ -178,9 +178,23 @@ func controlledMigrationBaselineEvidence(ctx context.Context, db *sql.DB, migrat
 			INNER JOIN `+metadata.CompletionTable+` AS completion
 				ON completion.request_id = ledger.request_id AND completion.status = 'completed'
 			WHERE ledger.migration_name = ? AND ledger.phase = ? AND ledger.status = ?
-				AND JSON_UNQUOTE(JSON_EXTRACT(ledger.result_json, '$.scriptChecksum')) = ?
-		`, metadata.LedgerName, metadata.SuccessPhase, metadata.SuccessStatus, checksum).Scan(&count); err != nil {
+		`, metadata.LedgerName, metadata.SuccessPhase, metadata.SuccessStatus).Scan(&count); err != nil {
 			return fmt.Errorf("inspect controlled migration %s baseline evidence: %w", migration.Version, err)
+		}
+		if count == 1 {
+			var recordedChecksum string
+			if err := db.QueryRowContext(ctx, `
+				SELECT JSON_UNQUOTE(JSON_EXTRACT(ledger.result_json, '$.scriptChecksum'))
+				FROM `+metadata.LedgerTable+` AS ledger
+				INNER JOIN `+metadata.CompletionTable+` AS completion
+					ON completion.request_id = ledger.request_id AND completion.status = 'completed'
+				WHERE ledger.migration_name = ? AND ledger.phase = ? AND ledger.status = ?
+			`, metadata.LedgerName, metadata.SuccessPhase, metadata.SuccessStatus).Scan(&recordedChecksum); err != nil {
+				return fmt.Errorf("inspect controlled migration %s baseline checksum: %w", migration.Version, err)
+			}
+			if !validScriptChecksum(recordedChecksum) || !checksumMatches(recordedChecksum, checksum, migration.ChecksumAliases) {
+				return fmt.Errorf("controlled migration %s baseline checksum %s is not current or a registered line-ending alias", migration.Version, recordedChecksum)
+			}
 		}
 	}
 	if migration.Version != AIInsight0165Version && count != 1 {
@@ -269,7 +283,7 @@ func RecordControlledMigration(ctx context.Context, db *sql.DB, projectRoot, ver
 	var result struct {
 		ScriptChecksum string `json:"scriptChecksum"`
 	}
-	if err := json.Unmarshal(resultJSON, &result); err != nil || !validScriptChecksum(result.ScriptChecksum) || result.ScriptChecksum != checksum {
+	if err := json.Unmarshal(resultJSON, &result); err != nil || !validScriptChecksum(result.ScriptChecksum) || !checksumMatches(result.ScriptChecksum, checksum, target.ChecksumAliases) {
 		return fmt.Errorf("controlled migration %s success ledger checksum does not match current script", version)
 	}
 	var batchTableCount int

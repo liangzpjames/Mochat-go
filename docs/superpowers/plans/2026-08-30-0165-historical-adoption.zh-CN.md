@@ -6,3 +6,4 @@
 4. 让普通 runner 只接受唯一、完整且后置 schema 仍有效的历史采纳记录；接管仅接受注册表中的当前 checksum 或同源 LF/CRLF 别名，并绑定账本实际 checksum。
 5. 更新受控迁移手册，明确该流程不等同于迁移前备份或 verified。
 6. 在隔离 MariaDB 先跑红绿测试，再对已完成恢复校验的本地命名卷执行采纳、普通迁移和状态复验。
+7. 让通用受控 baseline/record 路径复用注册表 checksum alias，并用 0130/0131 完整 ledger + batch 场景验证只兼容换行、不放宽控制证据。

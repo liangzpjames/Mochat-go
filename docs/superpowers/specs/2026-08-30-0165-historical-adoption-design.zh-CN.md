@@ -23,9 +23,16 @@
 
 普通 runner 仅在上述采纳记录唯一、checksum 一致、恢复边界完整且当前后置 schema 仍有效时接受历史环境。新环境仍必须走 backup → preflight → apply → verify，不能使用采纳动作跳过未执行的 0165。
 
+### 通用受控账本的换行一致性
+
+0165 采纳成功后，真实历史库继续在 0130 阻断。数据库中的 0130/0131 普通账本、受控成功 ledger 和 completed batch 均完整，三者保存的 checksum 又与 Git 中 LF 原始字节完全一致；Windows 当前工作树只是 CRLF 值不同。根因是通用 `controlledMigrationBaselineEvidence` 和 `RecordControlledMigration` 仍用字符串精确相等校验受控 ledger，没有复用普通 runner 已登记的 LF/CRLF 别名。
+
+通用修复只改变 checksum 等价判定，不采纳缺失证据：0130/0131 仍必须各自具备恰好一条 success ledger 和一个 completed batch，0131 仍必须满足 `mc_corp.tenant_id` 后置合同。受控 ledger 的 `scriptChecksum` 只有在等于当前值或该迁移注册表的同源换行别名时才接受；任意其他 SQL 内容变化继续失败。
+
 ## 验收
 
 - 已执行 0165、缺控制表的环境：普通 status/apply 先失败；采纳后通过并可继续 0172–0176。
 - 未执行 0165、checksum 不是当前值或已登记换行别名、后置 schema 不符、缺停流确认、备份 SHA 非法：采纳失败且不写记录。
 - 重复采纳：幂等返回同一事实或明确拒绝冲突，不产生第二条记录。
 - 输出与文档必须明确 `verified=false` 和不可恢复边界。
+- 已有完整 0130/0131 成功证据但工作树换行不同：普通 runner 接受已登记别名；缺 ledger、缺 batch、非登记 checksum 或 0131 后置结构不符仍失败。
