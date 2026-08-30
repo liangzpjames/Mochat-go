@@ -5,6 +5,7 @@ import (
 	"go/parser"
 	"go/token"
 	"os"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -14,7 +15,11 @@ func TestCurrentStoreIntegrationFixturesDoNotHandwriteBusinessSchemaOrLedger(t *
 		"mysql_integration_harness_test.go": {
 			"newCurrentStoreIntegrationDB":   true,
 			"newStoreIntegrationDBThrough":   true,
+			"newStoreIntegrationDatabase":    true,
 			"newStoreMigrationRunnerThrough": true,
+		},
+		"dashboard_access_integration_test.go": {
+			"openDashboardIntegrationDB": true,
 		},
 		"wework_callback_inbox_integration_test.go": {
 			"newWeWorkCallbackInboxIntegrationStore": true,
@@ -35,6 +40,11 @@ func TestCurrentStoreIntegrationFixturesDoNotHandwriteBusinessSchemaOrLedger(t *
 			"TestArchiveSyncUpsertValidatesRunScopeAndRollsBackSourceFailure":           true,
 			"TestArchiveSyncLeaseFenceRejectsStaleWorkerMutations":                      true,
 			"TestArchiveSyncConcurrentDifferentRunsClaimOneMessageIdentity":             true,
+			"TestArchiveSyncMigrationRejectsIncompleteResidualTable":                    true,
+			"TestArchiveSyncMigrationRejectsWrongCompositeSourceForeignKey":             true,
+			"TestArchiveSyncMigrationRejectsNonUniqueResidualScopeIndex":                true,
+			"TestArchiveSyncMigrationRejectsPrefixedResidualScopeIndex":                 true,
+			"TestArchiveSyncMigrationRejectsWrongAuditScopeIndex":                       true,
 			"newArchiveSyncProbeDB":             true,
 			"seedCurrentArchiveSyncCorpFixture": true,
 			"seedCurrentArchiveMessageFixture":  true,
@@ -45,7 +55,27 @@ func TestCurrentStoreIntegrationFixturesDoNotHandwriteBusinessSchemaOrLedger(t *
 		"risk_behavior_integration_test.go": {
 			"TestRiskAndKeywordAtomicityAgainstIsolatedMySQL": true,
 		},
+		"work_message_customer_integration_test.go": {
+			"TestCustomerDirectoryMariaDBIntegration":    true,
+			"TestCustomerConversationMariaDBIntegration": true,
+			"TestCustomerDetailMariaDBIntegration":       true,
+		},
 	}
+	allowedProbeTables := map[string]map[string]bool{
+		"TestArchiveSyncMigrationRejectsIncompleteResidualTable":        {"mochat_go_archive_sync_runs": true},
+		"TestArchiveSyncMigrationRejectsWrongCompositeSourceForeignKey": {"mochat_go_archive_message_sources": true},
+		"TestArchiveSyncMigrationRejectsNonUniqueResidualScopeIndex":    {"mochat_go_archive_message_sources": true},
+		"TestArchiveSyncMigrationRejectsPrefixedResidualScopeIndex":     {"mochat_go_archive_message_sources": true},
+		"TestArchiveSyncMigrationRejectsWrongAuditScopeIndex":           {"mochat_go_archive_sync_audits": true},
+	}
+	allowedProbeMigrationExecution := map[string]bool{
+		"TestArchiveSyncMigrationRejectsIncompleteResidualTable":        true,
+		"TestArchiveSyncMigrationRejectsWrongCompositeSourceForeignKey": true,
+		"TestArchiveSyncMigrationRejectsNonUniqueResidualScopeIndex":    true,
+		"TestArchiveSyncMigrationRejectsPrefixedResidualScopeIndex":     true,
+		"TestArchiveSyncMigrationRejectsWrongAuditScopeIndex":           true,
+	}
+	createTablePattern := regexp.MustCompile(`(?i)CREATE\s+TABLE(?:\s+IF\s+NOT\s+EXISTS)?\s+[` + "`" + `]?([[:alnum:]_]+)` + "`" + `?`)
 	for path, functions := range targets {
 		body, err := os.ReadFile(path)
 		if err != nil {
@@ -62,11 +92,17 @@ func TestCurrentStoreIntegrationFixturesDoNotHandwriteBusinessSchemaOrLedger(t *
 			}
 			start, end := int(function.Pos()-file.Pos()), int(function.End()-file.Pos())
 			source := strings.ToUpper(string(body[start:end]))
-			if strings.Contains(source, "CREATE TABLE") {
-				t.Fatalf("%s:%s handwrites business CREATE TABLE instead of using the production registry", path, function.Name.Name)
+			for _, match := range createTablePattern.FindAllStringSubmatch(source, -1) {
+				table := strings.ToLower(match[1])
+				if !allowedProbeTables[function.Name.Name][table] {
+					t.Fatalf("%s:%s handwrites non-probe table %s instead of using the production registry", path, function.Name.Name, table)
+				}
 			}
 			for _, bypass := range []string{"NEWDASHBOARDADMINPROVISIONINGDB", "CREATEARCHIVESYNCCORPFIXTURE", "EXECUTEARCHIVEMIGRATIONFILE", "TASK6INTEGRATIONDB", "CREATE DATABASE"} {
 				if strings.Contains(source, bypass) {
+					if bypass == "EXECUTEARCHIVEMIGRATIONFILE" && allowedProbeMigrationExecution[function.Name.Name] {
+						continue
+					}
 					t.Fatalf("%s:%s bypasses the current production registry through %s", path, function.Name.Name, bypass)
 				}
 			}

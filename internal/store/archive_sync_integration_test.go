@@ -977,32 +977,6 @@ func TestArchiveSyncConcurrentDifferentRunsClaimOneMessageIdentity(t *testing.T)
 	}
 }
 
-func createArchiveMessageUpsertFixture(t *testing.T, db *sql.DB) {
-	t.Helper()
-	for index := 1; index <= 10; index++ {
-		if _, err := db.Exec(fmt.Sprintf(`CREATE TABLE mc_work_message_%d (
-			id INT UNSIGNED NOT NULL AUTO_INCREMENT, corp_id INT UNSIGNED NOT NULL, msgid VARCHAR(255) NOT NULL,
-			seq BIGINT NOT NULL, work_employee_id INT NOT NULL, to_user_type INT NOT NULL, to_user_id INT NOT NULL,
-			sender_type INT NOT NULL, action INT NOT NULL, type INT NOT NULL, msg_type INT NOT NULL,
-			content TEXT NOT NULL, content_text TEXT NOT NULL, room_id INT NOT NULL DEFAULT 0, status INT NOT NULL DEFAULT 0,
-			msg_data_time DATETIME NULL, created_at DATETIME NULL, updated_at DATETIME NULL, deleted_at DATETIME NULL,
-			PRIMARY KEY (id), KEY idx_archive_fixture_msg (corp_id, msgid)
-		) ENGINE=InnoDB`, index)); err != nil {
-			t.Fatal(err)
-		}
-	}
-	for _, statement := range []string{
-		`CREATE TABLE mc_work_employee (id INT UNSIGNED NOT NULL AUTO_INCREMENT, corp_id INT UNSIGNED NOT NULL, wx_user_id VARCHAR(255) NOT NULL, name VARCHAR(255) NOT NULL DEFAULT '', avatar VARCHAR(255) NOT NULL DEFAULT '', deleted_at DATETIME NULL, PRIMARY KEY (id), KEY idx_archive_fixture_employee (corp_id, wx_user_id)) ENGINE=InnoDB`,
-		`CREATE TABLE mc_work_contact (id INT UNSIGNED NOT NULL AUTO_INCREMENT, corp_id INT UNSIGNED NOT NULL, wx_external_userid VARCHAR(255) NOT NULL, name VARCHAR(255) NOT NULL DEFAULT '', avatar VARCHAR(255) NOT NULL DEFAULT '', deleted_at DATETIME NULL, PRIMARY KEY (id), KEY idx_archive_fixture_contact (corp_id, wx_external_userid)) ENGINE=InnoDB`,
-		`INSERT INTO mc_work_employee (id, corp_id, wx_user_id, name) VALUES (1001, 27, 'employee-atomic', 'Atomic employee')`,
-		`INSERT INTO mc_work_contact (id, corp_id, wx_external_userid, name) VALUES (2001, 27, 'contact-atomic', 'Atomic contact')`,
-	} {
-		if _, err := db.Exec(statement); err != nil {
-			t.Fatal(err)
-		}
-	}
-}
-
 func seedCurrentArchiveMessageFixture(t *testing.T, db *sql.DB) {
 	t.Helper()
 	seedCurrentArchiveSyncCorpFixture(t, db)

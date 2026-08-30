@@ -19,6 +19,10 @@ func TestMySQLIntegrationFixturesUseProductionRegistryBaselines(t *testing.T) {
 				"mochat_go_archive_sync_runs": true,
 			},
 		},
+		"contact_batch_title_integration_test.go": {
+			"TestContactBatchTitle0175UpDownReapplyLifecycle": {},
+			"migrationsThrough": {},
+		},
 		"dashboard_page_rbac_integration_test.go": {
 			"TestDashboardPageRBACIntegration": {
 				"mochat_go_dashboard_permissions":          true,
@@ -32,14 +36,32 @@ func TestMySQLIntegrationFixturesUseProductionRegistryBaselines(t *testing.T) {
 			"TestIdentityRealmsSingleCorpBackfillRealMariaDB": {},
 		},
 		"identity_realms_single_corp_integration_test.go": {
+			"TestIdentityRealmsSingleCorpIntegration": {
+				"identity_dependency_probe":      true,
+				"mochat_go_dashboard_identities": true,
+			},
 			"newIdentitySingleCorpMigrationDB":    {},
 			"createIdentitySingleCorpBaseFixture": {},
 		},
+		"mysql_integration_harness_test.go": {
+			"newMigrationIntegrationDBThrough": {},
+			"newMigrationRunnerThrough":        {},
+		},
+		"testharness/registry_test.go": {
+			"registryIntegrationDSN": {},
+		},
 		"wecom_capability_ledger_contract_test.go": {
+			"TestWeComCapabilityLedgerRealRollbackRejectsExternalInboundForeignKeysBeforeDrop": {
+				"mo_chat_wecom_0139_external_fk_probe": true,
+			},
 			"TestWeComCapabilityLedgerRealRunnerApplyDownApply": {},
+			"newWeComCapabilityLedgerTestRunner":                {},
 			"withTemporaryWeComCapabilityLedgerSchema":          {},
 			"createWeComCapabilityLedgerPreMigrationFixture":    {},
 		},
+	}
+	allowedCreateDatabase := map[string]bool{
+		"wecom_capability_ledger_contract_test.go:TestWeComCapabilityLedgerRealRollbackRejectsExternalInboundForeignKeysBeforeDrop": true,
 	}
 
 	for path, functions := range targets {
@@ -72,6 +94,9 @@ func TestMySQLIntegrationFixturesUseProductionRegistryBaselines(t *testing.T) {
 			compact := strings.NewReplacer(" ", "", "\t", "", "\r", "", "\n", "").Replace(upper)
 			for _, bypass := range []string{"CREATE DATABASE", "DBNAME=\"\"", "[]MIGRATION{MIGRATION}"} {
 				if strings.Contains(compact, strings.ReplaceAll(bypass, " ", "")) {
+					if bypass == "CREATE DATABASE" && allowedCreateDatabase[path+":"+function.Name.Name] {
+						continue
+					}
 					t.Fatalf("%s:%s bypasses the production migration registry through %s", path, function.Name.Name, bypass)
 				}
 			}
