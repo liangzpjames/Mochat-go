@@ -29,7 +29,8 @@ var requestPrefixPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,47}$
 // closed at the first controlled migration.
 type ControlledEvidence struct {
 	IdentityPlatformTenantID  int64
-	IdentityRequestID         string
+	IdentityBackfillRequestID string
+	IdentityCutoverRequestID  string
 	IdentityCredentialManager *wecomcredentials.Manager
 	AIInsightRequestID        string
 }
@@ -56,7 +57,8 @@ func NewControlledEvidence(requestPrefix string) (ControlledEvidence, error) {
 	}
 	return ControlledEvidence{
 		IdentityPlatformTenantID:  freshInstallPlatformTenantID,
-		IdentityRequestID:         requestPrefix + "-identity",
+		IdentityBackfillRequestID: requestPrefix + "-0130",
+		IdentityCutoverRequestID:  requestPrefix + "-0131",
 		IdentityCredentialManager: manager,
 		AIInsightRequestID:        requestPrefix + "-0165",
 	}, nil
@@ -88,7 +90,12 @@ func applyPrefix(ctx context.Context, db *sql.DB, projectRoot string, migrations
 		if candidate.Kind != migration.MigrationControlled {
 			continue
 		}
-		if err := applyAutomaticPrefix(ctx, db, migrations[:index]); err != nil {
+		err := applyAutomaticPrefix(ctx, db, migrations[:index+1])
+		if err == nil {
+			continue
+		}
+		var pending *migration.ControlledMigrationPendingError
+		if !errors.As(err, &pending) || pending.Version != candidate.Version {
 			return err
 		}
 		switch candidate.Version {
@@ -121,9 +128,12 @@ func applyAutomaticPrefix(ctx context.Context, db *sql.DB, migrations []migratio
 }
 
 func applyIdentityBackfill(ctx context.Context, db *sql.DB, projectRoot string, target migration.Migration, evidence ControlledEvidence) error {
-	if evidence.IdentityPlatformTenantID <= 0 || strings.TrimSpace(evidence.IdentityRequestID) == "" || evidence.IdentityCredentialManager == nil {
+	if evidence.IdentityPlatformTenantID <= 0 || strings.TrimSpace(evidence.IdentityBackfillRequestID) == "" || evidence.IdentityCredentialManager == nil {
 		return migration.ControlledMigrationBlocked(target.Version)
 	}
+	// This generic harness deliberately remains a legacy-platform scenario seed.
+	// The authoritative empty-schema fresh-split proof lives in the command
+	// package and creates its bootstrap root through SaaSIdentityStore.
 	if _, err := db.ExecContext(ctx, `INSERT INTO mc_tenant (id,name,status) VALUES (?,?,1)`, evidence.IdentityPlatformTenantID, "integration platform tenant"); err != nil {
 		return fmt.Errorf("seed controlled identity platform tenant: %w", err)
 	}
@@ -134,17 +144,17 @@ func applyIdentityBackfill(ctx context.Context, db *sql.DB, projectRoot string, 
 	_, err = identitymigration.ApplyBackfill(ctx, db, identitymigration.DatabaseOptions{
 		Schema:            schema,
 		PlatformTenantID:  evidence.IdentityPlatformTenantID,
-		RequestID:         evidence.IdentityRequestID,
+		RequestID:         evidence.IdentityBackfillRequestID,
 		CredentialManager: evidence.IdentityCredentialManager,
 	}, target.Path)
 	if err != nil {
 		return err
 	}
-	return migration.RecordControlledMigration(ctx, db, projectRoot, target.Version, evidence.IdentityRequestID)
+	return migration.RecordControlledMigration(ctx, db, projectRoot, target.Version, evidence.IdentityBackfillRequestID)
 }
 
 func applyIdentityCutover(ctx context.Context, db *sql.DB, projectRoot string, target migration.Migration, evidence ControlledEvidence) error {
-	if evidence.IdentityPlatformTenantID <= 0 || strings.TrimSpace(evidence.IdentityRequestID) == "" || evidence.IdentityCredentialManager == nil {
+	if evidence.IdentityPlatformTenantID <= 0 || strings.TrimSpace(evidence.IdentityCutoverRequestID) == "" || evidence.IdentityCredentialManager == nil {
 		return migration.ControlledMigrationBlocked(target.Version)
 	}
 	schema, err := currentSchema(ctx, db)
@@ -154,13 +164,13 @@ func applyIdentityCutover(ctx context.Context, db *sql.DB, projectRoot string, t
 	_, err = identitymigration.ApplyCutover(ctx, db, identitymigration.DatabaseOptions{
 		Schema:            schema,
 		PlatformTenantID:  evidence.IdentityPlatformTenantID,
-		RequestID:         evidence.IdentityRequestID,
+		RequestID:         evidence.IdentityCutoverRequestID,
 		CredentialManager: evidence.IdentityCredentialManager,
 	}, target.Path)
 	if err != nil {
 		return err
 	}
-	return migration.RecordControlledMigration(ctx, db, projectRoot, target.Version, evidence.IdentityRequestID)
+	return migration.RecordControlledMigration(ctx, db, projectRoot, target.Version, evidence.IdentityCutoverRequestID)
 }
 
 func applyAIInsight0165(ctx context.Context, db *sql.DB, projectRoot string, evidence ControlledEvidence) error {

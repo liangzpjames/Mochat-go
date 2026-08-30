@@ -34,6 +34,12 @@ func TestApplyLatestBuildsSchemaFromCompleteProductionRegistry(t *testing.T) {
 	if err := testharness.ApplyLatest(context.Background(), database.DB, root, evidence); err != nil {
 		t.Fatal(err)
 	}
+	if evidence.IdentityBackfillRequestID == evidence.IdentityCutoverRequestID {
+		t.Fatalf("0130 and 0131 request IDs must be independent: %q", evidence.IdentityBackfillRequestID)
+	}
+	if err := testharness.ApplyLatest(context.Background(), database.DB, root, evidence); err != nil {
+		t.Fatalf("ApplyLatest must validate and reuse complete controlled evidence: %v", err)
+	}
 	migrations := migration.DefaultMigrations(root)
 	latest := migrations[len(migrations)-1].Version
 	var count int
