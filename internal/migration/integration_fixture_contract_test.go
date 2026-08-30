@@ -31,6 +31,10 @@ func TestMySQLIntegrationFixturesUseProductionRegistryBaselines(t *testing.T) {
 		"identity_realms_single_corp_backfill_integration_test.go": {
 			"TestIdentityRealmsSingleCorpBackfillRealMariaDB": {},
 		},
+		"identity_realms_single_corp_integration_test.go": {
+			"newIdentitySingleCorpMigrationDB":    {},
+			"createIdentitySingleCorpBaseFixture": {},
+		},
 	}
 
 	for path, functions := range targets {
