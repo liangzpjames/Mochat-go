@@ -6,8 +6,6 @@ import (
 	"database/sql/driver"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
@@ -392,14 +390,8 @@ func expectRiskEvaluationBatch(mock sqlmock.Sqlmock, cursor, highWater int64, va
 		WillReturnRows(strategyRows)
 }
 
-var task6SchemaSequence atomic.Int64
-
 func TestRiskAndKeywordAtomicityAgainstIsolatedMySQL(t *testing.T) {
-	dsn := strings.TrimSpace(os.Getenv("MOCHAT_GO_MYSQL_INTEGRATION_DSN"))
-	if dsn == "" {
-		t.Skip("SKIP: MOCHAT_GO_MYSQL_INTEGRATION_DSN is not set; isolated MariaDB/MySQL DSN is required")
-	}
-	db := task6IntegrationDB(t, dsn)
+	db := newCurrentStoreIntegrationDB(t)
 	store := NewMySQLStore(db)
 	ctx := context.Background()
 
@@ -622,49 +614,4 @@ func assertTask6RiskRuleNotTriggered(t *testing.T, db *sql.DB, ruleID int64, mes
 	if records != 0 || triggerCount != 0 {
 		t.Fatalf("rule=%d records=%d trigger_count=%d", ruleID, records, triggerCount)
 	}
-}
-
-func task6IntegrationDB(t *testing.T, dsn string) *sql.DB {
-	t.Helper()
-	cfg, err := mysql.ParseDSN(dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	adminCfg := *cfg
-	adminCfg.DBName = ""
-	admin, err := sql.Open("mysql", adminCfg.FormatDSN())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := admin.Ping(); err != nil {
-		admin.Close()
-		t.Fatal(err)
-	}
-	schema := fmt.Sprintf("mochat_task6_%d_%d", os.Getpid(), task6SchemaSequence.Add(1))
-	if _, err := admin.Exec("CREATE DATABASE `" + schema + "` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"); err != nil {
-		admin.Close()
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		_, _ = admin.Exec("DROP DATABASE IF EXISTS `" + schema + "`")
-		_ = admin.Close()
-	})
-	testCfg := *cfg
-	testCfg.DBName = schema
-	testCfg.MultiStatements = true
-	db, err := sql.Open("mysql", testCfg.FormatDSN())
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
-	for _, name := range []string{"0110_risk_behavior_provider.up.sql", "0112_message_intercept_keyword_library_provider.up.sql"} {
-		contents, err := os.ReadFile(filepath.Join("..", "..", "deploy", "standalone", "migrations", name))
-		if err != nil {
-			t.Fatal(err)
-		}
-		if _, err := db.Exec(string(contents)); err != nil {
-			t.Fatalf("apply %s: %v", name, err)
-		}
-	}
-	return db
 }

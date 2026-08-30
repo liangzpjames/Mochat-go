@@ -5,9 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"os"
 	"regexp"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -147,8 +145,7 @@ func TestSetKeywordEntryStatusReturnsRowsAffectedErrorAndRollsBack(t *testing.T)
 }
 
 func TestKeywordEntryAtomicityAndConcurrentVersionsAgainstIsolatedMySQL(t *testing.T) {
-	dsn := integrationDSNForTask6(t)
-	db := task6IntegrationDB(t, dsn)
+	db := newCurrentStoreIntegrationDB(t)
 	store := NewMySQLStore(db)
 	ctx := context.Background()
 	result, err := db.Exec(`INSERT INTO mochat_go_keyword_libraries(tenant_id,corp_id,name,description,match_mode,status) VALUES(11,27,'task6','','contains','enabled')`)
@@ -292,13 +289,4 @@ func TestKeywordEntryAtomicityAndConcurrentVersionsAgainstIsolatedMySQL(t *testi
 			t.Fatalf("attempt=%d remaining=%d version before=%d after=%d delta=%d", attempt, remaining, versionBeforeRace, versionAfterRace, expectedDelta)
 		}
 	}
-}
-
-func integrationDSNForTask6(t *testing.T) string {
-	t.Helper()
-	dsn := strings.TrimSpace(os.Getenv("MOCHAT_GO_MYSQL_INTEGRATION_DSN"))
-	if dsn == "" {
-		t.Skip("SKIP: MOCHAT_GO_MYSQL_INTEGRATION_DSN is not set; isolated MariaDB/MySQL DSN is required")
-	}
-	return dsn
 }

@@ -6,21 +6,15 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"os"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
 	"jiyi/mochat-go/internal/dashboard"
 	"jiyi/mochat-go/internal/dashboardadmin"
 	"jiyi/mochat-go/internal/saasauth"
-
-	mysqldriver "github.com/go-sql-driver/mysql"
 )
-
-var dashboardAdminSchemaSequence atomic.Int64
 
 func TestDashboardAdminApprovalExecutionRealMariaDB(t *testing.T) {
 	db := newCurrentStoreIntegrationDB(t)
@@ -814,91 +808,6 @@ func sameDashboardAdminCounts(left, right map[string]int) bool {
 		}
 	}
 	return true
-}
-
-func newDashboardAdminProvisioningDB(t *testing.T) *sql.DB {
-	t.Helper()
-	dsn := os.Getenv("MOCHAT_GO_MYSQL_INTEGRATION_DSN")
-	if strings.TrimSpace(dsn) == "" {
-		t.Skip("SKIP: MOCHAT_GO_MYSQL_INTEGRATION_DSN is not set; isolated MariaDB DSN is required")
-	}
-	cfg, err := mysqldriver.ParseDSN(dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	adminCfg := *cfg
-	adminCfg.DBName = ""
-	admin, err := sql.Open("mysql", adminCfg.FormatDSN())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := admin.PingContext(context.Background()); err != nil {
-		_ = admin.Close()
-		t.Fatal(err)
-	}
-	schema := fmt.Sprintf("mochat_identity_single_corp_task7_%d_%d", os.Getpid(), dashboardAdminSchemaSequence.Add(1))
-	var schemaExists int
-	if err := admin.QueryRow(`SELECT COUNT(*) FROM information_schema.schemata WHERE schema_name=?`, schema).Scan(&schemaExists); err != nil {
-		_ = admin.Close()
-		t.Fatalf("check isolated schema collision: %v", err)
-	}
-	if schemaExists != 0 {
-		_ = admin.Close()
-		t.Fatalf("isolated schema already exists: %s", schema)
-	}
-	if _, err := admin.Exec("CREATE DATABASE `" + schema + "` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"); err != nil {
-		_ = admin.Close()
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		_, _ = admin.Exec("DROP DATABASE IF EXISTS `" + schema + "`")
-		var leftovers int
-		if err := admin.QueryRow(`SELECT COUNT(*) FROM information_schema.schemata WHERE schema_name=?`, schema).Scan(&leftovers); err != nil {
-			t.Errorf("check isolated schema cleanup: %v", err)
-		} else if leftovers != 0 {
-			t.Errorf("isolated schema %s still exists after cleanup", schema)
-		}
-		t.Logf("isolated schema cleanup=0 (%s)", schema)
-		_ = admin.Close()
-	})
-	testCfg := *cfg
-	testCfg.DBName = schema
-	db, err := sql.Open("mysql", testCfg.FormatDSN())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := db.PingContext(context.Background()); err != nil {
-		_ = db.Close()
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
-	return db
-}
-
-func dashboardAdminSchemaLeftovers(t *testing.T) int {
-	t.Helper()
-	dsn := os.Getenv("MOCHAT_GO_MYSQL_INTEGRATION_DSN")
-	cfg, err := mysqldriver.ParseDSN(dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	adminCfg := *cfg
-	adminCfg.DBName = ""
-	admin, err := sql.Open("mysql", adminCfg.FormatDSN())
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer admin.Close()
-	return dashboardAdminSchemaLeftoversWithDB(t, admin)
-}
-
-func dashboardAdminSchemaLeftoversWithDB(t *testing.T, admin *sql.DB) int {
-	t.Helper()
-	var count int
-	if err := admin.QueryRow(`SELECT COUNT(*) FROM information_schema.schemata WHERE schema_name LIKE 'mochat_identity_single_corp_task7_%'`).Scan(&count); err != nil {
-		t.Fatal(err)
-	}
-	return count
 }
 
 func createDashboardAdminProvisioningFixture(t *testing.T, db *sql.DB) {

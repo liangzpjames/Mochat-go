@@ -35,8 +35,15 @@ func TestCurrentStoreIntegrationFixturesDoNotHandwriteBusinessSchemaOrLedger(t *
 			"TestArchiveSyncUpsertValidatesRunScopeAndRollsBackSourceFailure":           true,
 			"TestArchiveSyncLeaseFenceRejectsStaleWorkerMutations":                      true,
 			"TestArchiveSyncConcurrentDifferentRunsClaimOneMessageIdentity":             true,
-			"seedCurrentArchiveSyncCorpFixture":                                         true,
-			"seedCurrentArchiveMessageFixture":                                          true,
+			"newArchiveSyncProbeDB":             true,
+			"seedCurrentArchiveSyncCorpFixture": true,
+			"seedCurrentArchiveMessageFixture":  true,
+		},
+		"message_intercept_integration_test.go": {
+			"TestKeywordEntryAtomicityAndConcurrentVersionsAgainstIsolatedMySQL": true,
+		},
+		"risk_behavior_integration_test.go": {
+			"TestRiskAndKeywordAtomicityAgainstIsolatedMySQL": true,
 		},
 	}
 	for path, functions := range targets {
@@ -58,7 +65,7 @@ func TestCurrentStoreIntegrationFixturesDoNotHandwriteBusinessSchemaOrLedger(t *
 			if strings.Contains(source, "CREATE TABLE") {
 				t.Fatalf("%s:%s handwrites business CREATE TABLE instead of using the production registry", path, function.Name.Name)
 			}
-			for _, bypass := range []string{"NEWDASHBOARDADMINPROVISIONINGDB", "CREATEARCHIVESYNCCORPFIXTURE", "EXECUTEARCHIVEMIGRATIONFILE"} {
+			for _, bypass := range []string{"NEWDASHBOARDADMINPROVISIONINGDB", "CREATEARCHIVESYNCCORPFIXTURE", "EXECUTEARCHIVEMIGRATIONFILE", "TASK6INTEGRATIONDB", "CREATE DATABASE"} {
 				if strings.Contains(source, bypass) {
 					t.Fatalf("%s:%s bypasses the current production registry through %s", path, function.Name.Name, bypass)
 				}

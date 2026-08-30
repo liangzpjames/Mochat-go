@@ -16,7 +16,6 @@ import (
 	"jiyi/mochat-go/internal/modules/providers"
 	archiveprovider "jiyi/mochat-go/internal/modules/providers/archive"
 	"jiyi/mochat-go/internal/sqlscript"
-	archivesourcefixture "jiyi/mochat-go/internal/testfixtures/archivesource"
 )
 
 func TestArchiveSourceMigrationContainsLegacySimulationBackfillContract(t *testing.T) {
@@ -274,7 +273,7 @@ func TestArchiveSyncEnqueueRejectsNamespaceMismatchWithoutMutation(t *testing.T)
 }
 
 func TestArchiveSyncMigrationRejectsIncompleteResidualTable(t *testing.T) {
-	db := newDashboardAdminProvisioningDB(t)
+	db := newArchiveSyncProbeDB(t)
 	if _, err := db.Exec(`CREATE TABLE mochat_go_archive_sync_runs (id BIGINT UNSIGNED NOT NULL PRIMARY KEY) ENGINE=InnoDB`); err != nil {
 		t.Fatal(err)
 	}
@@ -288,8 +287,7 @@ func TestArchiveSyncMigrationRejectsIncompleteResidualTable(t *testing.T) {
 }
 
 func TestArchiveSyncMigrationRejectsSingleFactorIdempotencyKeyTypeMismatch(t *testing.T) {
-	db := newDashboardAdminProvisioningDB(t)
-	createArchiveSyncCorpFixture(t, db)
+	db := newArchiveSyncProbeDB(t)
 	executeArchiveMigrationFile(t, db, "0138_archive_source_sync.up.sql")
 	if _, err := db.Exec(`ALTER TABLE mochat_go_archive_sync_runs MODIFY idempotency_key VARCHAR(1) NOT NULL`); err != nil {
 		t.Fatal(err)
@@ -667,8 +665,7 @@ func TestArchiveSyncColumnDefaultNormalization(t *testing.T) {
 }
 
 func TestArchiveSyncMigrationRejectsWrongCompositeSourceForeignKey(t *testing.T) {
-	db := newDashboardAdminProvisioningDB(t)
-	createArchiveSyncCorpFixture(t, db)
+	db := newArchiveSyncProbeDB(t)
 	executeArchiveMigrationFile(t, db, "0138_archive_source_sync.up.sql")
 	if _, err := db.Exec("DROP TABLE mochat_go_archive_message_sources"); err != nil {
 		t.Fatal(err)
@@ -694,8 +691,7 @@ func TestArchiveSyncMigrationRejectsWrongCompositeSourceForeignKey(t *testing.T)
 }
 
 func TestArchiveSyncMigrationRejectsNonUniqueResidualScopeIndex(t *testing.T) {
-	db := newDashboardAdminProvisioningDB(t)
-	createArchiveSyncCorpFixture(t, db)
+	db := newArchiveSyncProbeDB(t)
 	executeArchiveMigrationFile(t, db, "0138_archive_source_sync.up.sql")
 	if _, err := db.Exec("DROP TABLE mochat_go_archive_message_sources"); err != nil {
 		t.Fatal(err)
@@ -722,8 +718,7 @@ func TestArchiveSyncMigrationRejectsNonUniqueResidualScopeIndex(t *testing.T) {
 }
 
 func TestArchiveSyncMigrationRejectsPrefixedResidualScopeIndex(t *testing.T) {
-	db := newDashboardAdminProvisioningDB(t)
-	createArchiveSyncCorpFixture(t, db)
+	db := newArchiveSyncProbeDB(t)
 	executeArchiveMigrationFile(t, db, "0138_archive_source_sync.up.sql")
 	if _, err := db.Exec("DROP TABLE mochat_go_archive_message_sources"); err != nil {
 		t.Fatal(err)
@@ -750,8 +745,7 @@ func TestArchiveSyncMigrationRejectsPrefixedResidualScopeIndex(t *testing.T) {
 }
 
 func TestArchiveSyncMigrationRejectsWrongAuditScopeIndex(t *testing.T) {
-	db := newDashboardAdminProvisioningDB(t)
-	createArchiveSyncCorpFixture(t, db)
+	db := newArchiveSyncProbeDB(t)
 	executeArchiveMigrationFile(t, db, "0138_archive_source_sync.up.sql")
 	if _, err := db.Exec("DROP TABLE mochat_go_archive_sync_audits"); err != nil {
 		t.Fatal(err)
@@ -1049,19 +1043,11 @@ func assertArchiveMessageWriteCounts(t *testing.T, db *sql.DB, msgID string, wan
 	}
 }
 
-func createArchiveSyncCorpFixture(t *testing.T, db *sql.DB) {
+func newArchiveSyncProbeDB(t *testing.T) *sql.DB {
 	t.Helper()
-	for _, statement := range []string{
-		`CREATE TABLE mc_corp (id INT(10) UNSIGNED NOT NULL AUTO_INCREMENT, tenant_id INT(10) UNSIGNED NOT NULL, chat_status TINYINT NOT NULL DEFAULT 1, deleted_at DATETIME NULL, PRIMARY KEY (id), UNIQUE KEY uni_mc_corp_tenant_id_id (tenant_id, id)) ENGINE=InnoDB`,
-		`INSERT INTO mc_corp (id, tenant_id, deleted_at) VALUES (27, 11, NULL)`,
-	} {
-		if _, err := db.Exec(statement); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := archivesourcefixture.PrepareDashboardPermissionDependencies(context.Background(), db); err != nil {
-		t.Fatalf("0127 dashboard permission fixture: %v", err)
-	}
+	db := newStoreIntegrationDBThrough(t, "0137_reconcile_ai_settings_schema")
+	seedCurrentArchiveSyncCorpFixture(t, db)
+	return db
 }
 
 func executeArchiveMigrationFile(t *testing.T, db *sql.DB, name string) {
