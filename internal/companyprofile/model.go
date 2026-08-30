@@ -9,42 +9,46 @@ import (
 )
 
 const (
-	CodeInvalidRequest       = "INVALID_REQUEST"
-	CodePermissionDenied     = "PERMISSION_DENIED"
-	CodeTenantAccessDenied   = "TENANT_ACCESS_DENIED"
-	CodeNotFound             = "NOT_FOUND"
-	CodeVersionConflict      = "VERSION_CONFLICT"
-	CodeCorpIDImmutable      = "CORP_ID_IMMUTABLE"
-	CodeIntegrationMode      = "WECOM_INTEGRATION_MODE_MISMATCH"
-	CodeWeComCredentialError = "WECOM_CREDENTIAL_INVALID"
-	CodeIdempotencyConflict  = "IDEMPOTENCY_CONFLICT"
-	CodeLeaseFenceConflict   = "LEASE_FENCE_CONFLICT"
-	CodeCallbackLeaseActive  = "CALLBACK_LEASE_ACTIVE"
-	CodeQuarantineActive     = "RECONCILIATION_QUARANTINE_ACTIVE"
-	CodeSideEffectConflict   = "SIDE_EFFECT_STATE_CONFLICT"
-	CodeUnsupportedAction    = "UNSUPPORTED_ACTION_REQUIRES_UPGRADE"
-	CodeRecoveryUnavailable  = "CALLBACK_RECOVERY_UNAVAILABLE"
-	CodeInternal             = "INTERNAL_ERROR"
+	CodeInvalidRequest         = "INVALID_REQUEST"
+	CodePermissionDenied       = "PERMISSION_DENIED"
+	CodeTenantAccessDenied     = "TENANT_ACCESS_DENIED"
+	CodeNotFound               = "NOT_FOUND"
+	CodeVersionConflict        = "VERSION_CONFLICT"
+	CodeCorpIDImmutable        = "CORP_ID_IMMUTABLE"
+	CodeIntegrationMode        = "WECOM_INTEGRATION_MODE_MISMATCH"
+	CodeWeComCredentialError   = "WECOM_CREDENTIAL_INVALID"
+	CodeIdempotencyConflict    = "IDEMPOTENCY_CONFLICT"
+	CodeLeaseFenceConflict     = "LEASE_FENCE_CONFLICT"
+	CodeCallbackLeaseActive    = "CALLBACK_LEASE_ACTIVE"
+	CodeQuarantineActive       = "RECONCILIATION_QUARANTINE_ACTIVE"
+	CodeSideEffectConflict     = "SIDE_EFFECT_STATE_CONFLICT"
+	CodeUnsupportedAction      = "UNSUPPORTED_ACTION_REQUIRES_UPGRADE"
+	CodeRecoveryUnavailable    = "CALLBACK_RECOVERY_UNAVAILABLE"
+	CodeRecoveryTargetNotFound = "TARGET_NOT_FOUND"
+	CodeInboxStateConflict     = "CALLBACK_INBOX_STATE_CONFLICT"
+	CodeInternal               = "INTERNAL_ERROR"
 )
 
 var (
-	ErrInvalidRequest      = errors.New("company profile request is invalid")
-	ErrPermissionDenied    = errors.New("company profile permission denied")
-	ErrTenantAccessDenied  = errors.New("company profile tenant access denied")
-	ErrNotFound            = errors.New("company profile not found")
-	ErrVersionConflict     = errors.New("company profile version conflict")
-	ErrCorpIDImmutable     = errors.New("company profile CorpID is immutable")
-	ErrIntegrationMode     = errors.New("company profile is not managed by self-built WeCom mode")
-	ErrCredentialInvalid   = errors.New("company profile WeCom credential invalid")
-	ErrStoreUnavailable    = errors.New("company profile store unavailable")
-	ErrVerifierUnavailable = errors.New("company profile verifier unavailable")
-	ErrIdempotencyConflict = errors.New("callback side effect idempotency conflict")
-	ErrLeaseFenceConflict  = errors.New("callback inbox lease fence conflict")
-	ErrCallbackLeaseActive = errors.New("callback inbox lease is active")
-	ErrQuarantineActive    = errors.New("callback side effect reconciliation quarantine is active")
-	ErrSideEffectConflict  = errors.New("callback side effect state conflict")
-	ErrUnsupportedAction   = errors.New("callback side effect action requires upgrade")
-	ErrRecoveryUnavailable = errors.New("callback side effect recovery unavailable")
+	ErrInvalidRequest         = errors.New("company profile request is invalid")
+	ErrPermissionDenied       = errors.New("company profile permission denied")
+	ErrTenantAccessDenied     = errors.New("company profile tenant access denied")
+	ErrNotFound               = errors.New("company profile not found")
+	ErrVersionConflict        = errors.New("company profile version conflict")
+	ErrCorpIDImmutable        = errors.New("company profile CorpID is immutable")
+	ErrIntegrationMode        = errors.New("company profile is not managed by self-built WeCom mode")
+	ErrCredentialInvalid      = errors.New("company profile WeCom credential invalid")
+	ErrStoreUnavailable       = errors.New("company profile store unavailable")
+	ErrVerifierUnavailable    = errors.New("company profile verifier unavailable")
+	ErrIdempotencyConflict    = errors.New("callback side effect idempotency conflict")
+	ErrLeaseFenceConflict     = errors.New("callback inbox lease fence conflict")
+	ErrCallbackLeaseActive    = errors.New("callback inbox lease is active")
+	ErrQuarantineActive       = errors.New("callback side effect reconciliation quarantine is active")
+	ErrSideEffectConflict     = errors.New("callback side effect state conflict")
+	ErrUnsupportedAction      = errors.New("callback side effect action requires upgrade")
+	ErrRecoveryUnavailable    = errors.New("callback side effect recovery unavailable")
+	ErrRecoveryTargetNotFound = errors.New("callback side effect recovery target not found")
+	ErrInboxStateConflict     = errors.New("callback inbox state conflict")
 )
 
 const (
@@ -96,13 +100,19 @@ type CallbackSideEffectReconcileInput struct {
 }
 
 type CallbackSideEffectReconcileResult struct {
-	EventKey        string `json:"eventKey"`
-	ActionKey       string `json:"actionKey"`
-	Status          string `json:"status"`
-	Version         uint64 `json:"version"`
-	InboxLeaseFence uint64 `json:"inboxLeaseFence"`
-	ReplayScheduled bool   `json:"replayScheduled"`
-	Replayed        bool   `json:"replayed"`
+	EventKey                string `json:"eventKey"`
+	ActionKey               string `json:"actionKey"`
+	Status                  string `json:"status"`
+	Version                 uint64 `json:"version"`
+	InboxLeaseFence         uint64 `json:"inboxLeaseFence"`
+	InboxReplayScheduled    bool   `json:"inboxReplayScheduled"`
+	RemainingUnknownActions int    `json:"remainingUnknownActions"`
+	Idempotent              bool   `json:"idempotent"`
+	WakeupAccepted          bool   `json:"wakeupAccepted"`
+}
+
+type WeWorkCallbackWakeup interface {
+	WakeWeWorkCallback(context.Context) error
 }
 
 type CallbackSideEffectRecoveryStore interface {

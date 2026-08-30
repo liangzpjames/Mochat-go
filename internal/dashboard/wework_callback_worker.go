@@ -143,6 +143,10 @@ type WorkMessageArchiveSyncTrigger interface {
 	RunCorp(context.Context, int) error
 }
 
+type WeWorkCallbackWakeupWaiter interface {
+	WaitWeWorkCallbackWakeup(context.Context, time.Duration) error
+}
+
 type WeWorkCallbackWorker struct {
 	capabilities       WeWorkCallbackWorkerCapabilities
 	capabilityResolver WeWorkCallbackCapabilityResolver
@@ -160,6 +164,7 @@ type WeWorkCallbackWorker struct {
 	fileStorageRoot    string
 	alertNotifier      SaaSAlertNotifier
 	archiveSyncTrigger WorkMessageArchiveSyncTrigger
+	wakeupWaiter       WeWorkCallbackWakeupWaiter
 	logger             *log.Logger
 	now                func() time.Time
 }
@@ -232,6 +237,11 @@ func (w *WeWorkCallbackWorker) WithArchiveSyncTrigger(trigger WorkMessageArchive
 	return w
 }
 
+func (w *WeWorkCallbackWorker) WithWakeupWaiter(waiter WeWorkCallbackWakeupWaiter) *WeWorkCallbackWorker {
+	w.wakeupWaiter = waiter
+	return w
+}
+
 func (w *WeWorkCallbackWorker) WithNow(now func() time.Time) *WeWorkCallbackWorker {
 	if now != nil {
 		w.now = now
@@ -261,12 +271,26 @@ func (w *WeWorkCallbackWorker) Run(ctx context.Context) error {
 			continue
 		}
 		if !ok {
-			if err := waitWeWorkCallbackPoll(ctx, w.pollTimeout); err != nil {
+			if err := w.waitForCallbackWork(ctx); err != nil {
 				return err
 			}
 			continue
 		}
 		w.handleClaim(ctx, claim)
+	}
+}
+
+func (w *WeWorkCallbackWorker) waitForCallbackWork(ctx context.Context) error {
+	if w.wakeupWaiter == nil {
+		return waitWeWorkCallbackPoll(ctx, w.pollTimeout)
+	}
+	if err := w.wakeupWaiter.WaitWeWorkCallbackWakeup(ctx, w.pollTimeout); err == nil {
+		return nil
+	} else if ctx.Err() != nil {
+		return ctx.Err()
+	} else {
+		w.logger.Printf("wework callback wakeup wait failed: %v", errors.New(SanitizeWeWorkCallbackFailure(err.Error())))
+		return waitWeWorkCallbackPoll(ctx, w.pollTimeout)
 	}
 }
 

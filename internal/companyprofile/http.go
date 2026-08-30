@@ -215,6 +215,8 @@ func errorResponse(err error) (int, string, string) {
 		return http.StatusForbidden, CodeTenantAccessDenied, "tenant access denied"
 	case errors.Is(err, ErrNotFound):
 		return http.StatusNotFound, CodeNotFound, "not found"
+	case errors.Is(err, ErrRecoveryTargetNotFound):
+		return http.StatusNotFound, CodeRecoveryTargetNotFound, "target not found"
 	case errors.Is(err, ErrVersionConflict):
 		return http.StatusConflict, CodeVersionConflict, "version conflict"
 	case errors.Is(err, ErrIdempotencyConflict):
@@ -223,6 +225,8 @@ func errorResponse(err error) (int, string, string) {
 		return http.StatusConflict, CodeLeaseFenceConflict, "lease fence conflict"
 	case errors.Is(err, ErrCallbackLeaseActive):
 		return http.StatusConflict, CodeCallbackLeaseActive, "callback lease active"
+	case errors.Is(err, ErrInboxStateConflict):
+		return http.StatusConflict, CodeInboxStateConflict, "callback inbox state conflict"
 	case errors.Is(err, ErrQuarantineActive):
 		return http.StatusConflict, CodeQuarantineActive, "reconciliation quarantine active"
 	case errors.Is(err, ErrSideEffectConflict):

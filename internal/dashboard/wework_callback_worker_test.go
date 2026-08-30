@@ -77,6 +77,83 @@ func TestWeWorkCallbackWorkerRunsFromDurableInboxWithoutRedis(t *testing.T) {
 	}
 }
 
+type fakeWeWorkCallbackWakeupWaiter struct {
+	calls  int
+	onWait func()
+	err    error
+}
+
+func (w *fakeWeWorkCallbackWakeupWaiter) WaitWeWorkCallbackWakeup(context.Context, time.Duration) error {
+	w.calls++
+	if w.onWait != nil {
+		callback := w.onWait
+		w.onWait = nil
+		callback()
+	}
+	return w.err
+}
+
+func TestWeWorkCallbackWorkerFallsBackToPollAfterWakeupDependencyFailure(t *testing.T) {
+	completed := make(chan WeWorkCallbackClaim, 1)
+	store := &fakeDurableWeWorkCallbackWorkerStore{fakeWeWorkCallbackWorkerStore: &fakeWeWorkCallbackWorkerStore{}, completed: completed}
+	wakeup := &fakeWeWorkCallbackWakeupWaiter{err: errors.New("redis unavailable")}
+	wakeup.onWait = func() {
+		store.mu.Lock()
+		store.claims = append(store.claims, WeWorkCallbackClaim{
+			ID: 11, EventKey: strings.Repeat("e", 64), LeaseToken: "lease-fallback", LeaseFence: 1, Attempt: 1,
+			Event: WeWorkCallbackEvent{TenantID: 3, CorpID: 7, EventPath: "event.noop", Message: map[string]string{}},
+		})
+		store.mu.Unlock()
+	}
+	worker := NewWeWorkCallbackWorker(WeWorkCallbackWorkerCapabilities{}, store, &fakeWeWorkCallbackWorkerClient{}, "", log.Default()).WithWakeupWaiter(wakeup)
+	worker.pollTimeout = time.Millisecond
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- worker.Run(ctx) }()
+	select {
+	case <-completed:
+		cancel()
+	case <-time.After(time.Second):
+		cancel()
+		t.Fatal("worker did not fall back to durable polling after wakeup failure")
+	}
+	if err := <-done; !errors.Is(err, context.Canceled) {
+		t.Fatalf("run error=%v", err)
+	}
+}
+
+func TestWeWorkCallbackWorkerConsumesWakeupBeforeLongPollExpires(t *testing.T) {
+	completed := make(chan WeWorkCallbackClaim, 1)
+	store := &fakeDurableWeWorkCallbackWorkerStore{fakeWeWorkCallbackWorkerStore: &fakeWeWorkCallbackWorkerStore{}, completed: completed}
+	wakeup := &fakeWeWorkCallbackWakeupWaiter{}
+	wakeup.onWait = func() {
+		store.mu.Lock()
+		store.claims = append(store.claims, WeWorkCallbackClaim{
+			ID: 10, EventKey: strings.Repeat("f", 64), LeaseToken: "lease-wakeup", LeaseFence: 1, Attempt: 1,
+			Event: WeWorkCallbackEvent{TenantID: 3, CorpID: 7, EventPath: "event.noop", Message: map[string]string{}},
+		})
+		store.mu.Unlock()
+	}
+	worker := NewWeWorkCallbackWorker(WeWorkCallbackWorkerCapabilities{}, store, &fakeWeWorkCallbackWorkerClient{}, "", log.Default()).WithWakeupWaiter(wakeup)
+	worker.pollTimeout = time.Hour
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- worker.Run(ctx) }()
+	select {
+	case <-completed:
+		cancel()
+	case <-time.After(time.Second):
+		cancel()
+		t.Fatal("worker did not consume wakeup before the long poll timeout")
+	}
+	if err := <-done; !errors.Is(err, context.Canceled) {
+		t.Fatalf("run error=%v", err)
+	}
+	if wakeup.calls == 0 {
+		t.Fatal("worker never waited on the production wakeup dependency")
+	}
+}
+
 func TestWeWorkCallbackWorkerImportsLegacyBacklogBeforeAcknowledgingRedis(t *testing.T) {
 	legacy := &fakeLegacyWeWorkCallbackBacklog{
 		stats: LegacyWeWorkCallbackBacklogStats{Pending: 1},
@@ -971,6 +1048,61 @@ func TestWeWorkCallbackWorkerLeavesInboxOpenAndAttemptsEveryFissionActionWhenSid
 	}
 	if client.agentTextDuplicateChecks != 1 || client.contactBatchSendCalls != 1 {
 		t.Fatalf("replay repeated external effects: reminder=%d customer=%d", client.agentTextDuplicateChecks, client.contactBatchSendCalls)
+	}
+}
+
+func TestWeWorkCallbackWorkerFakeContractHonorsManualReconciliationPerAction(t *testing.T) {
+	eventKey := strings.Repeat("9", 64)
+	store := &fakeDurableWeWorkCallbackWorkerStore{
+		fakeWeWorkCallbackWorkerStore: &fakeWeWorkCallbackWorkerStore{
+			credential:           RoomWelcomeCorpCredential{CorpID: 7, WXCorpID: "ww-go", ContactSecret: "contact-secret"},
+			contactSyncEmployees: []WorkContactSyncEmployee{{ID: 3, WXUserID: "go-user"}},
+			syncResult:           WorkContactSyncResult{ContactID: 101, ContactWasNew: true},
+			remindAgent:          RoomTagPullAgentCredential{CorpID: 7, WXCorpID: "ww-go", WXAgentID: "1000002", WXSecret: "agent-secret"},
+			workFissionAddContactResult: WorkFissionAddContactResult{
+				FissionID: 903, Completed: true,
+				EmployeeReminder: &WorkFissionEmployeeReminder{ToUser: "go-user", Content: "客户已完成任务"},
+				CustomerPush:     &WorkFissionCustomerPush{Sender: "go-user", ExternalUserID: "external-parent", Content: []ContactMessageBatchSendContent{{MsgType: "text", Content: "完成任务"}}},
+			},
+		},
+		sideEffects: map[string]string{
+			eventKey + "\x00" + WeWorkCallbackActionFissionEmployeeReminder: WeWorkCallbackSideEffectUnknown,
+			eventKey + "\x00" + WeWorkCallbackActionFissionCustomerPush:     WeWorkCallbackSideEffectSent,
+		},
+	}
+	client := &fakeWeWorkCallbackWorkerClient{contacts: map[string]WorkContactSyncContact{
+		"external-user": {WXExternalUserID: "external-user", FollowUsers: []WorkContactSyncFollowUser{{UserID: "go-user"}}},
+	}}
+	worker := NewWeWorkCallbackWorker(WeWorkCallbackWorkerCapabilities{}, store, client, "worker-secret", log.Default())
+	event := WeWorkCallbackEvent{TenantID: 21, CorpID: 7, EventPath: "event.change_external_contact.add_external_contact", Message: map[string]string{"UserID": "go-user", "ExternalUserID": "external-user", "State": "fission-77"}}
+
+	for attempt := 1; attempt <= 2; attempt++ {
+		worker.handleClaim(context.Background(), WeWorkCallbackClaim{ID: 20, EventKey: eventKey, LeaseToken: "lease-unknown", LeaseFence: uint64(attempt), Attempt: attempt, Event: event})
+	}
+	if client.agentTextDuplicateChecks != 0 || client.contactBatchSendCalls != 0 {
+		t.Fatalf("unknown action was automatically replayed: reminder=%d customer=%d", client.agentTextDuplicateChecks, client.contactBatchSendCalls)
+	}
+
+	if err := store.reconcileUnknownSideEffect(eventKey, WeWorkCallbackActionFissionEmployeeReminder, "confirm_sent"); err != nil {
+		t.Fatal(err)
+	}
+	worker.handleClaim(context.Background(), WeWorkCallbackClaim{ID: 20, EventKey: eventKey, LeaseToken: "lease-confirmed", LeaseFence: 3, Attempt: 1, Event: event})
+	if client.agentTextDuplicateChecks != 0 || client.contactBatchSendCalls != 0 {
+		t.Fatalf("confirm_sent called fake Provider: reminder=%d customer=%d", client.agentTextDuplicateChecks, client.contactBatchSendCalls)
+	}
+
+	retryEventKey := strings.Repeat("a", 64)
+	store.sideEffects[retryEventKey+"\x00"+WeWorkCallbackActionFissionEmployeeReminder] = WeWorkCallbackSideEffectUnknown
+	store.sideEffects[retryEventKey+"\x00"+WeWorkCallbackActionFissionCustomerPush] = WeWorkCallbackSideEffectSent
+	if err := store.reconcileUnknownSideEffect(retryEventKey, WeWorkCallbackActionFissionEmployeeReminder, "confirm_not_sent_and_retry"); err != nil {
+		t.Fatal(err)
+	}
+	worker.handleClaim(context.Background(), WeWorkCallbackClaim{ID: 21, EventKey: retryEventKey, LeaseToken: "lease-retry", LeaseFence: 1, Attempt: 1, Event: event})
+	if client.agentTextDuplicateChecks != 1 || client.contactBatchSendCalls != 0 {
+		t.Fatalf("manual retry did not advance only its action once: reminder=%d customer=%d", client.agentTextDuplicateChecks, client.contactBatchSendCalls)
+	}
+	if store.manualReconcileCalls != 2 || len(store.failedClaims) != 2 || len(store.completedClaims) != 2 {
+		t.Fatalf("manual chain reconciles=%d failed=%d completed=%d", store.manualReconcileCalls, len(store.failedClaims), len(store.completedClaims))
 	}
 }
 
@@ -2412,6 +2544,24 @@ type fakeDurableWeWorkCallbackWorkerStore struct {
 	sideEffects              map[string]string
 	sideEffectBeginErrors    map[string][]error
 	sideEffectCompleteErrors map[string][]error
+	manualReconcileCalls     int
+}
+
+func (s *fakeDurableWeWorkCallbackWorkerStore) reconcileUnknownSideEffect(eventKey, actionKey, decision string) error {
+	key := eventKey + "\x00" + actionKey
+	if s.sideEffects[key] != WeWorkCallbackSideEffectUnknown {
+		return errors.New("fake manual reconcile requires unknown")
+	}
+	switch decision {
+	case "confirm_sent":
+		s.sideEffects[key] = WeWorkCallbackSideEffectSent
+	case "confirm_not_sent_and_retry":
+		s.sideEffects[key] = WeWorkCallbackSideEffectPending
+	default:
+		return errors.New("fake manual reconcile decision is invalid")
+	}
+	s.manualReconcileCalls++
+	return nil
 }
 
 func (s *fakeDurableWeWorkCallbackWorkerStore) HandleWorkFissionAddContact(ctx context.Context, event WorkFissionAddContactEvent) (WorkFissionAddContactResult, bool, error) {

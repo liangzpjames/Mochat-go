@@ -25,6 +25,36 @@ func newRedisIntegrationStore(t *testing.T, addr string) *RedisStore {
 	return NewRedisStore(RedisConfig{Addr: addr, DB: database})
 }
 
+func TestRedisStoreWeWorkCallbackWakeupIsDurablyConsumedIntegration(t *testing.T) {
+	addr := os.Getenv("MOCHAT_REDIS_ADDR")
+	if addr == "" {
+		t.Skip("MOCHAT_REDIS_ADDR is not set")
+	}
+	store := newRedisIntegrationStore(t, addr)
+	store.weWorkCallbackWakeupTestKey = weWorkCallbackWakeupKey + ":integration:" + strconv.FormatInt(time.Now().UnixNano(), 10)
+	defer func() {
+		_ = store.client.Del(context.Background(), store.weWorkCallbackWakeupTestKey).Err()
+		_ = store.Close()
+	}()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := store.client.Del(ctx, store.weWorkCallbackWakeupTestKey).Err(); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.WakeWeWorkCallback(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if length, err := store.client.LLen(ctx, store.weWorkCallbackWakeupTestKey).Result(); err != nil || length != 1 {
+		t.Fatalf("wakeup tokens=%d err=%v", length, err)
+	}
+	if err := store.WaitWeWorkCallbackWakeup(ctx, time.Second); err != nil {
+		t.Fatal(err)
+	}
+	if length, err := store.client.LLen(ctx, store.weWorkCallbackWakeupTestKey).Result(); err != nil || length != 0 {
+		t.Fatalf("remaining wakeup tokens=%d err=%v", length, err)
+	}
+}
+
 func TestRedisStoreQueueIdempotencyIntegration(t *testing.T) {
 	addr := os.Getenv("MOCHAT_REDIS_ADDR")
 	if addr == "" {

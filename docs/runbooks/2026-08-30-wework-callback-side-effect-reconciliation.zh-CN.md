@@ -24,7 +24,9 @@
 
 action 更新、幂等 receipt、Dashboard 审计及最后一个 `unknown` 解决后的 inbox 复活在同一 MySQL 事务提交。任一步失败都会整体回滚。同一 key/同一 fingerprint 重放首次响应，不重复增加 version、审计或 inbox fence；同一 key/不同 fingerprint 返回 `IDEMPOTENCY_CONFLICT`。
 
-同一 callback 的 `fission.employee_reminder` 与 `fission.customer_push` 独立推进。只要任一 action 仍为 `unknown`，inbox 不复活；最后一个 `unknown` 解决后，inbox 才回到 `pending`，attempt 清零并递增 lease fence，使旧 worker 无法写回。唤醒加速失败不影响正确性，worker 的数据库轮询仍可恢复处理。
+响应中的 `idempotent=true` 表示本次命中首次事务 receipt；`remainingUnknownActions` 和 `inboxReplayScheduled` 来自首次事务并保持不变。`wakeupAccepted` 只表示本次请求在事务提交后、50ms 独立超时内是否成功写入 Redis 唤醒 token：worker 会用阻塞 pop 消费该 token，同一 receipt 重放也会再次尝试，因而该字段可从 false 变为 true。wakeup 失败不回滚已提交事务，也不代表 replay 丢失，数据库轮询仍是 durable authority；若该字段持续为 false，应检查 Redis 和 worker 日志，但不要重复改变人工决议。
+
+同一 callback 的 `fission.employee_reminder` 与 `fission.customer_push` 独立推进。只要任一 action 仍为 `unknown`，inbox 不复活；最后一个 `unknown` 解决后，inbox 才回到 `pending`，attempt 清零并递增 lease fence，使旧 worker 无法写回。只有 `dead`、`pending` 或 lease token/expiry 完整且已过期的 `processing` 可复活；`completed`、未知状态、缺失 lease 字段或未来 expiry 都必须由工程人员先查明根因，不能用人工 reconcile 绕过。
 
 ## 回滚 0176 前置条件
 

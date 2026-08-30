@@ -37,6 +37,7 @@ type MySQLStore struct {
 	weChatOpenCredentialCipher    *wechatopencredentials.Manager
 	aiProviderCredentialCipher    *aiproviderconfig.Manager
 	aiProviderOutboundGuard       *outboundhttp.Guard
+	callbackRecoveryCommit        func(*sql.Tx) error
 }
 
 type corpDataQueryExecutor interface {

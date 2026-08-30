@@ -18,10 +18,13 @@ func TestWeWorkCallbackSideEffectReconciliation0176Contract(t *testing.T) {
 		t.Fatal(err)
 	}
 	upSQL, downSQL := string(up), strings.ReplaceAll(string(down), "`", "")
-	for _, required := range []string{"reconciliation_fence", "reconcile_after", "mochat_go_wework_callback_side_effect_commands", "request_fingerprint", "dashboard.company_setting.website", "/dashboard/company/callback-side-effects"} {
+	for _, required := range []string{"reconciliation_fence", "reconcile_after", "mochat_go_wework_callback_side_effect_commands", "request_fingerprint", "reservation_token", "remaining_unknown_actions", "dashboard.company_setting.website", "/dashboard/company/callback-side-effects"} {
 		if !strings.Contains(upSQL, required) {
 			t.Errorf("0176 up missing %q", required)
 		}
+	}
+	if strings.Contains(upSQL, "fk_wework_callback_side_effect_command_action") {
+		t.Error("0176 receipt must not lock the action before the canonical inbox/action lock order")
 	}
 	for _, required := range []string{"DROP TABLE mochat_go_wework_callback_side_effect_commands", "DROP INDEX idx_wework_callback_side_effect_unknown", "DROP COLUMN reconciliation_fence", "DROP COLUMN version"} {
 		if !strings.Contains(downSQL, required) {

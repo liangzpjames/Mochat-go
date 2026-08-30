@@ -27,12 +27,14 @@ CREATE TABLE `mochat_go_wework_callback_side_effect_commands` (
   `request_id` varchar(128) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
   `decision` varchar(40) NOT NULL,
   `request_fingerprint` binary(32) NOT NULL,
+  `reservation_token` char(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
   `expected_version` bigint(20) unsigned NOT NULL,
   `expected_inbox_lease_fence` bigint(20) unsigned NOT NULL,
   `result_status` varchar(16) NOT NULL,
   `result_version` bigint(20) unsigned NOT NULL,
   `result_inbox_lease_fence` bigint(20) unsigned NOT NULL,
   `replay_scheduled` tinyint(1) NOT NULL DEFAULT 0,
+  `remaining_unknown_actions` int(10) unsigned NOT NULL DEFAULT 0,
   `actor_user_id` int(10) unsigned NOT NULL,
   `reason` varchar(255) NOT NULL,
   `evidence_kind` varchar(40) NOT NULL,
@@ -41,9 +43,7 @@ CREATE TABLE `mochat_go_wework_callback_side_effect_commands` (
   `created_at` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
   PRIMARY KEY (`id`),
   UNIQUE KEY `uni_wework_callback_side_effect_command_request` (`tenant_id`,`corp_id`,`request_id`),
-  KEY `idx_wework_callback_side_effect_command_scope` (`tenant_id`,`corp_id`,`event_key`,`action_key`,`created_at`),
-  CONSTRAINT `fk_wework_callback_side_effect_command_action` FOREIGN KEY (`tenant_id`,`corp_id`,`event_key`,`action_key`)
-    REFERENCES `mochat_go_wework_callback_side_effects` (`tenant_id`,`corp_id`,`event_key`,`action_key`) ON DELETE RESTRICT
+  KEY `idx_wework_callback_side_effect_command_scope` (`tenant_id`,`corp_id`,`event_key`,`action_key`,`created_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Idempotent operator decisions for callback side-effect recovery';
 
 INSERT INTO `mochat_go_dashboard_permission_resources`

@@ -5,10 +5,13 @@ import (
 	"errors"
 	"regexp"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"jiyi/mochat-go/internal/dashboardprincipal"
 )
+
+const callbackRecoveryWakeupTimeout = 50 * time.Millisecond
 
 var (
 	callbackRecoveryEventKeyPattern  = regexp.MustCompile(`^[0-9a-f]{64}$`)
@@ -54,7 +57,7 @@ func (s *Service) GetCallbackSideEffect(ctx context.Context, principal dashboard
 		return CallbackSideEffectDetail{}, err
 	}
 	if !validCallbackRecoveryIdentity(eventKey, actionKey) {
-		return CallbackSideEffectDetail{}, ErrNotFound
+		return CallbackSideEffectDetail{}, ErrRecoveryTargetNotFound
 	}
 	store, err := s.callbackRecoveryStore()
 	if err != nil {
@@ -73,7 +76,10 @@ func (s *Service) ReconcileCallbackSideEffect(ctx context.Context, principal das
 	input.Reason = strings.TrimSpace(input.Reason)
 	input.EvidenceKind = strings.TrimSpace(input.EvidenceKind)
 	input.EvidenceRef = strings.TrimSpace(input.EvidenceRef)
-	if !validCallbackRecoveryIdentity(eventKey, actionKey) || !callbackRecoveryRequestIDPattern.MatchString(requestID) ||
+	if !validCallbackRecoveryIdentity(eventKey, actionKey) {
+		return CallbackSideEffectReconcileResult{}, ErrRecoveryTargetNotFound
+	}
+	if !callbackRecoveryRequestIDPattern.MatchString(requestID) ||
 		(input.Decision != CallbackSideEffectDecisionConfirmSent && input.Decision != CallbackSideEffectDecisionConfirmNotSentAndRetry) ||
 		input.ExpectedVersion == 0 || input.ExpectedInboxLeaseFence == 0 || input.Reason == "" || utf8.RuneCountInString(input.Reason) > 255 ||
 		!callbackRecoveryEvidencePattern.MatchString(input.EvidenceKind) || !validCallbackRecoveryEvidence(input.Decision, input.EvidenceKind) ||
@@ -85,7 +91,15 @@ func (s *Service) ReconcileCallbackSideEffect(ctx context.Context, principal das
 		return CallbackSideEffectReconcileResult{}, err
 	}
 	result, err := store.ReconcileCallbackSideEffect(ctx, principal, eventKey, actionKey, requestID, input)
-	return result, normalizeCallbackRecoveryError(err)
+	if err != nil {
+		return CallbackSideEffectReconcileResult{}, normalizeCallbackRecoveryError(err)
+	}
+	if result.InboxReplayScheduled && s.callbackWakeup != nil {
+		wakeupCtx, cancelWakeup := context.WithTimeout(context.WithoutCancel(ctx), callbackRecoveryWakeupTimeout)
+		result.WakeupAccepted = s.callbackWakeup.WakeWeWorkCallback(wakeupCtx) == nil
+		cancelWakeup()
+	}
+	return result, nil
 }
 
 func validCallbackRecoveryEvidence(decision, evidenceKind string) bool {
@@ -108,8 +122,8 @@ func normalizeCallbackRecoveryError(err error) error {
 	if err == nil {
 		return nil
 	}
-	for _, known := range []error{ErrInvalidRequest, ErrPermissionDenied, ErrTenantAccessDenied, ErrNotFound, ErrIdempotencyConflict,
-		ErrVersionConflict, ErrLeaseFenceConflict, ErrCallbackLeaseActive, ErrQuarantineActive, ErrSideEffectConflict, ErrUnsupportedAction} {
+	for _, known := range []error{ErrInvalidRequest, ErrPermissionDenied, ErrTenantAccessDenied, ErrRecoveryTargetNotFound, ErrNotFound, ErrIdempotencyConflict,
+		ErrVersionConflict, ErrLeaseFenceConflict, ErrCallbackLeaseActive, ErrInboxStateConflict, ErrQuarantineActive, ErrSideEffectConflict, ErrUnsupportedAction} {
 		if errors.Is(err, known) {
 			return err
 		}

@@ -3,12 +3,15 @@ package store
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
+	"regexp"
 	"strings"
 	"time"
 
@@ -29,6 +32,8 @@ type callbackSideEffectLocked struct {
 	Version        uint64
 	ReconcileAfter sql.NullTime
 }
+
+var callbackSideEffectCursorEventKeyPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
 func (s *MySQLStore) ListCallbackSideEffects(ctx context.Context, principal dashboardprincipal.DashboardPrincipal, input companyprofile.CallbackSideEffectListInput) (companyprofile.CallbackSideEffectPage, error) {
 	if s == nil || s.db == nil {
@@ -108,7 +113,7 @@ func (s *MySQLStore) GetCallbackSideEffect(ctx context.Context, principal dashbo
 		FROM mochat_go_wework_callback_inbox WHERE tenant_id=? AND corp_id=? AND event_key=?`, principal.TenantID, principal.CorpID, eventKey).
 		Scan(&detail.EventKey, &detail.InboxStatus, &detail.InboxLeaseFence, &detail.Attempt, &lastError); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return companyprofile.CallbackSideEffectDetail{}, companyprofile.ErrNotFound
+			return companyprofile.CallbackSideEffectDetail{}, companyprofile.ErrRecoveryTargetNotFound
 		}
 		return companyprofile.CallbackSideEffectDetail{}, err
 	}
@@ -138,7 +143,7 @@ func (s *MySQLStore) GetCallbackSideEffect(ctx context.Context, principal dashbo
 		return companyprofile.CallbackSideEffectDetail{}, err
 	}
 	if !targetFound {
-		return companyprofile.CallbackSideEffectDetail{}, companyprofile.ErrNotFound
+		return companyprofile.CallbackSideEffectDetail{}, companyprofile.ErrRecoveryTargetNotFound
 	}
 	return detail, nil
 }
@@ -159,6 +164,26 @@ func (s *MySQLStore) ReconcileCallbackSideEffect(ctx context.Context, principal 
 	if err := s.checkCompanyActor(ctx, tx, principal, true); err != nil {
 		return companyprofile.CallbackSideEffectReconcileResult{}, err
 	}
+	binding, err := s.loadCompanyBinding(ctx, tx, principal, true)
+	if err != nil {
+		if errors.Is(err, companyprofile.ErrNotFound) {
+			return companyprofile.CallbackSideEffectReconcileResult{}, companyprofile.ErrTenantAccessDenied
+		}
+		return companyprofile.CallbackSideEffectReconcileResult{}, err
+	}
+	if binding.Status != 2 {
+		return companyprofile.CallbackSideEffectReconcileResult{}, companyprofile.ErrTenantAccessDenied
+	}
+	replay, receiptID, reservationToken, reserved, err := callbackRecoveryReserve(ctx, tx, principal, eventKey, actionKey, requestID, fingerprint, input)
+	if err != nil {
+		return companyprofile.CallbackSideEffectReconcileResult{}, err
+	}
+	if !reserved {
+		if err := tx.Commit(); err != nil {
+			return companyprofile.CallbackSideEffectReconcileResult{}, err
+		}
+		return replay, nil
+	}
 	var inboxStatus, leaseToken string
 	var inboxFence uint64
 	var leaseExpires sql.NullTime
@@ -166,7 +191,7 @@ func (s *MySQLStore) ReconcileCallbackSideEffect(ctx context.Context, principal 
 		FROM mochat_go_wework_callback_inbox WHERE tenant_id=? AND corp_id=? AND event_key=? FOR UPDATE`, principal.TenantID, principal.CorpID, eventKey).
 		Scan(&inboxStatus, &leaseToken, &inboxFence, &leaseExpires); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return companyprofile.CallbackSideEffectReconcileResult{}, companyprofile.ErrNotFound
+			return companyprofile.CallbackSideEffectReconcileResult{}, companyprofile.ErrRecoveryTargetNotFound
 		}
 		return companyprofile.CallbackSideEffectReconcileResult{}, err
 	}
@@ -190,23 +215,24 @@ func (s *MySQLStore) ReconcileCallbackSideEffect(ctx context.Context, principal 
 	if err := rows.Err(); err != nil {
 		return companyprofile.CallbackSideEffectReconcileResult{}, err
 	}
-	if replay, found, replayErr := callbackRecoveryReceipt(ctx, tx, principal, requestID, fingerprint); replayErr != nil {
-		return companyprofile.CallbackSideEffectReconcileResult{}, replayErr
-	} else if found {
-		if err := tx.Commit(); err != nil {
-			return companyprofile.CallbackSideEffectReconcileResult{}, err
-		}
-		replay.Replayed = true
-		return replay, nil
-	}
 	if input.ExpectedInboxLeaseFence != inboxFence {
 		return companyprofile.CallbackSideEffectReconcileResult{}, companyprofile.ErrLeaseFenceConflict
 	}
-	if inboxStatus == "processing" && leaseToken != "" && leaseExpires.Valid && leaseExpires.Time.After(time.Now().UTC()) {
-		return companyprofile.CallbackSideEffectReconcileResult{}, companyprofile.ErrCallbackLeaseActive
+	now := time.Now().UTC()
+	switch inboxStatus {
+	case "dead", "pending":
+	case "processing":
+		if leaseExpires.Valid && leaseExpires.Time.After(now) {
+			return companyprofile.CallbackSideEffectReconcileResult{}, companyprofile.ErrCallbackLeaseActive
+		}
+		if leaseToken == "" || !leaseExpires.Valid {
+			return companyprofile.CallbackSideEffectReconcileResult{}, companyprofile.ErrInboxStateConflict
+		}
+	default:
+		return companyprofile.CallbackSideEffectReconcileResult{}, companyprofile.ErrInboxStateConflict
 	}
 	targetIndex := -1
-	unknownOther := false
+	remainingUnknownActions := 0
 	for index, item := range locked {
 		if item.Status == "unknown" && !knownCallbackRecoveryAction(item.ActionKey) {
 			return companyprofile.CallbackSideEffectReconcileResult{}, companyprofile.ErrUnsupportedAction
@@ -214,11 +240,11 @@ func (s *MySQLStore) ReconcileCallbackSideEffect(ctx context.Context, principal 
 		if item.ActionKey == actionKey {
 			targetIndex = index
 		} else if item.Status == "unknown" {
-			unknownOther = true
+			remainingUnknownActions++
 		}
 	}
 	if targetIndex < 0 {
-		return companyprofile.CallbackSideEffectReconcileResult{}, companyprofile.ErrNotFound
+		return companyprofile.CallbackSideEffectReconcileResult{}, companyprofile.ErrRecoveryTargetNotFound
 	}
 	target := locked[targetIndex]
 	if target.Version != input.ExpectedVersion {
@@ -250,7 +276,7 @@ func (s *MySQLStore) ReconcileCallbackSideEffect(ctx context.Context, principal 
 	}
 	replayScheduled := false
 	resultFence := inboxFence
-	if !unknownOther {
+	if remainingUnknownActions == 0 {
 		resultFence++
 		updated, err = tx.ExecContext(ctx, `UPDATE mochat_go_wework_callback_inbox
 			SET status='pending',attempt=0,lease_token='',lease_fence=?,lease_expires_at=NULL,next_attempt_at=NULL,last_error='',completed_at=NULL,updated_at=UTC_TIMESTAMP(6)
@@ -275,39 +301,75 @@ func (s *MySQLStore) ReconcileCallbackSideEffect(ctx context.Context, principal 
 	if err != nil {
 		return companyprofile.CallbackSideEffectReconcileResult{}, err
 	}
-	inserted, err := tx.ExecContext(ctx, `INSERT INTO mochat_go_wework_callback_side_effect_commands
-		(tenant_id,corp_id,event_key,action_key,request_id,decision,request_fingerprint,expected_version,expected_inbox_lease_fence,
-		 result_status,result_version,result_inbox_lease_fence,replay_scheduled,actor_user_id,reason,evidence_kind,evidence_ref,operation_audit_id)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, principal.TenantID, principal.CorpID, eventKey, actionKey, requestID, input.Decision, fingerprint[:], target.Version, inboxFence,
-		newStatus, resultVersion, resultFence, replayScheduled, principal.UserID, input.Reason, input.EvidenceKind, input.EvidenceRef, auditID)
+	updatedReceipt, err := tx.ExecContext(ctx, `UPDATE mochat_go_wework_callback_side_effect_commands
+		SET result_status=?,result_version=?,result_inbox_lease_fence=?,replay_scheduled=?,remaining_unknown_actions=?,
+			operation_audit_id=?,reservation_token=''
+		WHERE id=? AND reservation_token=? AND result_status='reserved'`, newStatus, resultVersion, resultFence, replayScheduled,
+		remainingUnknownActions, auditID, receiptID, reservationToken)
 	if err != nil {
 		return companyprofile.CallbackSideEffectReconcileResult{}, err
 	}
-	if err := requireCompanyRows(inserted, 1); err != nil {
+	if err := requireCompanyRows(updatedReceipt, 1); err != nil {
 		return companyprofile.CallbackSideEffectReconcileResult{}, err
 	}
-	if err := tx.Commit(); err != nil {
+	if err := s.commitCallbackRecovery(tx); err != nil {
 		return companyprofile.CallbackSideEffectReconcileResult{}, err
 	}
-	return companyprofile.CallbackSideEffectReconcileResult{EventKey: eventKey, ActionKey: actionKey, Status: newStatus, Version: resultVersion, InboxLeaseFence: resultFence, ReplayScheduled: replayScheduled}, nil
+	return companyprofile.CallbackSideEffectReconcileResult{EventKey: eventKey, ActionKey: actionKey, Status: newStatus, Version: resultVersion,
+		InboxLeaseFence: resultFence, InboxReplayScheduled: replayScheduled, RemainingUnknownActions: remainingUnknownActions}, nil
 }
 
-func callbackRecoveryReceipt(ctx context.Context, tx *sql.Tx, principal dashboardprincipal.DashboardPrincipal, requestID string, fingerprint [32]byte) (companyprofile.CallbackSideEffectReconcileResult, bool, error) {
-	var result companyprofile.CallbackSideEffectReconcileResult
-	var storedFingerprint []byte
-	err := tx.QueryRowContext(ctx, `SELECT event_key,action_key,request_fingerprint,result_status,result_version,result_inbox_lease_fence,replay_scheduled
-		FROM mochat_go_wework_callback_side_effect_commands WHERE tenant_id=? AND corp_id=? AND request_id=? FOR UPDATE`, principal.TenantID, principal.CorpID, requestID).
-		Scan(&result.EventKey, &result.ActionKey, &storedFingerprint, &result.Status, &result.Version, &result.InboxLeaseFence, &result.ReplayScheduled)
-	if errors.Is(err, sql.ErrNoRows) {
-		return companyprofile.CallbackSideEffectReconcileResult{}, false, nil
-	}
+func callbackRecoveryReserve(ctx context.Context, tx *sql.Tx, principal dashboardprincipal.DashboardPrincipal, eventKey, actionKey, requestID string,
+	fingerprint [32]byte, input companyprofile.CallbackSideEffectReconcileInput) (companyprofile.CallbackSideEffectReconcileResult, int64, string, bool, error) {
+	reservationToken, err := callbackRecoveryReservationToken()
 	if err != nil {
-		return companyprofile.CallbackSideEffectReconcileResult{}, false, err
+		return companyprofile.CallbackSideEffectReconcileResult{}, 0, "", false, err
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO mochat_go_wework_callback_side_effect_commands
+		(tenant_id,corp_id,event_key,action_key,request_id,decision,request_fingerprint,reservation_token,expected_version,expected_inbox_lease_fence,
+		 result_status,result_version,result_inbox_lease_fence,replay_scheduled,remaining_unknown_actions,actor_user_id,reason,evidence_kind,evidence_ref,operation_audit_id)
+		VALUES (?,?,?,?,?,?,?,?,?,?,'reserved',0,0,0,0,?,?,?,?,0)
+		ON DUPLICATE KEY UPDATE id=id`, principal.TenantID, principal.CorpID, eventKey, actionKey, requestID, input.Decision, fingerprint[:], reservationToken,
+		input.ExpectedVersion, input.ExpectedInboxLeaseFence, principal.UserID, input.Reason, input.EvidenceKind, input.EvidenceRef); err != nil {
+		return companyprofile.CallbackSideEffectReconcileResult{}, 0, "", false, err
+	}
+	var result companyprofile.CallbackSideEffectReconcileResult
+	var receiptID int64
+	var storedFingerprint []byte
+	var storedReservation string
+	err = tx.QueryRowContext(ctx, `SELECT id,event_key,action_key,request_fingerprint,reservation_token,result_status,result_version,result_inbox_lease_fence,replay_scheduled,remaining_unknown_actions
+		FROM mochat_go_wework_callback_side_effect_commands WHERE tenant_id=? AND corp_id=? AND request_id=? FOR UPDATE`, principal.TenantID, principal.CorpID, requestID).
+		Scan(&receiptID, &result.EventKey, &result.ActionKey, &storedFingerprint, &storedReservation, &result.Status, &result.Version, &result.InboxLeaseFence,
+			&result.InboxReplayScheduled, &result.RemainingUnknownActions)
+	if err != nil {
+		return companyprofile.CallbackSideEffectReconcileResult{}, 0, "", false, err
 	}
 	if !bytes.Equal(storedFingerprint, fingerprint[:]) {
-		return companyprofile.CallbackSideEffectReconcileResult{}, false, companyprofile.ErrIdempotencyConflict
+		return companyprofile.CallbackSideEffectReconcileResult{}, 0, "", false, companyprofile.ErrIdempotencyConflict
 	}
-	return result, true, nil
+	if storedReservation == reservationToken && result.Status == "reserved" {
+		return companyprofile.CallbackSideEffectReconcileResult{}, receiptID, reservationToken, true, nil
+	}
+	if storedReservation != "" || result.Status == "reserved" {
+		return companyprofile.CallbackSideEffectReconcileResult{}, 0, "", false, companyprofile.ErrRecoveryUnavailable
+	}
+	result.Idempotent = true
+	return result, receiptID, "", false, nil
+}
+
+func callbackRecoveryReservationToken() (string, error) {
+	raw := make([]byte, 32)
+	if _, err := rand.Read(raw); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(raw), nil
+}
+
+func (s *MySQLStore) commitCallbackRecovery(tx *sql.Tx) error {
+	if s.callbackRecoveryCommit != nil {
+		return s.callbackRecoveryCommit(tx)
+	}
+	return tx.Commit()
 }
 
 func callbackRecoveryFingerprint(principal dashboardprincipal.DashboardPrincipal, eventKey, actionKey string, input companyprofile.CallbackSideEffectReconcileInput) ([32]byte, error) {
@@ -343,7 +405,7 @@ func decodeCallbackSideEffectCursor(value string) (callbackSideEffectCursor, err
 	var cursor callbackSideEffectCursor
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&cursor); err != nil || cursor.UnknownAt == "" || len(cursor.EventKey) != 64 || cursor.ActionKey == "" {
+	if err := decoder.Decode(&cursor); err != nil || cursor.UnknownAt == "" || !callbackSideEffectCursorEventKeyPattern.MatchString(cursor.EventKey) || !knownCallbackRecoveryAction(cursor.ActionKey) {
 		return callbackSideEffectCursor{}, errors.New("invalid callback side effect cursor")
 	}
 	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {

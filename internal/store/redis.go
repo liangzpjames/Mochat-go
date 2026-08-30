@@ -21,13 +21,15 @@ type RedisConfig struct {
 }
 
 type RedisStore struct {
-	client *redis.Client
+	client                      *redis.Client
+	weWorkCallbackWakeupTestKey string
 }
 
 const (
 	legacyWeWorkCallbackPendingKey    = "mochat-go:wework-callback"
 	legacyWeWorkCallbackProcessingKey = "mochat-go:wework-callback:processing"
 	legacyWeWorkCallbackDeadKey       = "mochat-go:wework-callback:dead"
+	weWorkCallbackWakeupKey           = "mochat-go:wework-callback:wakeup"
 )
 
 func NewRedisStore(cfg RedisConfig) *RedisStore {
@@ -99,7 +101,33 @@ func (s *RedisStore) AddJWTBlacklist(ctx context.Context, key string, ttl time.D
 }
 
 func (s *RedisStore) WakeWeWorkCallback(ctx context.Context) error {
-	return s.client.Publish(ctx, "mochat-go:wework-callback:wakeup", "pending").Err()
+	wakeupKey := s.weWorkCallbackWakeupKey()
+	pipe := s.client.TxPipeline()
+	pipe.LPush(ctx, wakeupKey, "pending")
+	pipe.LTrim(ctx, wakeupKey, 0, 63)
+	_, err := pipe.Exec(ctx)
+	return err
+}
+
+func (s *RedisStore) WaitWeWorkCallbackWakeup(ctx context.Context, timeout time.Duration) error {
+	if s == nil || s.client == nil {
+		return errors.New("wework callback wakeup store is not configured")
+	}
+	if timeout <= 0 {
+		timeout = time.Second
+	}
+	_, err := s.client.BRPop(ctx, timeout, s.weWorkCallbackWakeupKey()).Result()
+	if errors.Is(err, redis.Nil) {
+		return nil
+	}
+	return err
+}
+
+func (s *RedisStore) weWorkCallbackWakeupKey() string {
+	if s != nil && s.weWorkCallbackWakeupTestKey != "" {
+		return s.weWorkCallbackWakeupTestKey
+	}
+	return weWorkCallbackWakeupKey
 }
 
 func (s *RedisStore) PreflightLegacyWeWorkCallbackBacklog(ctx context.Context) (dashboard.LegacyWeWorkCallbackBacklogStats, error) {

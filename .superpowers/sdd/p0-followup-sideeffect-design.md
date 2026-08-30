@@ -2,7 +2,7 @@
 
 日期：2026-08-30
 调查基线：`aa1fa09a7c546c8fe251b3c6d3efe53ce69626d8`
-范围：只设计 `0174` 产生的 callback 外部副作用 `unknown` 恢复闭环；不调用真实企业微信，不修改现有实现。
+范围：设计并实施 `0174` 产生的 callback 外部副作用 `unknown` 恢复闭环；不调用真实企业微信。
 
 ## 1. 结论
 
@@ -73,7 +73,7 @@
    - `confirm_sent` 的证据类型只允许 `provider_message_id`、`provider_delivery_query_sent`、`provider_support_confirmed_sent`。
    - `confirm_not_sent_and_retry` 只允许 `provider_delivery_query_absent`、`provider_request_rejected`、`provider_support_confirmed_not_sent`。不接受“超时”“主观判断”或本地 fixture 作为生产证据。
    - `reason` 1–255 字；`evidenceRef` 1–255 字，只保存引用，不保存 token/secret/消息正文。
-   - 成功返回目标 action 的首次结果、`idempotent`、`inboxReplayScheduled`、`remainingUnknownActions`。若事务已提交但 wakeup 失败，仍返回成功并标记 `wakeupAccepted=false`；定时 claim 会继续处理 durable inbox。
+   - 成功返回目标 action 的事务结果、`idempotent`、`inboxReplayScheduled`、`remainingUnknownActions` 和本次 `wakeupAccepted`。receipt 重放稳定返回首次事务结果并标记 `idempotent=true`；只要首次事务安排了 replay，每次 HTTP 重放都可重新 best-effort wakeup。wakeup 使用有界 Redis list token，worker 以阻塞 pop 消费；`wakeupAccepted` 表示本次在 50ms 独立超时内成功入队，不属于持久化首次结果。即使入队失败，MySQL 定时 claim 仍是正确性来源。
 
 所有接口均从 `dashboardprincipal.DashboardPrincipalFromContext` 取作用域。principal 非 active binding、无权限或不完整直接 fail closed；Store 查询必须同时带 `tenant_id=? AND corp_id=?`。跨租户、跨 corp、未知 event/action 统一 404，避免资源枚举。
 
@@ -99,7 +99,7 @@
 - Begin 将 `unknown_at=UTC_TIMESTAMP(6)`、`reconcile_after=now+15min`。15 分钟是 Provider 请求超时与 callback lease 上限之外的保守隔离期；配置若可调，必须保证不小于 `provider timeout + max lease duration + 60s`。
 - 恢复命令在 `reconcile_after` 前返回 409。它不把等待时间当成 Provider 结果。
 - 恢复命令锁住同事件全部 action（按 `action_key ASC`）后只更新目标 action。若仍有其他 `unknown`，保持 inbox 原状态；最后一个 `unknown` 被解决后才复活 inbox。
-- 复活 inbox 时只接受 `dead`、`pending` 或 lease 已过期的 `processing`；活动 lease 返回 409。复活将 `status='pending'`、`attempt=0`、清空 lease/next error/completed、`lease_fence=lease_fence+1`，从而 fencing 掉旧 worker。
+- 复活 inbox 时只接受 `dead`、`pending`，或同时具备非空 lease token、非空 lease expiry 且 expiry 已过期的结构完整 `processing`。`completed`、未知状态、缺 token/expiry 的损坏 processing，以及未来 expiry（即使 token 为空）均返回 409。复活将 `status='pending'`、`attempt=0`、清空 lease/next error/completed、`lease_fence=lease_fence+1`，从而 fencing 掉旧 worker。
 - 即使所有 action 已 `sent`，也让正式 worker 重放并完成 inbox，不能由管理 API 直接把 inbox 标为 completed，因为 callback 还可能有非外发业务步骤。
 - 历史未知 action 显示在详情中但不可决议，并阻止 inbox 复活，返回 `UNSUPPORTED_ACTION_REQUIRES_UPGRADE`。
 
@@ -110,26 +110,27 @@
 恢复事务固定为：
 
 1. 校验 principal/RBAC（HTTP guard 已做，Store 再检查 principal scope）；
-2. `mc_tenant`/`mochat_go_tenant_corp_bindings`/`mc_corp` 的准确 active binding；
-3. inbox 行 `FOR UPDATE`；
-4. 同事件 side-effect 行按 `action_key ASC FOR UPDATE`；
-5. command receipt；
-6. side-effect、inbox、审计与 receipt 更新。
+2. 当前 Dashboard actor、`mochat_go_tenant_corp_bindings` 与 `mc_corp` 的准确 active scope，全部在事务中锁定并复核 auth version/status；
+3. 以随机 reservation token 对 `(tenant_id,corp_id,request_id)` command receipt 执行 `INSERT ... ON DUPLICATE KEY` 并 `FOR UPDATE`，先序列化跨事件相同 request key；
+4. inbox 行 `FOR UPDATE`；
+5. 同事件 side-effect 行按 `action_key ASC FOR UPDATE`；
+6. side-effect、inbox、审计与 receipt 首次结果更新。
 
 worker 的 Begin/Complete 固定为 inbox → side-effect。任何路径都不得反向先锁 side-effect 再锁 inbox。事务内不调用 Provider、不做网络 I/O。
 
 ### 5.2 command receipt
 
-`0176` 新建不可变 `mochat_go_wework_callback_side_effect_commands`：
+`0176` 新建提交后不可变的 `mochat_go_wework_callback_side_effect_commands`。事务内先写不可见的 reservation，随后同事务完成首次结果：
 
 - 身份：`tenant_id, corp_id, event_key, action_key`；
 - `request_id varchar(128) ascii_bin`，唯一键 `(tenant_id, corp_id, request_id)`；
 - `decision varchar(40)`、`request_fingerprint binary(32)`、`expected_version`、`expected_inbox_lease_fence`；
-- 首次结果：`result_status`、`result_version`、`result_inbox_lease_fence`、`replay_scheduled`；
+- 事务 reservation：随机 `reservation_token`；不依赖 action 外键，避免在 inbox 之前隐式锁 action；
+- 首次结果：`result_status`、`result_version`、`result_inbox_lease_fence`、`replay_scheduled`、`remaining_unknown_actions`；
 - 操作者与证据：`actor_user_id`、`reason`、`evidence_kind`、`evidence_ref`；
 - `operation_audit_id`、`created_at`。不保存 callback/Provider payload。
 
-fingerprint 是规范化 `{tenant,corp,eventKey,actionKey,decision,expectedVersion,expectedInboxLeaseFence,reason,evidenceKind,evidenceRef}` 的 SHA-256。插入重复键后锁定 receipt：同 fingerprint 返回首次结果且不重复审计、不再次递增版本；不同 fingerprint 返回 409 `IDEMPOTENCY_CONFLICT`。
+fingerprint 是规范化 `{tenant,corp,eventKey,actionKey,decision,expectedVersion,expectedInboxLeaseFence,reason,evidenceKind,evidenceRef}` 的 SHA-256。reservation 的唯一键会让跨事件并发请求先在 receipt 层串行化：同 fingerprint 返回首次结果且不重复审计、不再次递增版本；不同 fingerprint 返回 409 `IDEMPOTENCY_CONFLICT`，不得因 duplicate race 降级成 503。事务回滚会同时撤销 reservation，使下一次请求可安全接管。
 
 receipt、目标 action、inbox 和 `mochat_go_dashboard_permission_audits` 必须同事务。任一 RowsAffected 不是恰好 1、审计失败或 commit 失败全部回滚。
 
@@ -158,7 +159,7 @@ receipt、目标 action、inbox 和 `mochat_go_dashboard_permission_audits` 必�
 
 回填现有 `unknown`：`unknown_at=updated_at`，`reconcile_after=DATE_ADD(updated_at, INTERVAL 15 MINUTE)`；其他状态保持 NULL。
 
-创建上述 command receipt 表，主键 bigint 自增，唯一键 `(tenant_id,corp_id,request_id)`，scope 索引 `(tenant_id,corp_id,event_key,action_key,created_at)`，并以四列外键引用 `0174` side-effect。审计仍写既有 `mochat_go_dashboard_permission_audits`，避免形成第二套审计查询面。
+创建上述 command receipt 表，主键 bigint 自增，唯一键 `(tenant_id,corp_id,request_id)`，scope 索引 `(tenant_id,corp_id,event_key,action_key,created_at)`。receipt 不以外键引用 action，避免 reservation 在既定 inbox→action 锁序之前隐式取得 action 锁；事件/action 的存在性仍在同一事务中于 inbox/action 行锁后验证。审计仍写既有 `mochat_go_dashboard_permission_audits`，避免形成第二套审计查询面。
 
 在 `mochat_go_dashboard_permission_resources` 为 `dashboard.company_setting.website` 增加三条资源合同：列表 GET、详情 GET、reconcile POST；使用 `INSERT ... SELECT ... WHERE NOT EXISTS`，不伪造 permission。
 
@@ -182,6 +183,7 @@ down 会丢失恢复命令元数据，运行前必须：停止 callback worker/�
 | 409 | `VERSION_CONFLICT` | action version 已变化 |
 | 409 | `LEASE_FENCE_CONFLICT` | inbox fence 与读取快照不一致 |
 | 409 | `CALLBACK_LEASE_ACTIVE` | inbox 仍有有效 worker lease |
+| 409 | `CALLBACK_INBOX_STATE_CONFLICT` | inbox 已完成、状态未知或 processing lease 结构损坏 |
 | 409 | `RECONCILIATION_QUARANTINE_ACTIVE` | 尚未到 reconcile_after |
 | 409 | `SIDE_EFFECT_STATE_CONFLICT` | action 已非 unknown；同命令 receipt 重放除外 |
 | 409 | `UNSUPPORTED_ACTION_REQUIRES_UPGRADE` | 历史未知 action 阻止安全重放 |

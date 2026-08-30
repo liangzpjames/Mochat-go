@@ -531,7 +531,7 @@ func main() {
 		)
 		companyProfileService := companyprofile.NewService(mysqlStore, companyProfileWeComVerifier{client: companyProfileWeComClient}).WithEmployeeSyncScheduler(
 			dashboard.NewCompanyEmployeeSyncScheduler(getRedisStore()),
-		)
+		).WithWeWorkCallbackWakeup(getRedisStore())
 		if archivePlan.durableAPI {
 			companyArchiveBridgeClient, bridgeErr := archiveprovider.NewBridgeArchiveClient(
 				cfg.WorkMessageArchiveBridgeBaseURL,
@@ -3194,6 +3194,9 @@ func main() {
 			WithSaaSAlertNotifier(saasAlertNotifier)
 		if workMessageArchiveCron != nil {
 			worker.WithArchiveSyncTrigger(workMessageArchiveCron)
+		}
+		if callbackRedis != nil {
+			worker.WithWakeupWaiter(callbackRedis)
 		}
 		workerGroup.Add("wework-callback", worker.Run)
 		debugf("go worker enabled: durable MySQL WeWork callback inbox consumer (Redis only used by optional downstream queues)")

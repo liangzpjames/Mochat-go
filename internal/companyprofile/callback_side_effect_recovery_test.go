@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"jiyi/mochat-go/internal/dashboardprincipal"
 )
@@ -15,12 +16,30 @@ const recoveryEventKey = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 
 type recoveryContractStore struct {
 	*companyProfileContractStore
-	listCalls      int
-	detailCalls    int
-	reconcileCalls int
-	lastPrincipal  dashboardprincipal.DashboardPrincipal
-	lastRequestID  string
-	recoveryErr    error
+	listCalls       int
+	detailCalls     int
+	reconcileCalls  int
+	lastPrincipal   dashboardprincipal.DashboardPrincipal
+	lastRequestID   string
+	recoveryErr     error
+	reconcileResult CallbackSideEffectReconcileResult
+}
+
+type recoveryWakeup struct {
+	calls       int
+	err         error
+	block       bool
+	sawDeadline bool
+}
+
+func (w *recoveryWakeup) WakeWeWorkCallback(ctx context.Context) error {
+	w.calls++
+	_, w.sawDeadline = ctx.Deadline()
+	if w.block {
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	return w.err
 }
 
 func (s *recoveryContractStore) ListCallbackSideEffects(_ context.Context, principal dashboardprincipal.DashboardPrincipal, _ CallbackSideEffectListInput) (CallbackSideEffectPage, error) {
@@ -55,6 +74,9 @@ func (s *recoveryContractStore) ReconcileCallbackSideEffect(_ context.Context, p
 	s.reconcileCalls++
 	s.lastPrincipal = principal
 	s.lastRequestID = requestID
+	if s.reconcileResult.EventKey != "" {
+		return s.reconcileResult, nil
+	}
 	return CallbackSideEffectReconcileResult{EventKey: eventKey, ActionKey: actionKey, Status: "sent", Version: 4}, nil
 }
 
@@ -138,5 +160,54 @@ func TestCallbackSideEffectRecoveryHTTPRejectsScopeInjectionAndUsesHeaderRequest
 	handler.ServeHTTP(response, request)
 	if response.Code != http.StatusOK || store.reconcileCalls != 1 || store.lastRequestID != "request-20260830-0001" {
 		t.Fatalf("reconcile status=%d calls=%d request=%q body=%s", response.Code, store.reconcileCalls, store.lastRequestID, response.Body.String())
+	}
+}
+
+func TestCallbackSideEffectReconcileReturnsFirstTransactionResultAndBestEffortWakeup(t *testing.T) {
+	service, store := recoveryTestService()
+	wakeup := &recoveryWakeup{}
+	service.WithWeWorkCallbackWakeup(wakeup)
+	store.reconcileResult = CallbackSideEffectReconcileResult{
+		EventKey: recoveryEventKey, ActionKey: "fission.customer_push", Status: "pending", Version: 4,
+		InboxLeaseFence: 8, InboxReplayScheduled: true, RemainingUnknownActions: 0,
+	}
+	principal := companyProfileTestPrincipal(false, dashboardprincipal.CorpBindingStatusActive)
+	input := CallbackSideEffectReconcileInput{Decision: CallbackSideEffectDecisionConfirmNotSentAndRetry, ExpectedVersion: 3, ExpectedInboxLeaseFence: 7, Reason: "确认未发送", EvidenceKind: "provider_delivery_query_absent", EvidenceRef: "ticket-1"}
+	result, err := service.ReconcileCallbackSideEffect(recoveryContext(principal, true), principal, recoveryEventKey, "fission.customer_push", "request-wakeup-0001", input)
+	if err != nil || !result.WakeupAccepted || result.Idempotent || wakeup.calls != 1 || result.RemainingUnknownActions != 0 {
+		t.Fatalf("result=%+v wakeupCalls=%d err=%v", result, wakeup.calls, err)
+	}
+
+	store.reconcileResult.Idempotent = true
+	wakeup.err = errors.New("redis unavailable")
+	replayed, err := service.ReconcileCallbackSideEffect(recoveryContext(principal, true), principal, recoveryEventKey, "fission.customer_push", "request-wakeup-0001", input)
+	if err != nil || replayed.WakeupAccepted || !replayed.Idempotent || wakeup.calls != 2 || replayed.InboxLeaseFence != 8 {
+		t.Fatalf("replayed=%+v wakeupCalls=%d err=%v", replayed, wakeup.calls, err)
+	}
+}
+
+func TestCallbackSideEffectRecoveryHTTPUsesTargetNotFoundCode(t *testing.T) {
+	service, _ := recoveryTestService()
+	principal := companyProfileTestPrincipal(false, dashboardprincipal.CorpBindingStatusActive)
+	request := httptest.NewRequest(http.MethodGet, "/dashboard/company/callback-side-effects/ABC/fission.customer_push", nil)
+	request = request.WithContext(recoveryContext(principal, true))
+	response := httptest.NewRecorder()
+	NewHTTPHandler(service).ServeHTTP(response, request)
+	if response.Code != http.StatusNotFound || !strings.Contains(response.Body.String(), `"errorCode":"TARGET_NOT_FOUND"`) {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+}
+
+func TestCallbackSideEffectReconcileBoundsPostCommitWakeup(t *testing.T) {
+	service, store := recoveryTestService()
+	wakeup := &recoveryWakeup{block: true}
+	service.WithWeWorkCallbackWakeup(wakeup)
+	store.reconcileResult = CallbackSideEffectReconcileResult{EventKey: recoveryEventKey, ActionKey: "fission.customer_push", Status: "pending", Version: 4, InboxLeaseFence: 8, InboxReplayScheduled: true}
+	principal := companyProfileTestPrincipal(false, dashboardprincipal.CorpBindingStatusActive)
+	input := CallbackSideEffectReconcileInput{Decision: CallbackSideEffectDecisionConfirmNotSentAndRetry, ExpectedVersion: 3, ExpectedInboxLeaseFence: 7, Reason: "确认未发送", EvidenceKind: "provider_delivery_query_absent", EvidenceRef: "ticket-timeout"}
+	started := time.Now()
+	result, err := service.ReconcileCallbackSideEffect(recoveryContext(principal, true), principal, recoveryEventKey, "fission.customer_push", "request-wakeup-timeout", input)
+	if err != nil || result.WakeupAccepted || !wakeup.sawDeadline || time.Since(started) > time.Second {
+		t.Fatalf("result=%+v deadline=%t elapsed=%s err=%v", result, wakeup.sawDeadline, time.Since(started), err)
 	}
 }

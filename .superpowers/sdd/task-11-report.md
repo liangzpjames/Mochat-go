@@ -31,10 +31,10 @@ go test ./internal/companyprofile ./internal/migration -run "CallbackSideEffectR
 
 ## 3. 实施与决策理由
 
-- `0176` 为 side-effect intent 增加 version、reconciliation fence、unknown/reconcile 时间和最后人工决议信息；新增不可变 command receipt 表，唯一键为 `(tenant_id, corp_id, request_id)`。这样同请求同 fingerprint 可重放首次结果，同 key 异义请求稳定 409。
+- `0176` 为 side-effect intent 增加 version、reconciliation fence、unknown/reconcile 时间和最后人工决议信息；新增提交后不可变的 command receipt 表，唯一键为 `(tenant_id, corp_id, request_id)`。事务内先写 reservation、提交前再固化首次结果，这样跨事件同请求也先串行，同 fingerprint 可重放首次结果，同 key 异义请求稳定 409。
 - 列表、详情和 reconcile 都只接收 `DashboardPrincipal`，Store SQL 固定使用 principal tenant/corp。body 使用严格 JSON 解码，tenant/corp/actor 注入在 Store 前被拒绝；跨 scope 与 scope 内不存在统一 404。
 - `confirm_sent` 只把目标 action 标为 `sent`；`confirm_not_sent_and_retry` 只重置为 `pending`。管理 API 没有 Provider 依赖或调用点，外发只能由 durable worker 后续执行。
-- reconcile 固定锁序为 binding/actor → inbox → 同事件 actions（`action_key ASC`）→ command receipt，再在单事务内提交 action、inbox fence/复活、Dashboard audit 和 receipt。任何 SQL/commit 失败整体回滚。
+- reconcile 固定锁序为 actor → active tenant/corp binding 与 corp → command receipt reservation → inbox → 同事件 actions（`action_key ASC`），再在单事务内提交 action、inbox fence/复活、Dashboard audit 和 receipt 首次结果。receipt 不使用 action 外键，避免 reservation 隐式提前锁 action；任何 SQL/commit 失败整体回滚。
 - 只有最后一个 `unknown` 被解决才把 inbox 复活为 `pending`、attempt 清零并递增 lease fence。另一个 action 仍 unknown 时不修改 inbox；未知未来 action fail closed。
 - worker Begin/Complete 改为携带完整 `WeWorkCallbackExecution`，先锁 inbox 并验证 `processing + lease_token + lease_fence + lease_expires_at`，再锁 action；旧 worker 的 Begin/Complete 与既有 CompleteInbox 都会 lease lost。
 - `reconcile_after` 为 worker Begin 后 15 分钟。活动 lease、隔离期、version/fence/state/未知 action 均返回稳定 409；DB/事务故障规范化为 503。
@@ -49,28 +49,34 @@ go test ./internal/companyprofile ./internal/migration -run "CallbackSideEffectR
 - DB 故障返回 500：FAIL（符合预期）。
 - 决议与证据类型不匹配仍进入 Store、cursor 接受尾随 JSON、审计未标出 action：三项提交前自审 RED 均先复现后修复。
 - MySQL 5.7 首轮审计断言因其 JSON 文本会插入空格而 FAIL；实际字段存在。根因修复为解析 JSON 后按字段断言，同一完整 targeted 随后 PASS，未放宽字段值要求。
+- 对 `4a418811` 的复审 RED：Service 缺 wakeup 注入与新响应字段导致编译失败；0176 contract 明确报缺 `reservation_token`、`remaining_unknown_actions` 且仍有 action FK；cursor 接受大写 event key。
+- reservation 实现后的首次 MariaDB RED 为四个 recovery fixture 全部 `TENANT_ACCESS_DENIED`。根因是旧专用 seed 把 binding 建成 pending，而生产合同要求事务内 active；修复仅把 recovery 场景 seed 激活，并新增 suspended binding/stale auth version 的 fail-closed 断言，没有放宽 Store。
+- 独立 diff 复审继续发现 wakeup 只有 Redis `Publish` 而全仓没有 subscriber，`wakeupAccepted=true` 会成为伪成功；另有 HTTP 唤醒无时间上界。修复为最多保留 64 个 list token、worker `BRPOP` 消费并在 Redis 故障时退回 MySQL poll，Service 使用 50ms 独立超时。
 
 ### PASS：无外部依赖
 
-- `go test ./internal/companyprofile ./internal/dashboard ./internal/server ./internal/store ./internal/migration ./internal/qualitygate -count=1`
-- `go test ./... -count=1`
-- `go vet ./...`
+- `go test ./internal/companyprofile ./internal/dashboard ./internal/store ./internal/migration ./cmd/mochat-go -count=1`：五包 PASS。
+- `go vet ./...`：PASS。
 - `node --test scripts/check_dashboard_page_rbac_catalog.test.mjs`：43/43 PASS。
 - `node scripts/check_dashboard_page_rbac_catalog.mjs`：53 pages、49 ordinary、4 superadmin_only、0 unmapped dashboard API usages。
 - `git diff --check`
-- 覆盖 principal/RBAC 前置拒绝、body scope 注入、Idempotency-Key/decision 校验、路由、503 错误语义、worker 双 action、unknown 不自动重放、pending 恢复后只外发一次和 lease fencing。
+- 本地 Redis 7（隔离 DB 15 + 每次随机测试 key）真实 `LPUSH/LTRIM → BRPOP`：token 从 1 变 0，测试后只精确删除该随机 key；不会触碰生产 wakeup key，未删除命名卷。另有 waiter 故障注入证明 Redis 失败后 worker 回退有界 MySQL poll 并继续完成 claim。
+- 覆盖 principal/RBAC 前置拒绝、body scope 注入、Idempotency-Key/decision 校验、路由、503 错误语义、post-commit wakeup 首次/重放语义、worker fake 双 action、unknown 两次 claim 都不自动重放、confirm_sent 外发 0 次、retry 只外发对应 action 1 次。
 
 ### PASS：MariaDB 10.6 本地真实数据库
 
-- migration 0176 up/down/reapply：`ok ... 6.987s`。
-- recovery targeted：`ok ... 27.264s`。
-- `mochat_it_%` 隔离临时 schema：执行前 0，执行后 0。
-- 覆盖稳定分页、同 key 重放、异 payload 冲突、双 action 独立、最后 unknown 才复活、活动 lease、隔离期、未知 action、跨 scope 404、并发只一份 command/audit/version、receipt 写入故障时 action/inbox/audit 全回滚。
+- migration 0176 up/down/reapply（增加 reservation 列断言后的最终复跑）：`ok ... 7.214s`。
+- recovery targeted（增加跨事件持久状态断言后的最终复跑）：`ok ... 30.627s`。
+- harness 为每个测试使用 `mochat_it_<24 hex>` 隔离 schema，并在 Cleanup 校验精确删除。
+- 最终显式查询 `information_schema.schemata`：`mochat_it_%` 残留 0。
+- 覆盖稳定分页、同 key 首次结果重放、异 payload 冲突、32 路同 key 并发（1 首次 + 31 idempotent）、跨事件同 request key（1 成功 + 1 fingerprint conflict、无 503，且 loser action/version 未变化、audit/command 各一份）、双 action 独立、最后 unknown 才复活、active binding/auth version、严格 inbox 状态、隔离期、未知 action、跨 scope 404。
+- 分别在 action update、inbox update、audit insert、receipt update、commit 注入失败，均验证 action/version、inbox/fence、audit、receipt 全回滚；另保留 reservation insert 失败证据。
 
 ### PASS：MySQL 5.7 本地真实数据库
 
-- targeted migration/store：migration `11.236s`，store `40.214s`，exit 0。
-- `mochat_it_%` 隔离临时 schema：执行前 0，执行后 0。
+- targeted migration/store：migration 最终复跑 `11.129s`，store 最终复跑 `47.513s`，exit 0。
+- harness 同样创建并清理随机隔离 schema；容器和命名卷保持不变。
+- 最终显式查询 `information_schema.schemata`：`mochat_it_%` 残留 0。
 - 使用相同真实 registry、受控 0130/0165 evidence、断言和测试范围；没有 MySQL 8 专属 SQL。
 
 ### SKIP/边界
@@ -81,10 +87,12 @@ go test ./internal/companyprofile ./internal/migration -run "CallbackSideEffectR
 
 ## 5. 自审
 
+复审 `4a4188119415221fc1c44856b07f18c939eba576` 后发现该提交尚未闭合：缺生产 wakeup 接线和响应字段、事务未锁 active binding/corp、异常 inbox 状态过宽、跨事件相同 request key 仍可能在 receipt INSERT 时报 duplicate 并映射 503，且故障注入/fake Provider 证据不足。本次修复按上述 RED 逐项闭合；以下勾选均有本节命令或测试断言支撑。
+
 - [x] 设计中的所有 `0175` 占用歧义已改为 `0176`。
 - [x] 无 TODO/TBD；API、错误码、事务锁序和 down 边界明确。
 - [x] 管理 API 没有 Provider 调用；人工证据错误造成重复发送的残余风险已在中文 runbook 明示。
-- [x] action/receipt/audit/inbox 在同一事务，receipt 重放不重复审计或 fence。
-- [x] principal scope 和 Store scope 双重约束，未从客户端接受 tenant/corp/actor。
+- [x] action/receipt/audit/inbox 在同一事务，跨事件 receipt 先序列化且重放不重复审计或 fence；五个事务阶段分别故障注入后均全回滚。
+- [x] principal scope 和 Store scope 双重约束，并在事务内锁定 active binding/corp 与复核 actor auth version；未从客户端接受 tenant/corp/actor。
 - [x] 0176 up/down 保留 0174 表和约束，MariaDB/MySQL5.7 lifecycle 已验证。
 - [x] RBAC catalog 从 typed auth registry、真实 runtime switch 和 0176 migration overlay 三个独立来源闭合，没有恢复已废弃的旧豁免合同。
