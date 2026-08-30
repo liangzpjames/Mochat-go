@@ -154,10 +154,37 @@ func TestCorpDataSummaryQueryPlanUsesAtMostFourScopedResourceQueries(t *testing.
 	}
 }
 
+func TestCorpDataNullableTimeAcceptsMySQL57BytesInBusinessTimezone(t *testing.T) {
+	var value corpTime
+	if err := value.Scan([]byte("2026-08-02 09:00:00")); err != nil {
+		t.Fatal(err)
+	}
+	if !value.Valid || value.Time.Format("2006-01-02 15:04:05 -07:00") != "2026-08-02 09:00:00 +08:00" {
+		t.Fatalf("scanned value = %#v", value)
+	}
+	if err := value.Scan(nil); err != nil {
+		t.Fatal(err)
+	}
+	if value.Valid {
+		t.Fatalf("NULL value remained valid: %#v", value)
+	}
+}
+
+func TestCorpDataNullableTimeRejectsMalformedDriverValue(t *testing.T) {
+	var value corpTime
+	if err := value.Scan([]byte("not-a-time")); err == nil {
+		t.Fatal("malformed update time unexpectedly accepted")
+	}
+}
+
 func TestIntegrationCorpDataScopedQueriesExecute(t *testing.T) {
 	var db *sql.DB
 	if strings.TrimSpace(os.Getenv("MOCHAT_GO_MYSQL_INTEGRATION_DSN")) != "" {
-		db = newCurrentStoreIntegrationDB(t)
+		businessLocation, err := time.LoadLocation("Asia/Shanghai")
+		if err != nil {
+			t.Fatal(err)
+		}
+		db = newCurrentStoreIntegrationDBWithLocation(t, businessLocation)
 	} else {
 		dsn := strings.TrimSpace(os.Getenv("MOCHAT_MYSQL_DSN"))
 		if dsn == "" {
@@ -336,23 +363,41 @@ func assertCorpDataExplainPlans(t *testing.T, db *sql.DB, scope dashboard.CorpDa
 		if err != nil {
 			t.Fatalf("EXPLAIN %s: %v", item.name, err)
 		}
+		columns, err := rows.Columns()
+		if err != nil {
+			rows.Close()
+			t.Fatalf("read EXPLAIN %s columns: %v", item.name, err)
+		}
 		seen := make(map[string]bool, len(item.targets))
 		for rows.Next() {
-			var id sql.NullInt64
-			var selectType, table, accessType, possibleKeys, key, keyLen, ref, rowEstimate, extra sql.NullString
-			if err := rows.Scan(&id, &selectType, &table, &accessType, &possibleKeys, &key, &keyLen, &ref, &rowEstimate, &extra); err != nil {
+			values := make([]sql.NullString, len(columns))
+			destinations := make([]any, len(values))
+			for index := range values {
+				destinations[index] = &values[index]
+			}
+			if err := rows.Scan(destinations...); err != nil {
 				rows.Close()
 				t.Fatalf("scan EXPLAIN %s: %v", item.name, err)
 			}
+			row := make(map[string]string, len(columns))
+			for index, column := range columns {
+				row[strings.ToLower(column)] = values[index].String
+			}
+			table := row["table"]
+			accessType := row["type"]
+			possibleKeys := row["possible_keys"]
+			key := row["key"]
+			rowEstimate := row["rows"]
+			extra := row["extra"]
 			for _, target := range item.targets {
-				if table.String != target {
+				if table != target {
 					continue
 				}
 				seen[target] = true
-				t.Logf("EXPLAIN %s table=%s type=%s key=%s rows=%s extra=%s", item.name, table.String, accessType.String, key.String, rowEstimate.String, extra.String)
-				if strings.EqualFold(accessType.String, "ALL") {
+				t.Logf("EXPLAIN %s table=%s type=%s key=%s rows=%s extra=%s", item.name, table, accessType, key, rowEstimate, extra)
+				if strings.EqualFold(accessType, "ALL") {
 					rows.Close()
-					t.Fatalf("EXPLAIN %s performs ALL scan on %s (possible_keys=%q key=%q rows=%q extra=%q)", item.name, table.String, possibleKeys.String, key.String, rowEstimate.String, extra.String)
+					t.Fatalf("EXPLAIN %s performs ALL scan on %s (possible_keys=%q key=%q rows=%q extra=%q)", item.name, table, possibleKeys, key, rowEstimate, extra)
 				}
 			}
 		}

@@ -9,7 +9,9 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
+	"github.com/go-sql-driver/mysql"
 	"jiyi/mochat-go/internal/integrationtestdb"
 	"jiyi/mochat-go/internal/migration"
 	"jiyi/mochat-go/internal/migration/testharness"
@@ -20,6 +22,23 @@ var currentStoreIntegrationSequence atomic.Uint64
 func newCurrentStoreIntegrationDB(t *testing.T) *sql.DB {
 	t.Helper()
 	database, evidence := newStoreIntegrationDatabase(t)
+	return applyLatestStoreIntegrationDatabase(t, database, evidence)
+}
+
+func newCurrentStoreIntegrationDBWithLocation(t *testing.T, location *time.Location) *sql.DB {
+	t.Helper()
+	dsn := storeIntegrationAdminDSN(t)
+	config, err := mysql.ParseDSN(dsn)
+	if err != nil {
+		t.Fatalf("parse store integration administrator DSN: %v", err)
+	}
+	config.Loc = location
+	database, evidence := newStoreIntegrationDatabaseWithDSN(t, config.FormatDSN())
+	return applyLatestStoreIntegrationDatabase(t, database, evidence)
+}
+
+func applyLatestStoreIntegrationDatabase(t *testing.T, database *integrationtestdb.Database, evidence testharness.ControlledEvidence) *sql.DB {
+	t.Helper()
 	if err := testharness.ApplyLatest(context.Background(), database.DB, filepath.Join("..", ".."), evidence); err != nil {
 		t.Fatalf("apply production migration registry: %v", err)
 	}
@@ -37,10 +56,20 @@ func newStoreIntegrationDBThrough(t *testing.T, targetVersion string) *sql.DB {
 
 func newStoreIntegrationDatabase(t *testing.T) (*integrationtestdb.Database, testharness.ControlledEvidence) {
 	t.Helper()
+	return newStoreIntegrationDatabaseWithDSN(t, storeIntegrationAdminDSN(t))
+}
+
+func storeIntegrationAdminDSN(t *testing.T) string {
+	t.Helper()
 	dsn := strings.TrimSpace(os.Getenv("MOCHAT_GO_MYSQL_INTEGRATION_DSN"))
 	if dsn == "" {
 		t.Skip("SKIP: MOCHAT_GO_MYSQL_INTEGRATION_DSN is not set; isolated MariaDB/MySQL DSN is required")
 	}
+	return dsn
+}
+
+func newStoreIntegrationDatabaseWithDSN(t *testing.T, dsn string) (*integrationtestdb.Database, testharness.ControlledEvidence) {
+	t.Helper()
 	database := integrationtestdb.NewIsolated(t, dsn)
 	prefix := fmt.Sprintf("store-%d-%d", os.Getpid(), currentStoreIntegrationSequence.Add(1))
 	evidence, err := testharness.NewControlledEvidence(prefix)

@@ -2221,7 +2221,7 @@ type corpDataSummaryRow struct {
 	LastMonthAddRoomMemberNum int
 	MonthLossContactNum       int
 	LastMonthLossContactNum   int
-	UpdateTime                sql.NullTime
+	UpdateTime                corpTime
 }
 
 func corpDataSummaryQuerySpecs(scope dashboard.CorpDataScope, now time.Time) []corpDataSummaryQuerySpec {
