@@ -15,7 +15,9 @@ import (
 	"testing"
 	"time"
 
-	scrmhttp "jiyi/mochat-go/internal/modules/scrm/transport/http"
+	"jiyi/mochat-go/internal/moduleprincipal"
+	"jiyi/mochat-go/internal/modules/providers"
+	audiolocal "jiyi/mochat-go/internal/modules/providers/audio/local"
 )
 
 type fakeStore struct {
@@ -86,13 +88,13 @@ func (s *fakeStore) UpdateDuration(_ context.Context, id int64, durationSeconds 
 
 type fakeResolver struct{}
 
-func (fakeResolver) Resolve(*http.Request) (scrmhttp.Principal, error) {
-	return scrmhttp.Principal{UserID: 7, TenantID: 1, CorpID: 2}, nil
+func (fakeResolver) Resolve(*http.Request) (moduleprincipal.Principal, error) {
+	return moduleprincipal.Principal{UserID: 7, TenantID: 1, CorpID: 2}, nil
 }
 
 type fakeAuthorizer struct{}
 
-func (fakeAuthorizer) Authorize(context.Context, scrmhttp.Principal, int64, string) error {
+func (fakeAuthorizer) Authorize(context.Context, moduleprincipal.Principal, int64, string) error {
 	return nil
 }
 
@@ -110,11 +112,20 @@ func newTestHandler(t *testing.T) (*MediaHandler, *fakeStore, string) {
 	t.Helper()
 	root := t.TempDir()
 	store := newFakeStore()
-	handler, err := NewMediaHandler(store, root, fakeResolver{}, fakeAuthorizer{})
+	storage, err := audiolocal.New(audiolocal.Config{Root: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler, err := NewMediaHandler(store, storage, fakeResolver{}, fakeAuthorizer{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	return handler, store, root
+}
+
+func newTestAudioStorage(t *testing.T) (providers.AudioProvider, error) {
+	t.Helper()
+	return audiolocal.New(audiolocal.Config{Root: t.TempDir()})
 }
 
 func devWAV(seconds int) []byte {

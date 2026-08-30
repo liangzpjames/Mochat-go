@@ -5,8 +5,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-
-	scrmhttp "jiyi/mochat-go/internal/modules/scrm/transport/http"
 )
 
 type filterCaptureStore struct {
@@ -23,7 +21,8 @@ func (s *filterCaptureStore) SoftDelete(context.Context, int64, int64) error { r
 
 func TestMediaListPassesValidatedDateFilter(t *testing.T) {
 	store := &filterCaptureStore{}
-	handler, err := NewMediaHandler(store, t.TempDir(), fakeResolver{}, fakeAuthorizer{})
+	storage, err := newTestAudioStorage(t)
+	handler, err := NewMediaHandler(store, storage, fakeResolver{}, fakeAuthorizer{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -39,7 +38,8 @@ func TestMediaListPassesValidatedDateFilter(t *testing.T) {
 }
 
 func TestMediaListRejectsInvalidDateRange(t *testing.T) {
-	handler, err := NewMediaHandler(&filterCaptureStore{}, t.TempDir(), fakeResolver{}, fakeAuthorizer{})
+	storage, err := newTestAudioStorage(t)
+	handler, err := NewMediaHandler(&filterCaptureStore{}, storage, fakeResolver{}, fakeAuthorizer{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -50,5 +50,3 @@ func TestMediaListRejectsInvalidDateRange(t *testing.T) {
 		t.Fatalf("status=%d", rec.Code)
 	}
 }
-
-var _ scrmhttp.Principal

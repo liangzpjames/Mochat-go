@@ -12,20 +12,21 @@ import (
 	"time"
 
 	"jiyi/mochat-go/internal/httpresponse"
+	"jiyi/mochat-go/internal/moduleprincipal"
+	"jiyi/mochat-go/internal/modules/chat-media/ports"
 	"jiyi/mochat-go/internal/modules/providers"
-	audiolocal "jiyi/mochat-go/internal/modules/providers/audio/local"
-	scrmhttp "jiyi/mochat-go/internal/modules/scrm/transport/http"
 )
 
 const mediaPermission = "/chat/file-audio#get"
 
-type PrincipalResolver interface {
-	Resolve(*http.Request) (scrmhttp.Principal, error)
-}
-
-type Authorizer interface {
-	Authorize(context.Context, scrmhttp.Principal, int64, string) error
-}
+type PrincipalResolver = moduleprincipal.Resolver
+type Authorizer = moduleprincipal.Authorizer
+type Principal = moduleprincipal.Principal
+type AudioObject = ports.AudioObject
+type ListResult = ports.ListResult
+type MediaListFilter = ports.MediaListFilter
+type MediaStore = ports.MediaStore
+type DurationUpdater = ports.DurationUpdater
 
 type MediaHandler struct {
 	store     MediaStore
@@ -34,13 +35,12 @@ type MediaHandler struct {
 	authorize Authorizer
 }
 
-func NewMediaHandler(store MediaStore, fileStorageRoot string, principal PrincipalResolver, authorize Authorizer) (*MediaHandler, error) {
+func NewMediaHandler(store MediaStore, storage providers.AudioProvider, principal PrincipalResolver, authorize Authorizer) (*MediaHandler, error) {
 	if store == nil {
 		return nil, errors.New("chat media store is required")
 	}
-	storage, err := audiolocal.New(audiolocal.Config{Root: fileStorageRoot})
-	if err != nil {
-		return nil, err
+	if storage == nil {
+		return nil, errors.New("chat media audio provider is required")
 	}
 	return &MediaHandler{store: store, storage: storage, principal: principal, authorize: authorize}, nil
 }
@@ -144,7 +144,7 @@ func (h *MediaHandler) hydrateDuration(ctx context.Context, object *AudioObject)
 	}
 }
 
-func (h *MediaHandler) serveContent(w http.ResponseWriter, r *http.Request, principal scrmhttp.Principal) {
+func (h *MediaHandler) serveContent(w http.ResponseWriter, r *http.Request, principal moduleprincipal.Principal) {
 	id, ok := mediaIDFromPath(r.URL.Path)
 	if !ok {
 		writeEnvelope(w, http.StatusBadRequest, "invalid media id", nil)
