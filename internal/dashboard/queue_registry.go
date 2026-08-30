@@ -11,7 +11,6 @@ import (
 )
 
 const (
-	QueueNameWeWorkCallback                = "wework-callback"
 	QueueNameEmployeeApply                 = "employee-apply"
 	QueueNameContactWelcome                = "contact-welcome"
 	QueueNameAsyncFileUpload               = "async-file-upload"
@@ -22,7 +21,6 @@ const (
 	QueueNameWorkDepartmentList            = "work-department-list"
 	QueueNameMediumMediaIDUpdate           = "medium-media-id-update"
 	QueueNameEmployeeStatisticApply        = "employee-statistic-apply"
-	QueuePayloadTypeWeWorkCallback         = "dashboard.WeWorkCallbackEvent.v1"
 	QueuePayloadTypeEmployeeApply          = "dashboard.EmployeeApplyEvent.v1"
 	QueuePayloadTypeContactWelcome         = "dashboard.ContactWelcomeEvent.v1"
 	QueuePayloadTypeAsyncFileUpload        = "dashboard.AsyncFileUploadEvent.v1"
@@ -42,17 +40,6 @@ type QueuePayloadDescriptor struct {
 	ProcessingKey  string
 	DeadLetterKey  string
 	IdempotencyTTL time.Duration
-}
-
-func WeWorkCallbackQueueDescriptor() QueuePayloadDescriptor {
-	return QueuePayloadDescriptor{
-		Name:           QueueNameWeWorkCallback,
-		PayloadType:    QueuePayloadTypeWeWorkCallback,
-		SourceKey:      "mochat-go:wework-callback",
-		ProcessingKey:  "mochat-go:wework-callback:processing",
-		DeadLetterKey:  "mochat-go:wework-callback:dead",
-		IdempotencyTTL: 10 * time.Minute,
-	}
 }
 
 func EmployeeApplyQueueDescriptor() QueuePayloadDescriptor {
@@ -167,7 +154,6 @@ func EmployeeStatisticApplyQueueDescriptor() QueuePayloadDescriptor {
 
 func QueuePayloadRegistry() []QueuePayloadDescriptor {
 	return []QueuePayloadDescriptor{
-		WeWorkCallbackQueueDescriptor(),
 		EmployeeApplyQueueDescriptor(),
 		ContactWelcomeQueueDescriptor(),
 		AsyncFileUploadQueueDescriptor(),
@@ -198,64 +184,6 @@ func QueueIdempotencyRedisKey(queueName string, digest string) string {
 		return ""
 	}
 	return fmt.Sprintf("mochat-go:queue-idempotency:%s:%s", queueName, digest)
-}
-
-func WeWorkCallbackIdempotencyKey(event WeWorkCallbackEvent) string {
-	digest := stableQueuePayloadDigest(struct {
-		CorpID    int               `json:"corpId"`
-		WxCorpID  string            `json:"wxCorpId"`
-		EventPath string            `json:"eventPath"`
-		Business  map[string]string `json:"business"`
-	}{
-		CorpID:    event.CorpID,
-		WxCorpID:  strings.TrimSpace(event.WxCorpID),
-		EventPath: strings.TrimSpace(event.EventPath),
-		Business:  weWorkCallbackBusinessIdentity(event),
-	})
-	return QueueIdempotencyRedisKey(QueueNameWeWorkCallback, digest)
-}
-
-func weWorkCallbackBusinessIdentity(event WeWorkCallbackEvent) map[string]string {
-	message := event.Message
-	identity := map[string]string{}
-	add := func(name string, keys ...string) {
-		if value := queueMessageString(message, keys...); value != "" {
-			identity[name] = value
-		}
-	}
-	add("toUserName", "ToUserName", "tousername", "to_user_name")
-	add("fromUserName", "FromUserName", "fromusername", "from_user_name")
-	add("createTime", "CreateTime", "createtime", "create_time")
-
-	switch strings.TrimSpace(event.EventPath) {
-	case "event.change_contact.create_user", "event.change_contact.update_user", "event.change_contact.delete_user":
-		add("userID", "UserID", "UserId", "userid", "user_id")
-	case "event.change_contact.create_party", "event.change_contact.update_party", "event.change_contact.delete_party":
-		add("id", "Id", "ID", "id")
-	case "event.change_external_tag.create", "event.change_external_tag.update", "event.change_external_tag.delete":
-		add("tagType", "TagType", "tag_type")
-		add("id", "Id", "ID", "id")
-	case "event.change_external_contact.add_external_contact",
-		"event.change_external_contact.edit_external_contact",
-		"event.change_external_contact.add_half_external_contact",
-		"event.change_external_contact.del_external_contact",
-		"event.change_external_contact.del_follow_user",
-		"event.change_external_contact.transfer_fail":
-		add("userID", "UserID", "UserId", "userid", "user_id")
-		add("externalUserID", "ExternalUserID", "ExternalUserid", "external_userid", "externalUserID")
-	case "event.change_external_chat.create", "event.change_external_chat.update", "event.change_external_chat.dismiss":
-		add("chatID", "ChatId", "ChatID", "chat_id", "chatid")
-	default:
-		add("userID", "UserID", "UserId", "userid", "user_id")
-		add("externalUserID", "ExternalUserID", "ExternalUserid", "external_userid", "externalUserID")
-		add("chatID", "ChatId", "ChatID", "chat_id", "chatid")
-		add("id", "Id", "ID", "id")
-		add("eventKey", "EventKey", "event_key")
-	}
-	if len(identity) == 0 {
-		identity["rawXml"] = strings.TrimSpace(event.RawXML)
-	}
-	return identity
 }
 
 func queueMessageString(message map[string]string, keys ...string) string {

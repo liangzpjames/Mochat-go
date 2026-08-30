@@ -1,12 +1,15 @@
 package dashboard
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"log"
+	"net/url"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -15,7 +18,7 @@ import (
 
 func TestWeWorkCallbackWorkerTriggersArchiveSyncForMessageAuditNotification(t *testing.T) {
 	trigger := &fakeWorkMessageArchiveSyncTrigger{}
-	worker := NewWeWorkCallbackWorker(nil, &fakeWeWorkCallbackWorkerStore{}, &fakeWeWorkCallbackWorkerClient{}, "", log.Default()).
+	worker := NewWeWorkCallbackWorker(WeWorkCallbackWorkerCapabilities{}, &fakeWeWorkCallbackWorkerStore{}, &fakeWeWorkCallbackWorkerClient{}, "", log.Default()).
 		WithArchiveSyncTrigger(trigger)
 
 	if err := worker.Process(context.Background(), WeWorkCallbackEvent{CorpID: 4, EventPath: "event.msgaudit_notify"}); err != nil {
@@ -30,9 +33,206 @@ func TestWeWorkCallbackWorkerTriggersArchiveSyncForMessageAuditNotification(t *t
 		t.Fatalf("Process error=%v, want trigger error", err)
 	}
 
-	withoutTrigger := NewWeWorkCallbackWorker(nil, &fakeWeWorkCallbackWorkerStore{}, &fakeWeWorkCallbackWorkerClient{}, "", log.Default())
+	withoutTrigger := NewWeWorkCallbackWorker(WeWorkCallbackWorkerCapabilities{}, &fakeWeWorkCallbackWorkerStore{}, &fakeWeWorkCallbackWorkerClient{}, "", log.Default())
 	if err := withoutTrigger.Process(context.Background(), WeWorkCallbackEvent{CorpID: 4, EventPath: "event.msgaudit_notify"}); err != nil {
 		t.Fatalf("disabled archive trigger error=%v", err)
+	}
+}
+
+func TestWeWorkCallbackWorkerRunsFromDurableInboxWithoutRedis(t *testing.T) {
+	completed := make(chan WeWorkCallbackClaim, 1)
+	store := &fakeDurableWeWorkCallbackWorkerStore{
+		fakeWeWorkCallbackWorkerStore: &fakeWeWorkCallbackWorkerStore{},
+		claims: []WeWorkCallbackClaim{{
+			ID: 9, EventKey: strings.Repeat("a", 64), PayloadFingerprint: strings.Repeat("b", 64),
+			LeaseToken: "lease-token", LeaseFence: 4, Attempt: 1,
+			Event: WeWorkCallbackEvent{TenantID: 3, CorpID: 7, EventPath: "event.msgaudit_notify", Message: map[string]string{}},
+		}},
+		completed: completed,
+	}
+	worker := NewWeWorkCallbackWorker(WeWorkCallbackWorkerCapabilities{}, store, &fakeWeWorkCallbackWorkerClient{}, "", log.Default())
+	worker.pollTimeout = time.Millisecond
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- worker.Run(ctx) }()
+
+	select {
+	case claim := <-completed:
+		if claim.EventKey != strings.Repeat("a", 64) || claim.LeaseFence != 4 {
+			t.Fatalf("completed claim=%+v", claim)
+		}
+		cancel()
+	case <-time.After(time.Second):
+		cancel()
+		t.Fatal("durable callback claim was not completed")
+	}
+	if err := <-done; !errors.Is(err, context.Canceled) {
+		t.Fatalf("run error=%v", err)
+	}
+	if len(store.failedClaims) != 0 {
+		t.Fatalf("unexpected failures=%d", len(store.failedClaims))
+	}
+	if len(store.claimLeaseDurations) == 0 || store.claimLeaseDurations[0] <= worker.processingTimeout {
+		t.Fatalf("claim lease duration=%v processing timeout=%s", store.claimLeaseDurations, worker.processingTimeout)
+	}
+}
+
+type fakeWeWorkCallbackWakeupWaiter struct {
+	calls  int
+	onWait func()
+	err    error
+}
+
+func (w *fakeWeWorkCallbackWakeupWaiter) WaitWeWorkCallbackWakeup(context.Context, time.Duration) error {
+	w.calls++
+	if w.onWait != nil {
+		callback := w.onWait
+		w.onWait = nil
+		callback()
+	}
+	return w.err
+}
+
+func TestWeWorkCallbackWorkerFallsBackToPollAfterWakeupDependencyFailure(t *testing.T) {
+	completed := make(chan WeWorkCallbackClaim, 1)
+	store := &fakeDurableWeWorkCallbackWorkerStore{fakeWeWorkCallbackWorkerStore: &fakeWeWorkCallbackWorkerStore{}, completed: completed}
+	wakeup := &fakeWeWorkCallbackWakeupWaiter{err: errors.New("redis unavailable")}
+	wakeup.onWait = func() {
+		store.mu.Lock()
+		store.claims = append(store.claims, WeWorkCallbackClaim{
+			ID: 11, EventKey: strings.Repeat("e", 64), LeaseToken: "lease-fallback", LeaseFence: 1, Attempt: 1,
+			Event: WeWorkCallbackEvent{TenantID: 3, CorpID: 7, EventPath: "event.noop", Message: map[string]string{}},
+		})
+		store.mu.Unlock()
+	}
+	worker := NewWeWorkCallbackWorker(WeWorkCallbackWorkerCapabilities{}, store, &fakeWeWorkCallbackWorkerClient{}, "", log.Default()).WithWakeupWaiter(wakeup)
+	worker.pollTimeout = time.Millisecond
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- worker.Run(ctx) }()
+	select {
+	case <-completed:
+		cancel()
+	case <-time.After(time.Second):
+		cancel()
+		t.Fatal("worker did not fall back to durable polling after wakeup failure")
+	}
+	if err := <-done; !errors.Is(err, context.Canceled) {
+		t.Fatalf("run error=%v", err)
+	}
+}
+
+func TestWeWorkCallbackWorkerConsumesWakeupBeforeLongPollExpires(t *testing.T) {
+	completed := make(chan WeWorkCallbackClaim, 1)
+	store := &fakeDurableWeWorkCallbackWorkerStore{fakeWeWorkCallbackWorkerStore: &fakeWeWorkCallbackWorkerStore{}, completed: completed}
+	wakeup := &fakeWeWorkCallbackWakeupWaiter{}
+	wakeup.onWait = func() {
+		store.mu.Lock()
+		store.claims = append(store.claims, WeWorkCallbackClaim{
+			ID: 10, EventKey: strings.Repeat("f", 64), LeaseToken: "lease-wakeup", LeaseFence: 1, Attempt: 1,
+			Event: WeWorkCallbackEvent{TenantID: 3, CorpID: 7, EventPath: "event.noop", Message: map[string]string{}},
+		})
+		store.mu.Unlock()
+	}
+	worker := NewWeWorkCallbackWorker(WeWorkCallbackWorkerCapabilities{}, store, &fakeWeWorkCallbackWorkerClient{}, "", log.Default()).WithWakeupWaiter(wakeup)
+	worker.pollTimeout = time.Hour
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- worker.Run(ctx) }()
+	select {
+	case <-completed:
+		cancel()
+	case <-time.After(time.Second):
+		cancel()
+		t.Fatal("worker did not consume wakeup before the long poll timeout")
+	}
+	if err := <-done; !errors.Is(err, context.Canceled) {
+		t.Fatalf("run error=%v", err)
+	}
+	if wakeup.calls == 0 {
+		t.Fatal("worker never waited on the production wakeup dependency")
+	}
+}
+
+func TestWeWorkCallbackWorkerImportsLegacyBacklogBeforeAcknowledgingRedis(t *testing.T) {
+	legacy := &fakeLegacyWeWorkCallbackBacklog{
+		stats: LegacyWeWorkCallbackBacklogStats{Pending: 1},
+		deliveries: []LegacyWeWorkCallbackDelivery{{
+			Raw:   "legacy-raw-1",
+			Event: WeWorkCallbackEvent{CorpID: 7, WxCorpID: "wx-corp", EventPath: "event.change_contact.delete_user", Message: map[string]string{"UserID": "go-user"}, RawXML: "<xml>secret</xml>"},
+		}},
+	}
+	store := &fakeDurableWeWorkCallbackWorkerStore{fakeWeWorkCallbackWorkerStore: &fakeWeWorkCallbackWorkerStore{tenantIDs: map[int]int{7: 21}}}
+	if _, err := ImportLegacyWeWorkCallbackBacklog(context.Background(), legacy, store, log.Default()); err != nil {
+		t.Fatal(err)
+	}
+	if len(store.acceptedLegacyEvents) != 1 || store.acceptedLegacyEvents[0].TenantID != 21 || store.acceptedLegacyEvents[0].RawXML != "" {
+		t.Fatalf("accepted legacy events=%+v", store.acceptedLegacyEvents)
+	}
+	if len(legacy.acked) != 1 || legacy.acked[0].Raw != "legacy-raw-1" {
+		t.Fatalf("legacy acked=%+v", legacy.acked)
+	}
+}
+
+func TestWeWorkCallbackWorkerKeepsLegacyDeliveryWhenDurableAcceptanceFails(t *testing.T) {
+	legacy := &fakeLegacyWeWorkCallbackBacklog{
+		stats:      LegacyWeWorkCallbackBacklogStats{Processing: 1},
+		deliveries: []LegacyWeWorkCallbackDelivery{{Raw: "legacy-raw-db-failure", Event: WeWorkCallbackEvent{TenantID: 21, CorpID: 7, EventPath: "event.msgaudit_notify", Message: map[string]string{}}}},
+	}
+	store := &fakeDurableWeWorkCallbackWorkerStore{fakeWeWorkCallbackWorkerStore: &fakeWeWorkCallbackWorkerStore{}, acceptLegacyErr: errors.New("mysql unavailable")}
+	if _, err := ImportLegacyWeWorkCallbackBacklog(context.Background(), legacy, store, log.Default()); err == nil {
+		t.Fatal("expected durable acceptance failure")
+	}
+	if len(legacy.acked) != 0 {
+		t.Fatalf("legacy delivery was removed after DB failure: %+v", legacy.acked)
+	}
+	if len(legacy.deliveries) != 1 {
+		t.Fatalf("legacy delivery was not retained for retry: %+v", legacy.deliveries)
+	}
+	store.acceptLegacyErr = nil
+	legacy.preflights = 0
+	if _, err := ImportLegacyWeWorkCallbackBacklog(context.Background(), legacy, store, log.Default()); err != nil {
+		t.Fatalf("retry legacy import: %v", err)
+	}
+	if len(legacy.acked) != 1 || len(legacy.deliveries) != 0 {
+		t.Fatalf("retry acked=%+v deliveries=%+v", legacy.acked, legacy.deliveries)
+	}
+}
+
+func TestWeWorkCallbackWorkerLegacyDuplicateImportKeepsOneDurableEvent(t *testing.T) {
+	event := WeWorkCallbackEvent{TenantID: 21, CorpID: 7, WxCorpID: "wx-corp", EventPath: "event.msgaudit_notify", Message: map[string]string{"MsgId": "legacy-provider-id"}}
+	legacy := &fakeLegacyWeWorkCallbackBacklog{
+		stats:      LegacyWeWorkCallbackBacklogStats{Processing: 2},
+		deliveries: []LegacyWeWorkCallbackDelivery{{Raw: "legacy-a", Event: event}, {Raw: "legacy-b", Event: event}},
+	}
+	store := &fakeDurableWeWorkCallbackWorkerStore{fakeWeWorkCallbackWorkerStore: &fakeWeWorkCallbackWorkerStore{}}
+	if _, err := ImportLegacyWeWorkCallbackBacklog(context.Background(), legacy, store, log.Default()); err != nil {
+		t.Fatal(err)
+	}
+	if len(store.acceptedLegacyKeys) != 2 || len(store.legacyUniqueKeys) != 1 || len(legacy.acked) != 2 {
+		t.Fatalf("accept calls=%d unique=%d acked=%d", len(store.acceptedLegacyKeys), len(store.legacyUniqueKeys), len(legacy.acked))
+	}
+}
+
+func TestWeWorkCallbackWorkerFailsClosedWhenLegacyDeadBacklogExists(t *testing.T) {
+	legacy := &fakeLegacyWeWorkCallbackBacklog{stats: LegacyWeWorkCallbackBacklogStats{Pending: 1, Dead: 2}}
+	store := &fakeDurableWeWorkCallbackWorkerStore{fakeWeWorkCallbackWorkerStore: &fakeWeWorkCallbackWorkerStore{}}
+	if _, err := ImportLegacyWeWorkCallbackBacklog(context.Background(), legacy, store, log.Default()); !errors.Is(err, ErrLegacyWeWorkCallbackDeadBacklog) {
+		t.Fatalf("error=%v", err)
+	}
+	if legacy.nextCalls != 0 || len(legacy.acked) != 0 {
+		t.Fatalf("dead preflight mutated backlog: next=%d acked=%d", legacy.nextCalls, len(legacy.acked))
+	}
+}
+
+func TestWeWorkCallbackWorkerFailsDurableClaimWithOriginalFence(t *testing.T) {
+	store := &fakeDurableWeWorkCallbackWorkerStore{fakeWeWorkCallbackWorkerStore: &fakeWeWorkCallbackWorkerStore{}}
+	worker := NewWeWorkCallbackWorker(WeWorkCallbackWorkerCapabilities{}, store, &fakeWeWorkCallbackWorkerClient{}, "", log.Default())
+	claim := WeWorkCallbackClaim{ID: 10, EventKey: strings.Repeat("c", 64), LeaseToken: "lease-token", LeaseFence: 7, Attempt: 2, Event: WeWorkCallbackEvent{EventPath: "event.change_contact.create_user"}}
+
+	worker.handleClaim(context.Background(), claim)
+	if len(store.failedClaims) != 1 || store.failedClaims[0].EventKey != claim.EventKey || store.failedClaims[0].LeaseFence != claim.LeaseFence || len(store.completedClaims) != 0 {
+		t.Fatalf("failed=%+v completed=%+v", store.failedClaims, store.completedClaims)
 	}
 }
 
@@ -57,7 +257,7 @@ func TestWeWorkCallbackWorkerSyncsEmployeesForContactChange(t *testing.T) {
 		},
 		followUsers: []string{"go-user"},
 	}
-	worker := NewWeWorkCallbackWorker(nil, store, client, "worker-secret", log.Default())
+	worker := NewWeWorkCallbackWorker(WeWorkCallbackWorkerCapabilities{}, store, client, "worker-secret", log.Default())
 
 	err := worker.Process(context.Background(), WeWorkCallbackEvent{CorpID: 7, EventPath: "event.change_contact.create_user", Message: map[string]string{"UserID": "go-user"}})
 	if err != nil {
@@ -85,7 +285,7 @@ func TestWeWorkCallbackWorkerSyncsTagsAndRooms(t *testing.T) {
 			"room-1": {WXChatID: "room-1", Name: "客户群"},
 		},
 	}
-	worker := NewWeWorkCallbackWorker(nil, store, client, "worker-secret", log.Default())
+	worker := NewWeWorkCallbackWorker(WeWorkCallbackWorkerCapabilities{}, store, client, "worker-secret", log.Default())
 
 	if err := worker.Process(context.Background(), WeWorkCallbackEvent{CorpID: 7, EventPath: "event.change_external_tag.create", Message: map[string]string{"TagType": "tag", "Id": "tag-id"}}); err != nil {
 		t.Fatalf("tag process error = %v", err)
@@ -113,7 +313,7 @@ func TestWeWorkCallbackWorkerNoopsPHPEventsWithoutListeners(t *testing.T) {
 			"external-user": {WXExternalUserID: "external-user", FollowUsers: []WorkContactSyncFollowUser{{UserID: "go-user"}}},
 		},
 	}
-	worker := NewWeWorkCallbackWorker(nil, store, client, "worker-secret", log.Default())
+	worker := NewWeWorkCallbackWorker(WeWorkCallbackWorkerCapabilities{}, store, client, "worker-secret", log.Default())
 	events := []WeWorkCallbackEvent{
 		{CorpID: 7, EventPath: "event.change_external_tag.shuffle"},
 		{CorpID: 7, EventPath: "event.change_contact.update_tag"},
@@ -152,7 +352,7 @@ func TestWeWorkCallbackWorkerSyncsSingleContactFromEvent(t *testing.T) {
 			},
 		},
 	}
-	worker := NewWeWorkCallbackWorker(nil, store, client, "worker-secret", log.Default())
+	worker := NewWeWorkCallbackWorker(WeWorkCallbackWorkerCapabilities{}, store, client, "worker-secret", log.Default())
 
 	err := worker.Process(context.Background(), WeWorkCallbackEvent{
 		CorpID:    7,
@@ -205,7 +405,7 @@ func TestWeWorkCallbackWorkerEnqueuesGenericWelcomeForNewContact(t *testing.T) {
 			},
 		},
 	}
-	worker := NewWeWorkCallbackWorker(queue, store, client, "worker-secret", log.Default())
+	worker := NewWeWorkCallbackWorker(fakeWeWorkCallbackWorkerCapabilities(queue), store, client, "worker-secret", log.Default())
 
 	err := worker.Process(context.Background(), WeWorkCallbackEvent{
 		CorpID:    7,
@@ -253,7 +453,7 @@ func TestWeWorkCallbackWorkerEnqueuesContactTimeAutoTagForNewContact(t *testing.
 			},
 		},
 	}
-	worker := NewWeWorkCallbackWorker(queue, store, client, "worker-secret", log.Default())
+	worker := NewWeWorkCallbackWorker(fakeWeWorkCallbackWorkerCapabilities(queue), store, client, "worker-secret", log.Default())
 
 	err := worker.Process(context.Background(), WeWorkCallbackEvent{
 		CorpID:    7,
@@ -303,7 +503,7 @@ func TestWeWorkCallbackWorkerGeneratesContactSOPLogForNewContact(t *testing.T) {
 			},
 		},
 	}
-	worker := NewWeWorkCallbackWorker(nil, store, client, "worker-secret", log.Default()).WithNow(func() time.Time { return now })
+	worker := NewWeWorkCallbackWorker(WeWorkCallbackWorkerCapabilities{}, store, client, "worker-secret", log.Default()).WithNow(func() time.Time { return now })
 
 	err := worker.Process(context.Background(), WeWorkCallbackEvent{
 		CorpID:    7,
@@ -360,7 +560,7 @@ func TestWeWorkCallbackWorkerEnqueuesChannelCodeWelcomeBeforeGeneric(t *testing.
 			},
 		},
 	}
-	worker := NewWeWorkCallbackWorker(queue, store, client, "worker-secret", log.Default()).
+	worker := NewWeWorkCallbackWorker(fakeWeWorkCallbackWorkerCapabilities(queue), store, client, "worker-secret", log.Default()).
 		WithNow(func() time.Time { return time.Date(2026, 7, 4, 9, 30, 0, 0, time.Local) })
 
 	err := worker.Process(context.Background(), WeWorkCallbackEvent{
@@ -412,7 +612,7 @@ func TestWeWorkCallbackWorkerEnqueuesWorkRoomAutoPullWelcomeBeforeGeneric(t *tes
 			},
 		},
 	}
-	worker := NewWeWorkCallbackWorker(queue, store, client, "worker-secret", log.Default())
+	worker := NewWeWorkCallbackWorker(fakeWeWorkCallbackWorkerCapabilities(queue), store, client, "worker-secret", log.Default())
 
 	err := worker.Process(context.Background(), WeWorkCallbackEvent{
 		CorpID:    7,
@@ -458,7 +658,7 @@ func TestWeWorkCallbackWorkerEnqueuesFissionWelcomeBeforeGeneric(t *testing.T) {
 			},
 		},
 	}
-	worker := NewWeWorkCallbackWorker(queue, store, client, "worker-secret", log.Default()).
+	worker := NewWeWorkCallbackWorker(fakeWeWorkCallbackWorkerCapabilities(queue), store, client, "worker-secret", log.Default()).
 		WithWorkFissionBaseURLs("http://api.example.com", "http://op.example.com")
 
 	err := worker.Process(context.Background(), WeWorkCallbackEvent{
@@ -510,7 +710,7 @@ func TestWeWorkCallbackWorkerMarksWorkRoomAutoPullTagsForNewContact(t *testing.T
 			},
 		},
 	}
-	worker := NewWeWorkCallbackWorker(nil, store, client, "worker-secret", log.Default())
+	worker := NewWeWorkCallbackWorker(WeWorkCallbackWorkerCapabilities{}, store, client, "worker-secret", log.Default())
 
 	err := worker.Process(context.Background(), WeWorkCallbackEvent{
 		CorpID:    7,
@@ -539,7 +739,7 @@ func TestWeWorkCallbackWorkerRejectsUnmappedContactWelcomeTags(t *testing.T) {
 			WXUserID: "go-user", WXExternalUserID: "external-user", TagSyncRequested: true, UnsyncableTagIDs: []int{31},
 		},
 	}
-	worker := NewWeWorkCallbackWorker(nil, store, &fakeWeWorkCallbackWorkerClient{}, "worker-secret", log.Default())
+	worker := NewWeWorkCallbackWorker(WeWorkCallbackWorkerCapabilities{}, store, &fakeWeWorkCallbackWorkerClient{}, "worker-secret", log.Default())
 
 	err := worker.markContactTagsFromState(context.Background(), 7, RoomWelcomeCorpCredential{CorpID: 7}, 3, 101, WeWorkCallbackEvent{
 		Message: map[string]string{"State": "workRoomAutoPullId-77"},
@@ -577,7 +777,7 @@ func TestWeWorkCallbackWorkerMarksFissionTagsForNewContact(t *testing.T) {
 			},
 		},
 	}
-	worker := NewWeWorkCallbackWorker(nil, store, client, "worker-secret", log.Default())
+	worker := NewWeWorkCallbackWorker(WeWorkCallbackWorkerCapabilities{}, store, client, "worker-secret", log.Default())
 
 	err := worker.Process(context.Background(), WeWorkCallbackEvent{
 		CorpID:    7,
@@ -612,7 +812,7 @@ func TestWeWorkCallbackWorkerHandlesFissionAddContact(t *testing.T) {
 			},
 		},
 	}
-	worker := NewWeWorkCallbackWorker(nil, store, client, "worker-secret", log.Default())
+	worker := NewWeWorkCallbackWorker(WeWorkCallbackWorkerCapabilities{}, store, client, "worker-secret", log.Default())
 
 	err := worker.Process(context.Background(), WeWorkCallbackEvent{
 		CorpID:    7,
@@ -659,7 +859,7 @@ func TestWeWorkCallbackWorkerSendsFissionEmployeeReminder(t *testing.T) {
 			},
 		},
 	}
-	worker := NewWeWorkCallbackWorker(nil, store, client, "worker-secret", log.Default())
+	worker := NewWeWorkCallbackWorker(WeWorkCallbackWorkerCapabilities{}, store, client, "worker-secret", log.Default())
 
 	err := worker.Process(context.Background(), WeWorkCallbackEvent{
 		CorpID:    7,
@@ -671,6 +871,9 @@ func TestWeWorkCallbackWorkerSendsFissionEmployeeReminder(t *testing.T) {
 	}
 	if client.agentTextCredential.WXAgentID != "100001" || client.agentTextToUser != "service-a|service-b" || client.agentTextContent != "客户【裂变客户】已完成裂变任务：Go裂变活动" {
 		t.Fatalf("agent text = credential:%#v to:%q content:%q", client.agentTextCredential, client.agentTextToUser, client.agentTextContent)
+	}
+	if client.agentTextDuplicateChecks != 1 {
+		t.Fatalf("provider duplicate checks=%d, want 1", client.agentTextDuplicateChecks)
 	}
 }
 
@@ -705,7 +908,7 @@ func TestWeWorkCallbackWorkerSendsFissionCustomerPush(t *testing.T) {
 			},
 		},
 	}
-	worker := NewWeWorkCallbackWorker(nil, store, client, "worker-secret", log.Default()).
+	worker := NewWeWorkCallbackWorker(WeWorkCallbackWorkerCapabilities{}, store, client, "worker-secret", log.Default()).
 		WithFileStorageRoot("/tmp/mochat-fission-push")
 
 	err := worker.Process(context.Background(), WeWorkCallbackEvent{
@@ -725,6 +928,321 @@ func TestWeWorkCallbackWorkerSendsFissionCustomerPush(t *testing.T) {
 	}
 	if len(payload.Content) != 2 || payload.Content[0].Content != "恭喜%NICKNAME%完成任务" || payload.Content[1].MediaID != "media-fission-push" {
 		t.Fatalf("batch payload content = %#v", payload.Content)
+	}
+}
+
+func TestWeWorkCallbackWorkerDoesNotRepeatFissionPushAfterInboxCompletionFailure(t *testing.T) {
+	eventKey := strings.Repeat("a", 64)
+	store := &fakeDurableWeWorkCallbackWorkerStore{
+		fakeWeWorkCallbackWorkerStore: &fakeWeWorkCallbackWorkerStore{
+			credential:           RoomWelcomeCorpCredential{CorpID: 7, WXCorpID: "ww-go", ContactSecret: "contact-secret"},
+			contactSyncEmployees: []WorkContactSyncEmployee{{ID: 3, WXUserID: "go-user"}},
+			syncResult:           WorkContactSyncResult{ContactID: 101, ContactWasNew: true},
+			workFissionAddContactResult: WorkFissionAddContactResult{
+				ParentContactID: 77,
+				FissionID:       903,
+				InviteCount:     1,
+				TotalCount:      1,
+				Completed:       true,
+				CustomerPush: &WorkFissionCustomerPush{
+					Sender:         "go-user",
+					ExternalUserID: "external-parent",
+					Content:        []ContactMessageBatchSendContent{{MsgType: "text", Content: "完成任务"}},
+				},
+			},
+		},
+		completeErrors: []error{errors.New("mysql completion unavailable"), nil},
+		sideEffects:    map[string]string{},
+	}
+	client := &fakeWeWorkCallbackWorkerClient{contacts: map[string]WorkContactSyncContact{
+		"external-user": {WXExternalUserID: "external-user", FollowUsers: []WorkContactSyncFollowUser{{UserID: "go-user"}}},
+	}}
+	worker := NewWeWorkCallbackWorker(WeWorkCallbackWorkerCapabilities{}, store, client, "worker-secret", log.Default())
+	event := WeWorkCallbackEvent{
+		TenantID:  21,
+		CorpID:    7,
+		EventPath: "event.change_external_contact.add_external_contact",
+		Message:   map[string]string{"UserID": "go-user", "ExternalUserID": "external-user", "State": "fission-77"},
+	}
+
+	worker.handleClaim(context.Background(), WeWorkCallbackClaim{ID: 9, EventKey: eventKey, LeaseToken: "lease-1", LeaseFence: 1, Attempt: 1, Event: event})
+	worker.handleClaim(context.Background(), WeWorkCallbackClaim{ID: 9, EventKey: eventKey, LeaseToken: "lease-2", LeaseFence: 2, Attempt: 2, Event: event})
+
+	if client.contactBatchSendCalls != 1 {
+		t.Fatalf("contact batch sends = %d, want one after inbox completion retry", client.contactBatchSendCalls)
+	}
+	if len(store.completedClaims) != 1 || store.completedClaims[0].LeaseFence != 2 {
+		t.Fatalf("completed claims = %+v, want only replay completion", store.completedClaims)
+	}
+	if status := store.sideEffects[eventKey+"\x00fission.customer_push"]; status != "sent" {
+		t.Fatalf("side effect status = %q, want sent", status)
+	}
+}
+
+func TestWeWorkCallbackWorkerLeavesInboxOpenAndAttemptsEveryFissionActionWhenSideEffectCompletionFails(t *testing.T) {
+	eventKey := strings.Repeat("b", 64)
+	store := &fakeDurableWeWorkCallbackWorkerStore{
+		fakeWeWorkCallbackWorkerStore: &fakeWeWorkCallbackWorkerStore{
+			credential:           RoomWelcomeCorpCredential{CorpID: 7, WXCorpID: "ww-go", ContactSecret: "contact-secret"},
+			contactSyncEmployees: []WorkContactSyncEmployee{{ID: 3, WXUserID: "go-user"}},
+			syncResult:           WorkContactSyncResult{ContactID: 101, ContactWasNew: true},
+			remindAgent: RoomTagPullAgentCredential{
+				CorpID: 7, WXCorpID: "ww-go", WXAgentID: "1000002", WXSecret: "agent-secret",
+			},
+			workFissionAddContactResult: WorkFissionAddContactResult{
+				ParentContactID: 77,
+				FissionID:       903,
+				InviteCount:     1,
+				TotalCount:      1,
+				Completed:       true,
+				EmployeeReminder: &WorkFissionEmployeeReminder{
+					ToUser: "go-user", Content: "客户已完成任务",
+				},
+				CustomerPush: &WorkFissionCustomerPush{
+					Sender:         "go-user",
+					ExternalUserID: "external-parent",
+					Content:        []ContactMessageBatchSendContent{{MsgType: "text", Content: "完成任务"}},
+				},
+			},
+		},
+		sideEffects: map[string]string{},
+		sideEffectCompleteErrors: map[string][]error{
+			WeWorkCallbackActionFissionEmployeeReminder: {errors.New("side effect completion unavailable")},
+		},
+	}
+	client := &fakeWeWorkCallbackWorkerClient{contacts: map[string]WorkContactSyncContact{
+		"external-user": {WXExternalUserID: "external-user", FollowUsers: []WorkContactSyncFollowUser{{UserID: "go-user"}}},
+	}}
+	worker := NewWeWorkCallbackWorker(WeWorkCallbackWorkerCapabilities{}, store, client, "worker-secret", log.Default())
+	event := WeWorkCallbackEvent{
+		TenantID:  21,
+		CorpID:    7,
+		EventPath: "event.change_external_contact.add_external_contact",
+		Message:   map[string]string{"UserID": "go-user", "ExternalUserID": "external-user", "State": "fission-77"},
+	}
+
+	worker.handleClaim(context.Background(), WeWorkCallbackClaim{ID: 10, EventKey: eventKey, LeaseToken: "lease-1", LeaseFence: 1, Attempt: 1, Event: event})
+
+	if len(store.completedClaims) != 0 || len(store.failedClaims) != 1 {
+		t.Fatalf("first delivery completed=%+v failed=%+v, want retryable failure", store.completedClaims, store.failedClaims)
+	}
+	if client.agentTextDuplicateChecks != 1 || client.contactBatchSendCalls != 1 {
+		t.Fatalf("first delivery reminder calls=%d customer calls=%d, want both attempted", client.agentTextDuplicateChecks, client.contactBatchSendCalls)
+	}
+	if status := store.sideEffects[eventKey+"\x00"+WeWorkCallbackActionFissionEmployeeReminder]; status != WeWorkCallbackSideEffectUnknown {
+		t.Fatalf("reminder status=%q, want unknown", status)
+	}
+	if status := store.sideEffects[eventKey+"\x00"+WeWorkCallbackActionFissionCustomerPush]; status != WeWorkCallbackSideEffectSent {
+		t.Fatalf("customer status=%q, want sent", status)
+	}
+	for key, status := range store.sideEffects {
+		if status == WeWorkCallbackSideEffectPending {
+			t.Fatalf("side effect %q remained pending", key)
+		}
+	}
+
+	worker.handleClaim(context.Background(), WeWorkCallbackClaim{ID: 10, EventKey: eventKey, LeaseToken: "lease-2", LeaseFence: 2, Attempt: 2, Event: event})
+
+	if len(store.completedClaims) != 0 || len(store.failedClaims) != 2 {
+		t.Fatalf("replay completed=%+v failed=%+v, want reconciliation failure", store.completedClaims, store.failedClaims)
+	}
+	if client.agentTextDuplicateChecks != 1 || client.contactBatchSendCalls != 1 {
+		t.Fatalf("replay repeated external effects: reminder=%d customer=%d", client.agentTextDuplicateChecks, client.contactBatchSendCalls)
+	}
+}
+
+func TestWeWorkCallbackWorkerFakeContractHonorsManualReconciliationPerAction(t *testing.T) {
+	eventKey := strings.Repeat("9", 64)
+	store := &fakeDurableWeWorkCallbackWorkerStore{
+		fakeWeWorkCallbackWorkerStore: &fakeWeWorkCallbackWorkerStore{
+			credential:           RoomWelcomeCorpCredential{CorpID: 7, WXCorpID: "ww-go", ContactSecret: "contact-secret"},
+			contactSyncEmployees: []WorkContactSyncEmployee{{ID: 3, WXUserID: "go-user"}},
+			syncResult:           WorkContactSyncResult{ContactID: 101, ContactWasNew: true},
+			remindAgent:          RoomTagPullAgentCredential{CorpID: 7, WXCorpID: "ww-go", WXAgentID: "1000002", WXSecret: "agent-secret"},
+			workFissionAddContactResult: WorkFissionAddContactResult{
+				FissionID: 903, Completed: true,
+				EmployeeReminder: &WorkFissionEmployeeReminder{ToUser: "go-user", Content: "客户已完成任务"},
+				CustomerPush:     &WorkFissionCustomerPush{Sender: "go-user", ExternalUserID: "external-parent", Content: []ContactMessageBatchSendContent{{MsgType: "text", Content: "完成任务"}}},
+			},
+		},
+		sideEffects: map[string]string{
+			eventKey + "\x00" + WeWorkCallbackActionFissionEmployeeReminder: WeWorkCallbackSideEffectUnknown,
+			eventKey + "\x00" + WeWorkCallbackActionFissionCustomerPush:     WeWorkCallbackSideEffectSent,
+		},
+	}
+	client := &fakeWeWorkCallbackWorkerClient{contacts: map[string]WorkContactSyncContact{
+		"external-user": {WXExternalUserID: "external-user", FollowUsers: []WorkContactSyncFollowUser{{UserID: "go-user"}}},
+	}}
+	worker := NewWeWorkCallbackWorker(WeWorkCallbackWorkerCapabilities{}, store, client, "worker-secret", log.Default())
+	event := WeWorkCallbackEvent{TenantID: 21, CorpID: 7, EventPath: "event.change_external_contact.add_external_contact", Message: map[string]string{"UserID": "go-user", "ExternalUserID": "external-user", "State": "fission-77"}}
+
+	for attempt := 1; attempt <= 2; attempt++ {
+		worker.handleClaim(context.Background(), WeWorkCallbackClaim{ID: 20, EventKey: eventKey, LeaseToken: "lease-unknown", LeaseFence: uint64(attempt), Attempt: attempt, Event: event})
+	}
+	if client.agentTextDuplicateChecks != 0 || client.contactBatchSendCalls != 0 {
+		t.Fatalf("unknown action was automatically replayed: reminder=%d customer=%d", client.agentTextDuplicateChecks, client.contactBatchSendCalls)
+	}
+
+	if err := store.reconcileUnknownSideEffect(eventKey, WeWorkCallbackActionFissionEmployeeReminder, "confirm_sent"); err != nil {
+		t.Fatal(err)
+	}
+	worker.handleClaim(context.Background(), WeWorkCallbackClaim{ID: 20, EventKey: eventKey, LeaseToken: "lease-confirmed", LeaseFence: 3, Attempt: 1, Event: event})
+	if client.agentTextDuplicateChecks != 0 || client.contactBatchSendCalls != 0 {
+		t.Fatalf("confirm_sent called fake Provider: reminder=%d customer=%d", client.agentTextDuplicateChecks, client.contactBatchSendCalls)
+	}
+
+	retryEventKey := strings.Repeat("a", 64)
+	store.sideEffects[retryEventKey+"\x00"+WeWorkCallbackActionFissionEmployeeReminder] = WeWorkCallbackSideEffectUnknown
+	store.sideEffects[retryEventKey+"\x00"+WeWorkCallbackActionFissionCustomerPush] = WeWorkCallbackSideEffectSent
+	if err := store.reconcileUnknownSideEffect(retryEventKey, WeWorkCallbackActionFissionEmployeeReminder, "confirm_not_sent_and_retry"); err != nil {
+		t.Fatal(err)
+	}
+	worker.handleClaim(context.Background(), WeWorkCallbackClaim{ID: 21, EventKey: retryEventKey, LeaseToken: "lease-retry", LeaseFence: 1, Attempt: 1, Event: event})
+	if client.agentTextDuplicateChecks != 1 || client.contactBatchSendCalls != 0 {
+		t.Fatalf("manual retry did not advance only its action once: reminder=%d customer=%d", client.agentTextDuplicateChecks, client.contactBatchSendCalls)
+	}
+	if store.manualReconcileCalls != 2 || len(store.failedClaims) != 2 || len(store.completedClaims) != 2 {
+		t.Fatalf("manual chain reconciles=%d failed=%d completed=%d", store.manualReconcileCalls, len(store.failedClaims), len(store.completedClaims))
+	}
+}
+
+func TestWeWorkCallbackWorkerRetriesPendingFissionIntentAfterBeginFailure(t *testing.T) {
+	eventKey := strings.Repeat("c", 64)
+	store := &fakeDurableWeWorkCallbackWorkerStore{
+		fakeWeWorkCallbackWorkerStore: &fakeWeWorkCallbackWorkerStore{
+			credential:           RoomWelcomeCorpCredential{CorpID: 7, WXCorpID: "ww-go", ContactSecret: "contact-secret"},
+			contactSyncEmployees: []WorkContactSyncEmployee{{ID: 3, WXUserID: "go-user"}},
+			syncResult:           WorkContactSyncResult{ContactID: 101, ContactWasNew: true},
+			workFissionAddContactResult: WorkFissionAddContactResult{
+				FissionID: 903, Completed: true,
+				CustomerPush: &WorkFissionCustomerPush{
+					Sender: "go-user", ExternalUserID: "external-parent",
+					Content: []ContactMessageBatchSendContent{{MsgType: "text", Content: "完成任务"}},
+				},
+			},
+		},
+		sideEffects: map[string]string{},
+		sideEffectBeginErrors: map[string][]error{
+			WeWorkCallbackActionFissionCustomerPush: {errors.New("side effect begin unavailable")},
+		},
+	}
+	client := &fakeWeWorkCallbackWorkerClient{contacts: map[string]WorkContactSyncContact{
+		"external-user": {WXExternalUserID: "external-user", FollowUsers: []WorkContactSyncFollowUser{{UserID: "go-user"}}},
+	}}
+	worker := NewWeWorkCallbackWorker(WeWorkCallbackWorkerCapabilities{}, store, client, "worker-secret", log.Default())
+	event := WeWorkCallbackEvent{
+		TenantID: 21, CorpID: 7, EventPath: "event.change_external_contact.add_external_contact",
+		Message: map[string]string{"UserID": "go-user", "ExternalUserID": "external-user", "State": "fission-77"},
+	}
+
+	worker.handleClaim(context.Background(), WeWorkCallbackClaim{ID: 11, EventKey: eventKey, LeaseToken: "lease-1", LeaseFence: 1, Attempt: 1, Event: event})
+
+	if len(store.completedClaims) != 0 || len(store.failedClaims) != 1 {
+		t.Fatalf("begin failure completed=%+v failed=%+v, want retryable failure", store.completedClaims, store.failedClaims)
+	}
+	if status := store.sideEffects[eventKey+"\x00"+WeWorkCallbackActionFissionCustomerPush]; status != WeWorkCallbackSideEffectPending {
+		t.Fatalf("begin failure status=%q, want pending", status)
+	}
+	if client.contactBatchSendCalls != 0 {
+		t.Fatalf("begin failure external calls=%d, want zero", client.contactBatchSendCalls)
+	}
+
+	worker.handleClaim(context.Background(), WeWorkCallbackClaim{ID: 11, EventKey: eventKey, LeaseToken: "lease-2", LeaseFence: 2, Attempt: 2, Event: event})
+
+	if len(store.completedClaims) != 1 || store.completedClaims[0].LeaseFence != 2 || len(store.failedClaims) != 1 {
+		t.Fatalf("recovery completed=%+v failed=%+v", store.completedClaims, store.failedClaims)
+	}
+	if status := store.sideEffects[eventKey+"\x00"+WeWorkCallbackActionFissionCustomerPush]; status != WeWorkCallbackSideEffectSent {
+		t.Fatalf("recovery status=%q, want sent", status)
+	}
+	if client.contactBatchSendCalls != 1 {
+		t.Fatalf("recovery external calls=%d, want one", client.contactBatchSendCalls)
+	}
+}
+
+func TestWeWorkCallbackWorkerRetriesPendingReminderAfterAgentLookupFailureWithoutRepeatingCustomer(t *testing.T) {
+	eventKey := strings.Repeat("d", 64)
+	store := &fakeDurableWeWorkCallbackWorkerStore{
+		fakeWeWorkCallbackWorkerStore: &fakeWeWorkCallbackWorkerStore{
+			credential:           RoomWelcomeCorpCredential{CorpID: 7, WXCorpID: "ww-go", ContactSecret: "contact-secret"},
+			contactSyncEmployees: []WorkContactSyncEmployee{{ID: 3, WXUserID: "go-user"}},
+			syncResult:           WorkContactSyncResult{ContactID: 101, ContactWasNew: true},
+			remindAgent:          RoomTagPullAgentCredential{CorpID: 7, WXCorpID: "ww-go", WXAgentID: "1000002", WXSecret: "agent-secret"},
+			remindAgentErrors:    []error{errors.New("agent lookup unavailable")},
+			workFissionAddContactResult: WorkFissionAddContactResult{
+				FissionID: 903, Completed: true,
+				EmployeeReminder: &WorkFissionEmployeeReminder{ToUser: "go-user", Content: "客户已完成任务"},
+				CustomerPush: &WorkFissionCustomerPush{
+					Sender: "go-user", ExternalUserID: "external-parent",
+					Content: []ContactMessageBatchSendContent{{MsgType: "text", Content: "完成任务"}},
+				},
+			},
+		},
+		sideEffects: map[string]string{},
+	}
+	client := &fakeWeWorkCallbackWorkerClient{contacts: map[string]WorkContactSyncContact{
+		"external-user": {WXExternalUserID: "external-user", FollowUsers: []WorkContactSyncFollowUser{{UserID: "go-user"}}},
+	}}
+	worker := NewWeWorkCallbackWorker(WeWorkCallbackWorkerCapabilities{}, store, client, "worker-secret", log.Default())
+	event := WeWorkCallbackEvent{
+		TenantID: 21, CorpID: 7, EventPath: "event.change_external_contact.add_external_contact",
+		Message: map[string]string{"UserID": "go-user", "ExternalUserID": "external-user", "State": "fission-77"},
+	}
+
+	worker.handleClaim(context.Background(), WeWorkCallbackClaim{ID: 12, EventKey: eventKey, LeaseToken: "lease-1", LeaseFence: 1, Attempt: 1, Event: event})
+
+	if len(store.completedClaims) != 0 || len(store.failedClaims) != 1 {
+		t.Fatalf("lookup failure completed=%+v failed=%+v, want retryable failure", store.completedClaims, store.failedClaims)
+	}
+	if status := store.sideEffects[eventKey+"\x00"+WeWorkCallbackActionFissionEmployeeReminder]; status != WeWorkCallbackSideEffectPending {
+		t.Fatalf("reminder status=%q, want pending", status)
+	}
+	if status := store.sideEffects[eventKey+"\x00"+WeWorkCallbackActionFissionCustomerPush]; status != WeWorkCallbackSideEffectSent {
+		t.Fatalf("customer status=%q, want sent", status)
+	}
+	if client.agentTextDuplicateChecks != 0 || client.contactBatchSendCalls != 1 {
+		t.Fatalf("first delivery reminder=%d customer=%d", client.agentTextDuplicateChecks, client.contactBatchSendCalls)
+	}
+
+	worker.handleClaim(context.Background(), WeWorkCallbackClaim{ID: 12, EventKey: eventKey, LeaseToken: "lease-2", LeaseFence: 2, Attempt: 2, Event: event})
+
+	if len(store.completedClaims) != 1 || store.completedClaims[0].LeaseFence != 2 || len(store.failedClaims) != 1 {
+		t.Fatalf("recovery completed=%+v failed=%+v", store.completedClaims, store.failedClaims)
+	}
+	if client.agentTextDuplicateChecks != 1 || client.contactBatchSendCalls != 1 {
+		t.Fatalf("recovery repeated external effects: reminder=%d customer=%d", client.agentTextDuplicateChecks, client.contactBatchSendCalls)
+	}
+}
+
+func TestWeWorkCallbackWorkerFissionPushRemainsBestEffortButLogsSanitizedFailure(t *testing.T) {
+	const secret = "callback-secret-value"
+	store := &fakeWeWorkCallbackWorkerStore{
+		credential:           RoomWelcomeCorpCredential{CorpID: 7, WXCorpID: "ww-go", ContactSecret: "contact-secret"},
+		contactSyncEmployees: []WorkContactSyncEmployee{{ID: 3, WXUserID: "go-user"}},
+		syncResult:           WorkContactSyncResult{ContactID: 101, ContactWasNew: true},
+		workFissionAddContactResult: WorkFissionAddContactResult{FissionID: 903, Completed: true, CustomerPush: &WorkFissionCustomerPush{
+			Sender: "go-user", ExternalUserID: "external-parent",
+			Content: []ContactMessageBatchSendContent{{MsgType: "text", Content: "完成任务"}},
+		}},
+	}
+	client := &fakeWeWorkCallbackWorkerClient{
+		contacts: map[string]WorkContactSyncContact{"external-user": {
+			WXExternalUserID: "external-user", FollowUsers: []WorkContactSyncFollowUser{{UserID: "go-user"}},
+		}},
+		contactBatchSendErr: errors.New(`Authorization: Basic ` + secret + `; {"password":"` + secret + `"}`),
+	}
+	var logs bytes.Buffer
+	worker := NewWeWorkCallbackWorker(WeWorkCallbackWorkerCapabilities{}, store, client, "worker-secret", log.New(&logs, "", 0))
+
+	err := worker.Process(context.Background(), WeWorkCallbackEvent{
+		CorpID: 7, EventPath: "event.change_external_contact.add_external_contact",
+		Message: map[string]string{"UserID": "go-user", "ExternalUserID": "external-user", "State": "fission-77"},
+	})
+	if err != nil {
+		t.Fatalf("best-effort fission push changed callback outcome: %v", err)
+	}
+	if got := logs.String(); !strings.Contains(got, "fission add contact skipped") || strings.Contains(got, secret) || strings.Contains(strings.ToLower(got), "access_token=") {
+		t.Fatalf("unsafe or missing best-effort failure log: %s", got)
 	}
 }
 
@@ -847,7 +1365,7 @@ func TestWeWorkCallbackWorkerSkipsGenericWelcomeWhenAlreadySent(t *testing.T) {
 			"external-user": {WXExternalUserID: "external-user", Name: "客户A", FollowUsers: []WorkContactSyncFollowUser{{UserID: "go-user"}}},
 		},
 	}
-	worker := NewWeWorkCallbackWorker(queue, store, client, "worker-secret", log.Default())
+	worker := NewWeWorkCallbackWorker(fakeWeWorkCallbackWorkerCapabilities(queue), store, client, "worker-secret", log.Default())
 
 	err := worker.Process(context.Background(), WeWorkCallbackEvent{
 		CorpID:    7,
@@ -872,7 +1390,7 @@ func TestWeWorkCallbackWorkerUpdatesExistingSingleContactFromEvent(t *testing.T)
 			"external-user": {WXExternalUserID: "external-user", Name: "客户更新", FollowUsers: []WorkContactSyncFollowUser{{UserID: "go-user"}}},
 		},
 	}
-	worker := NewWeWorkCallbackWorker(nil, store, client, "worker-secret", log.Default())
+	worker := NewWeWorkCallbackWorker(WeWorkCallbackWorkerCapabilities{}, store, client, "worker-secret", log.Default())
 
 	err := worker.Process(context.Background(), WeWorkCallbackEvent{
 		CorpID:    7,
@@ -901,7 +1419,7 @@ func TestWeWorkCallbackWorkerRemovesContactRelationFromEvent(t *testing.T) {
 		},
 	}
 	client := &fakeWeWorkCallbackWorkerClient{}
-	worker := NewWeWorkCallbackWorker(nil, store, client, "worker-secret", log.Default()).
+	worker := NewWeWorkCallbackWorker(WeWorkCallbackWorkerCapabilities{}, store, client, "worker-secret", log.Default()).
 		WithSidebarBaseURL("https://sidebar.example.com")
 
 	err := worker.Process(context.Background(), WeWorkCallbackEvent{
@@ -931,7 +1449,7 @@ func TestWeWorkCallbackWorkerPassivelyRemovesContactRelationFromEvent(t *testing
 		},
 	}
 	client := &fakeWeWorkCallbackWorkerClient{}
-	worker := NewWeWorkCallbackWorker(nil, store, client, "worker-secret", log.Default()).
+	worker := NewWeWorkCallbackWorker(WeWorkCallbackWorkerCapabilities{}, store, client, "worker-secret", log.Default()).
 		WithSidebarBaseURL("https://sidebar.example.com")
 
 	err := worker.Process(context.Background(), WeWorkCallbackEvent{
@@ -957,7 +1475,7 @@ func TestWeWorkCallbackWorkerSyncsSingleContactTagFromEvent(t *testing.T) {
 	client := &fakeWeWorkCallbackWorkerClient{
 		tags: []WorkContactTagSyncGroup{{WXGroupID: "tag-group", GroupName: "标签组", Tags: []WorkContactTagSyncTag{{WXContactTagID: "tag-id", Name: "标签"}}}},
 	}
-	worker := NewWeWorkCallbackWorker(nil, store, client, "worker-secret", log.Default())
+	worker := NewWeWorkCallbackWorker(WeWorkCallbackWorkerCapabilities{}, store, client, "worker-secret", log.Default())
 
 	err := worker.Process(context.Background(), WeWorkCallbackEvent{
 		CorpID:    7,
@@ -980,7 +1498,7 @@ func TestWeWorkCallbackWorkerSyncsSingleContactTagFromEvent(t *testing.T) {
 
 func TestWeWorkCallbackWorkerDeletesContactTagGroupFromEvent(t *testing.T) {
 	store := &fakeWeWorkCallbackWorkerStore{}
-	worker := NewWeWorkCallbackWorker(nil, store, &fakeWeWorkCallbackWorkerClient{}, "worker-secret", log.Default())
+	worker := NewWeWorkCallbackWorker(WeWorkCallbackWorkerCapabilities{}, store, &fakeWeWorkCallbackWorkerClient{}, "worker-secret", log.Default())
 
 	err := worker.Process(context.Background(), WeWorkCallbackEvent{
 		CorpID:    7,
@@ -1009,7 +1527,7 @@ func TestWeWorkCallbackWorkerSyncsSingleRoomFromEvent(t *testing.T) {
 			"room-2": {WXChatID: "room-2", Name: "客户群2"},
 		},
 	}
-	worker := NewWeWorkCallbackWorker(nil, store, client, "worker-secret", log.Default())
+	worker := NewWeWorkCallbackWorker(WeWorkCallbackWorkerCapabilities{}, store, client, "worker-secret", log.Default())
 
 	if err := worker.Process(context.Background(), WeWorkCallbackEvent{
 		CorpID:    7,
@@ -1039,7 +1557,7 @@ func TestWeWorkCallbackWorkerSyncsCreatedRoomFromEvent(t *testing.T) {
 			"room-1": {WXChatID: "room-1", Name: "新客户群"},
 		},
 	}
-	worker := NewWeWorkCallbackWorker(nil, store, client, "worker-secret", log.Default())
+	worker := NewWeWorkCallbackWorker(WeWorkCallbackWorkerCapabilities{}, store, client, "worker-secret", log.Default())
 
 	if err := worker.Process(context.Background(), WeWorkCallbackEvent{
 		CorpID:    7,
@@ -1081,7 +1599,7 @@ func TestWeWorkCallbackWorkerEnqueuesRoomJoinAutoTagFromRoomEvent(t *testing.T) 
 			"room-1": {WXChatID: "room-1", Name: "客户群1"},
 		},
 	}
-	worker := NewWeWorkCallbackWorker(queue, store, client, "worker-secret", log.Default())
+	worker := NewWeWorkCallbackWorker(fakeWeWorkCallbackWorkerCapabilities(queue), store, client, "worker-secret", log.Default())
 
 	if err := worker.Process(context.Background(), WeWorkCallbackEvent{
 		CorpID:    7,
@@ -1099,6 +1617,40 @@ func TestWeWorkCallbackWorkerEnqueuesRoomJoinAutoTagFromRoomEvent(t *testing.T) 
 	event := queue.markTagsEvents[0]
 	if event.ContactID != 101 || event.EmployeeID != 3 || event.AutoTagRecordID != 77 || len(event.TagIDs) != 2 || event.TagIDs[0] != 8 || event.TagIDs[1] != 9 {
 		t.Fatalf("mark tag event = %#v", event)
+	}
+}
+
+func TestWeWorkCallbackWorkerRetriesRoomJoinMarkTagsUntilRedisRecovers(t *testing.T) {
+	queue := &fakeWeWorkCallbackWorkerQueue{}
+	resolver := &fakeWeWorkCallbackCapabilityResolver{err: errors.New("redis down")}
+	store := &fakeWeWorkCallbackWorkerStore{
+		credential: RoomWelcomeCorpCredential{CorpID: 7, WXCorpID: "ww-go", ContactSecret: "contact-secret"},
+		roomJoinTaskResult: AutoTagRoomJoinTaskResult{MarkTagsEvents: []MarkTagsEvent{{
+			CorpID: 7, ContactID: 101, EmployeeID: 3, TagIDs: []int{8}, Source: "auto-tag-join-room:77", AutoTagID: 66, AutoTagRecordID: 77,
+		}}},
+	}
+	client := &fakeWeWorkCallbackWorkerClient{
+		groupChats: []WorkRoomSyncGroupChat{{WXChatID: "room-1", Status: 1}},
+		rooms:      map[string]WorkRoomSyncRoom{"room-1": {WXChatID: "room-1", Name: "customer room"}},
+	}
+	worker := NewWeWorkCallbackWorker(WeWorkCallbackWorkerCapabilities{}, store, client, "worker-secret", log.Default()).
+		WithCapabilityResolver(resolver)
+	event := WeWorkCallbackEvent{CorpID: 7, EventPath: "event.change_external_chat.update", Message: map[string]string{"ChatId": "room-1"}}
+
+	if err := worker.Process(context.Background(), event); !errors.Is(err, ErrWeWorkCallbackDependencyUnavailable) {
+		t.Fatalf("redis-down Process error=%v", err)
+	}
+	if len(queue.markTagsEvents) != 0 {
+		t.Fatalf("redis-down enqueued=%v", queue.markTagsEvents)
+	}
+
+	resolver.err = nil
+	resolver.capabilities = fakeWeWorkCallbackWorkerCapabilities(queue)
+	if err := worker.Process(context.Background(), event); err != nil {
+		t.Fatal(err)
+	}
+	if len(queue.markTagsEvents) != 1 || resolver.calls != 2 {
+		t.Fatalf("redis-recovered enqueued=%v resolver_calls=%d", queue.markTagsEvents, resolver.calls)
 	}
 }
 
@@ -1128,7 +1680,7 @@ func TestWeWorkCallbackWorkerGeneratesRoomJoinSOPLogFromRoomEvent(t *testing.T) 
 			"room-1": {WXChatID: "room-1", Name: "客户群1"},
 		},
 	}
-	worker := NewWeWorkCallbackWorker(nil, store, client, "worker-secret", log.Default()).WithNow(func() time.Time { return now })
+	worker := NewWeWorkCallbackWorker(WeWorkCallbackWorkerCapabilities{}, store, client, "worker-secret", log.Default()).WithNow(func() time.Time { return now })
 
 	if err := worker.Process(context.Background(), WeWorkCallbackEvent{
 		CorpID:    7,
@@ -1148,7 +1700,7 @@ func TestWeWorkCallbackWorkerGeneratesRoomJoinSOPLogFromRoomEvent(t *testing.T) 
 
 func TestWeWorkCallbackWorkerDeletesDismissedRoom(t *testing.T) {
 	store := &fakeWeWorkCallbackWorkerStore{}
-	worker := NewWeWorkCallbackWorker(nil, store, &fakeWeWorkCallbackWorkerClient{}, "worker-secret", log.Default())
+	worker := NewWeWorkCallbackWorker(WeWorkCallbackWorkerCapabilities{}, store, &fakeWeWorkCallbackWorkerClient{}, "worker-secret", log.Default())
 
 	err := worker.Process(context.Background(), WeWorkCallbackEvent{
 		CorpID:    7,
@@ -1165,7 +1717,7 @@ func TestWeWorkCallbackWorkerDeletesDismissedRoom(t *testing.T) {
 
 func TestWeWorkCallbackWorkerDeletesEmployeeFromEvent(t *testing.T) {
 	store := &fakeWeWorkCallbackWorkerStore{}
-	worker := NewWeWorkCallbackWorker(nil, store, &fakeWeWorkCallbackWorkerClient{}, "worker-secret", log.Default())
+	worker := NewWeWorkCallbackWorker(WeWorkCallbackWorkerCapabilities{}, store, &fakeWeWorkCallbackWorkerClient{}, "worker-secret", log.Default())
 
 	err := worker.Process(context.Background(), WeWorkCallbackEvent{
 		CorpID:    7,
@@ -1185,7 +1737,7 @@ func TestWeWorkCallbackWorkerDeletesEmployeeFromEvent(t *testing.T) {
 
 func TestWeWorkCallbackWorkerSyncsDepartmentFromEvent(t *testing.T) {
 	store := &fakeWeWorkCallbackWorkerStore{}
-	worker := NewWeWorkCallbackWorker(nil, store, &fakeWeWorkCallbackWorkerClient{}, "worker-secret", log.Default())
+	worker := NewWeWorkCallbackWorker(WeWorkCallbackWorkerCapabilities{}, store, &fakeWeWorkCallbackWorkerClient{}, "worker-secret", log.Default())
 
 	err := worker.Process(context.Background(), WeWorkCallbackEvent{
 		CorpID:    7,
@@ -1208,7 +1760,7 @@ func TestWeWorkCallbackWorkerSyncsDepartmentFromEvent(t *testing.T) {
 
 func TestWeWorkCallbackWorkerDeletesDepartmentFromEvent(t *testing.T) {
 	store := &fakeWeWorkCallbackWorkerStore{}
-	worker := NewWeWorkCallbackWorker(nil, store, &fakeWeWorkCallbackWorkerClient{}, "worker-secret", log.Default())
+	worker := NewWeWorkCallbackWorker(WeWorkCallbackWorkerCapabilities{}, store, &fakeWeWorkCallbackWorkerClient{}, "worker-secret", log.Default())
 
 	err := worker.Process(context.Background(), WeWorkCallbackEvent{
 		CorpID:    7,
@@ -1226,13 +1778,12 @@ func TestWeWorkCallbackWorkerDeletesDepartmentFromEvent(t *testing.T) {
 	}
 }
 
-func TestWeWorkCallbackWorkerAcksSuccessfulDelivery(t *testing.T) {
-	queue := &fakeWeWorkCallbackWorkerQueue{}
-	store := &fakeWeWorkCallbackWorkerStore{}
-	worker := NewWeWorkCallbackWorker(queue, store, &fakeWeWorkCallbackWorkerClient{}, "worker-secret", log.Default())
+func TestWeWorkCallbackWorkerCompletesSuccessfulDurableClaim(t *testing.T) {
+	store := &fakeDurableWeWorkCallbackWorkerStore{fakeWeWorkCallbackWorkerStore: &fakeWeWorkCallbackWorkerStore{}}
+	worker := NewWeWorkCallbackWorker(WeWorkCallbackWorkerCapabilities{}, store, &fakeWeWorkCallbackWorkerClient{}, "worker-secret", log.Default())
 
-	worker.handleDelivery(context.Background(), WeWorkCallbackDelivery{
-		Raw: "raw-job",
+	worker.handleClaim(context.Background(), WeWorkCallbackClaim{
+		ID: 1, EventKey: strings.Repeat("d", 64), LeaseToken: "lease", LeaseFence: 1, Attempt: 1,
 		Event: WeWorkCallbackEvent{
 			CorpID:    7,
 			EventPath: "event.change_external_chat.dismiss",
@@ -1240,23 +1791,40 @@ func TestWeWorkCallbackWorkerAcksSuccessfulDelivery(t *testing.T) {
 		},
 	})
 
-	if queue.ackedRaw != "raw-job" {
-		t.Fatalf("acked raw = %q", queue.ackedRaw)
+	if len(store.completedClaims) != 1 || len(store.failedClaims) != 0 {
+		t.Fatalf("completed=%+v failed=%+v", store.completedClaims, store.failedClaims)
 	}
-	if queue.retryRaw != "" {
-		t.Fatalf("unexpected retry raw = %q", queue.retryRaw)
+	if !store.fakeWeWorkCallbackWorkerStore.callbackExecutionFound || store.fakeWeWorkCallbackWorkerStore.callbackExecution.EventKey != strings.Repeat("d", 64) || store.fakeWeWorkCallbackWorkerStore.callbackExecution.LeaseFence != 1 {
+		t.Fatalf("side effect callback execution=%+v found=%t", store.fakeWeWorkCallbackWorkerStore.callbackExecution, store.fakeWeWorkCallbackWorkerStore.callbackExecutionFound)
+	}
+}
+
+func TestWeWorkCallbackWorkerRejectsStaleFenceBeforeSideEffects(t *testing.T) {
+	eventKey := strings.Repeat("9", 64)
+	workerStore := &fakeWeWorkCallbackWorkerStore{}
+	store := &fakeDurableWeWorkCallbackWorkerStore{
+		fakeWeWorkCallbackWorkerStore: workerStore,
+		currentFences:                 map[string]uint64{eventKey: 2},
+	}
+	worker := NewWeWorkCallbackWorker(WeWorkCallbackWorkerCapabilities{}, store, &fakeWeWorkCallbackWorkerClient{}, "worker-secret", log.Default())
+	event := WeWorkCallbackEvent{TenantID: 3, CorpID: 7, EventPath: "event.change_external_chat.dismiss", Message: map[string]string{"ChatId": "room-dismissed"}}
+
+	worker.handleClaim(context.Background(), WeWorkCallbackClaim{ID: 6, EventKey: eventKey, LeaseToken: "old", LeaseFence: 1, Attempt: 1, Event: event})
+	worker.handleClaim(context.Background(), WeWorkCallbackClaim{ID: 6, EventKey: eventKey, LeaseToken: "new", LeaseFence: 2, Attempt: 2, Event: event})
+
+	if workerStore.deletedRoomCalls != 1 {
+		t.Fatalf("side effects=%d, want one current-fence execution", workerStore.deletedRoomCalls)
 	}
 }
 
 func TestWeWorkCallbackWorkerRecordsQueueItemExecution(t *testing.T) {
-	queue := &fakeWeWorkCallbackWorkerQueue{}
-	store := &fakeWeWorkCallbackWorkerStore{tenantIDs: map[int]int{7: 21}}
+	store := &fakeDurableWeWorkCallbackWorkerStore{fakeWeWorkCallbackWorkerStore: &fakeWeWorkCallbackWorkerStore{tenantIDs: map[int]int{7: 21}}}
 	recorder := &fakeWorkerExecutionRecorder{}
 	ctx := taskrunner.WithTaskRuntime(context.Background(), "wework-callback", "run-wework-1", recorder)
-	worker := NewWeWorkCallbackWorker(queue, store, &fakeWeWorkCallbackWorkerClient{}, "worker-secret", log.Default())
+	worker := NewWeWorkCallbackWorker(WeWorkCallbackWorkerCapabilities{}, store, &fakeWeWorkCallbackWorkerClient{}, "worker-secret", log.Default())
 
-	worker.handleDelivery(ctx, WeWorkCallbackDelivery{
-		Raw: "raw-job",
+	worker.handleClaim(ctx, WeWorkCallbackClaim{
+		ID: 2, EventKey: strings.Repeat("e", 64), LeaseToken: "lease", LeaseFence: 1, Attempt: 1,
 		Event: WeWorkCallbackEvent{
 			CorpID:    7,
 			EventPath: "event.change_external_chat.dismiss",
@@ -1271,17 +1839,138 @@ func TestWeWorkCallbackWorkerRecordsQueueItemExecution(t *testing.T) {
 	}
 }
 
-func TestWeWorkCallbackWorkerRetriesFailedDelivery(t *testing.T) {
-	queue := &fakeWeWorkCallbackWorkerQueue{}
-	worker := NewWeWorkCallbackWorker(queue, &fakeWeWorkCallbackWorkerStore{}, &fakeWeWorkCallbackWorkerClient{}, "worker-secret", log.Default())
+func TestWeWorkCallbackWorkerRetriesFailedDurableClaim(t *testing.T) {
+	store := &fakeDurableWeWorkCallbackWorkerStore{fakeWeWorkCallbackWorkerStore: &fakeWeWorkCallbackWorkerStore{}}
+	worker := NewWeWorkCallbackWorker(WeWorkCallbackWorkerCapabilities{}, store, &fakeWeWorkCallbackWorkerClient{}, "worker-secret", log.Default())
 
-	worker.handleDelivery(context.Background(), WeWorkCallbackDelivery{Raw: "raw-job", Attempts: 1, Event: WeWorkCallbackEvent{EventPath: "event.change_contact.create_user"}})
+	worker.handleClaim(context.Background(), WeWorkCallbackClaim{ID: 3, EventKey: strings.Repeat("f", 64), LeaseToken: "lease", LeaseFence: 2, Attempt: 2, Event: WeWorkCallbackEvent{EventPath: "event.change_contact.create_user"}})
 
-	if queue.ackedRaw != "" {
-		t.Fatalf("unexpected ack raw = %q", queue.ackedRaw)
+	if len(store.failedClaims) != 1 || len(store.completedClaims) != 0 {
+		t.Fatalf("failed=%+v completed=%+v", store.failedClaims, store.completedClaims)
 	}
-	if queue.retryRaw != "raw-job" || queue.retryReason == "" || queue.retryMaxAttempts != 3 {
-		t.Fatalf("retry = raw:%q reason:%q max:%d", queue.retryRaw, queue.retryReason, queue.retryMaxAttempts)
+}
+
+func TestWeWorkCallbackWorkerLazyRedisRecoveryRetriesQueueRequiredEvent(t *testing.T) {
+	const secret = "callback-secret-value"
+	queue := &fakeWeWorkCallbackWorkerQueue{welcomeStatuses: map[int]int{}}
+	resolver := &fakeWeWorkCallbackCapabilityResolver{
+		err: fmt.Errorf("redis password=%s", secret),
+	}
+	workerStore := &fakeWeWorkCallbackWorkerStore{
+		credential:           RoomWelcomeCorpCredential{CorpID: 7, WXCorpID: "ww-go", ContactSecret: "contact-secret"},
+		contactSyncEmployees: []WorkContactSyncEmployee{{ID: 3, WXUserID: "go-user"}},
+		syncResult:           WorkContactSyncResult{ContactID: 101},
+		greetings:            []GreetingItem{{ID: 1, CorpID: 7, Words: "hello", RangeType: 1}},
+	}
+	client := &fakeWeWorkCallbackWorkerClient{
+		contacts: map[string]WorkContactSyncContact{
+			"external-user": {WXExternalUserID: "external-user", Name: "customer", FollowUsers: []WorkContactSyncFollowUser{{UserID: "go-user"}}},
+		},
+	}
+	store := &fakeDurableWeWorkCallbackWorkerStore{fakeWeWorkCallbackWorkerStore: workerStore}
+	worker := NewWeWorkCallbackWorker(WeWorkCallbackWorkerCapabilities{}, store, client, "worker-secret", log.Default()).
+		WithCapabilityResolver(resolver)
+	eventKey := strings.Repeat("7", 64)
+	event := WeWorkCallbackEvent{
+		TenantID: 21, CorpID: 7, EventPath: "event.change_external_contact.add_external_contact",
+		Message: map[string]string{"UserID": "go-user", "ExternalUserID": "external-user", "WelcomeCode": "welcome-code"},
+	}
+
+	for deferCount := 0; deferCount < worker.maxAttempts+2; deferCount++ {
+		worker.handleClaim(context.Background(), WeWorkCallbackClaim{
+			ID: 7, EventKey: eventKey, LeaseToken: fmt.Sprintf("lease-%d", deferCount+1),
+			LeaseFence: uint64(deferCount + 1), Attempt: 1, DependencyDeferCount: deferCount, Event: event,
+		})
+	}
+	if len(store.completedClaims) != 0 || len(store.failedClaims) != 0 || len(store.deferredClaims) != worker.maxAttempts+2 || len(queue.contactWelcomeEvents) != 0 {
+		t.Fatalf("redis-down completed=%d failed=%d deferred=%d enqueued=%d", len(store.completedClaims), len(store.failedClaims), len(store.deferredClaims), len(queue.contactWelcomeEvents))
+	}
+	for index, reason := range store.deferredReasons {
+		if !strings.Contains(reason, ErrWeWorkCallbackDependencyUnavailable.Error()) || strings.Contains(reason, secret) {
+			t.Fatalf("redis-down defer[%d] reason=%q", index, reason)
+		}
+		if store.deferRetryDelays[index] <= 0 || store.deferRetryDelays[index] > 5*time.Minute {
+			t.Fatalf("redis-down defer[%d] retry delay=%v", index, store.deferRetryDelays[index])
+		}
+		if index > 0 && store.deferRetryDelays[index] <= store.deferRetryDelays[index-1] {
+			t.Fatalf("dependency retry delays are not increasing: %v", store.deferRetryDelays)
+		}
+	}
+
+	resolver.err = nil
+	resolver.capabilities = fakeWeWorkCallbackWorkerCapabilities(queue)
+	worker.handleClaim(context.Background(), WeWorkCallbackClaim{
+		ID: 7, EventKey: eventKey, LeaseToken: "lease-recovered", LeaseFence: uint64(worker.maxAttempts + 3),
+		Attempt: 1, DependencyDeferCount: worker.maxAttempts + 2, Event: event,
+	})
+	if len(store.completedClaims) != 1 || len(store.failedClaims) != 0 || len(store.deferredClaims) != worker.maxAttempts+2 || len(queue.contactWelcomeEvents) != 1 {
+		t.Fatalf("redis-recovered completed=%d failed=%d deferred=%d enqueued=%d", len(store.completedClaims), len(store.failedClaims), len(store.deferredClaims), len(queue.contactWelcomeEvents))
+	}
+	if resolver.calls != worker.maxAttempts+3 {
+		t.Fatalf("resolver calls=%d, want %d", resolver.calls, worker.maxAttempts+3)
+	}
+}
+
+func TestWeWorkCallbackWorkerQueueFreeEventCompletesWithoutRedis(t *testing.T) {
+	resolver := &fakeWeWorkCallbackCapabilityResolver{err: errors.New("redis down")}
+	store := &fakeDurableWeWorkCallbackWorkerStore{fakeWeWorkCallbackWorkerStore: &fakeWeWorkCallbackWorkerStore{}}
+	worker := NewWeWorkCallbackWorker(WeWorkCallbackWorkerCapabilities{}, store, &fakeWeWorkCallbackWorkerClient{}, "worker-secret", log.Default()).
+		WithCapabilityResolver(resolver)
+
+	worker.handleClaim(context.Background(), WeWorkCallbackClaim{
+		ID: 8, EventKey: strings.Repeat("8", 64), LeaseToken: "lease", LeaseFence: 1, Attempt: 1,
+		Event: WeWorkCallbackEvent{TenantID: 21, CorpID: 7, EventPath: "event.msgaudit_notify"},
+	})
+
+	if len(store.completedClaims) != 1 || len(store.failedClaims) != 0 || resolver.calls != 0 {
+		t.Fatalf("completed=%d failed=%d resolver_calls=%d", len(store.completedClaims), len(store.failedClaims), resolver.calls)
+	}
+}
+
+func TestWeWorkCallbackWorkerRedactsCredentialBearingProviderErrorsEverywhere(t *testing.T) {
+	const secret = "callback-secret-value"
+	queue := &fakeWeWorkCallbackWorkerQueue{}
+	workerStore := &fakeWeWorkCallbackWorkerStore{
+		tenantIDs:                map[int]int{7: 21},
+		credential:               RoomWelcomeCorpCredential{CorpID: 7, WXCorpID: "ww-go", ContactSecret: "contact-secret"},
+		contactSyncEmployees:     []WorkContactSyncEmployee{{ID: 3, WXUserID: "go-user"}},
+		syncResult:               WorkContactSyncResult{ContactID: 101},
+		workRoomAutoPullWelcomes: map[int]WorkRoomAutoPullWelcome{77: {ID: 77, TagIDs: []int{31}}},
+		updateProfileFound:       true,
+		updateProfileResult:      WorkContactUpdateResult{WXUserID: "go-user", WXExternalUserID: "external-user", AddedWXTagIDs: []string{"wx-tag-31"}},
+	}
+	providerErr := &url.Error{
+		Op:  "POST",
+		URL: "https://qyapi.weixin.qq.com/cgi-bin/externalcontact/mark_tag?access_token=" + secret,
+		Err: errors.New(`timeout Authorization: Bearer ` + secret + `; {"access_token":"` + secret + `"}; secret=multi word ` + secret),
+	}
+	client := &fakeWeWorkCallbackWorkerClient{
+		contacts:    map[string]WorkContactSyncContact{"external-user": {WXExternalUserID: "external-user", FollowUsers: []WorkContactSyncFollowUser{{UserID: "go-user"}}}},
+		markTagsErr: providerErr,
+	}
+	store := &fakeDurableWeWorkCallbackWorkerStore{fakeWeWorkCallbackWorkerStore: workerStore}
+	recorder := &fakeWorkerExecutionRecorder{}
+	ctx := taskrunner.WithTaskRuntime(context.Background(), "wework-callback", "run-safe-error", recorder)
+	var logs bytes.Buffer
+	worker := NewWeWorkCallbackWorker(fakeWeWorkCallbackWorkerCapabilities(queue), store, client, "worker-secret", log.New(&logs, "", 0))
+
+	worker.handleClaim(ctx, WeWorkCallbackClaim{
+		ID: 5, EventKey: strings.Repeat("2", 64), LeaseToken: "lease", LeaseFence: 3, Attempt: 1,
+		Event: WeWorkCallbackEvent{
+			TenantID: 21, CorpID: 7, EventPath: "event.change_external_contact.add_external_contact",
+			Message: map[string]string{"UserID": "go-user", "ExternalUserID": "external-user", "State": "workRoomAutoPullId-77"},
+		},
+	})
+
+	combined := strings.Join(store.failedReasons, "\n") + "\n" + logs.String()
+	for _, execution := range recorder.executions {
+		combined += "\n" + execution.Error
+	}
+	if strings.Contains(combined, secret) || strings.Contains(strings.ToLower(combined), "access_token=") {
+		t.Fatalf("credential-bearing provider error escaped redaction: %s", combined)
+	}
+	if len(store.failedReasons) != 1 || !strings.Contains(store.failedReasons[0], "timeout") {
+		t.Fatalf("failure reason=%q", store.failedReasons)
 	}
 }
 
@@ -1307,7 +1996,7 @@ func TestWeWorkCallbackWorkerRetriesContactTagSyncFailuresThroughDeliveryChain(t
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			queue := &fakeWeWorkCallbackWorkerQueue{}
-			store := &fakeWeWorkCallbackWorkerStore{
+			workerStore := &fakeWeWorkCallbackWorkerStore{
 				credential:               RoomWelcomeCorpCredential{CorpID: 7, WXCorpID: "ww-go", ContactSecret: "contact-secret"},
 				contactSyncEmployees:     []WorkContactSyncEmployee{{ID: 3, WXUserID: "go-user"}},
 				syncResult:               WorkContactSyncResult{ContactID: 101},
@@ -1319,21 +2008,19 @@ func TestWeWorkCallbackWorkerRetriesContactTagSyncFailuresThroughDeliveryChain(t
 				contacts:    map[string]WorkContactSyncContact{"external-user": {WXExternalUserID: "external-user", FollowUsers: []WorkContactSyncFollowUser{{UserID: "go-user"}}}},
 				markTagsErr: tc.clientErr,
 			}
-			worker := NewWeWorkCallbackWorker(queue, store, client, "worker-secret", log.Default())
+			store := &fakeDurableWeWorkCallbackWorkerStore{fakeWeWorkCallbackWorkerStore: workerStore}
+			worker := NewWeWorkCallbackWorker(fakeWeWorkCallbackWorkerCapabilities(queue), store, client, "worker-secret", log.Default())
 
-			worker.handleDelivery(context.Background(), WeWorkCallbackDelivery{
-				Raw: "tag-sync-job",
+			worker.handleClaim(context.Background(), WeWorkCallbackClaim{
+				ID: 4, EventKey: strings.Repeat("1", 64), LeaseToken: "lease", LeaseFence: 1, Attempt: 1,
 				Event: WeWorkCallbackEvent{
 					CorpID: 7, EventPath: "event.change_external_contact.add_external_contact",
 					Message: map[string]string{"UserID": "go-user", "ExternalUserID": "external-user", "State": "workRoomAutoPullId-77"},
 				},
 			})
 
-			if queue.retryRaw != "tag-sync-job" || queue.retryReason == "" {
-				t.Fatalf("retry raw=%q reason=%q", queue.retryRaw, queue.retryReason)
-			}
-			if queue.ackedRaw != "" {
-				t.Fatalf("tag sync failure was acknowledged: %q", queue.ackedRaw)
+			if len(store.failedClaims) != 1 || len(store.completedClaims) != 0 {
+				t.Fatalf("failed=%+v completed=%+v", store.failedClaims, store.completedClaims)
 			}
 		})
 	}
@@ -1352,6 +2039,7 @@ type fakeWeWorkCallbackWorkerStore struct {
 	workFissionRules         map[int]WorkFissionContactRule
 	workFissionWelcomes      map[int]WorkFissionContactWelcome
 	remindAgent              RoomTagPullAgentCredential
+	remindAgentErrors        []error
 	updateProfileResult      WorkContactUpdateResult
 	updateProfileFound       bool
 
@@ -1373,6 +2061,7 @@ type fakeWeWorkCallbackWorkerStore struct {
 	syncedRooms                      []WorkRoomSyncRoom
 	deletedRoomCorpID                int
 	deletedRoomWXChatID              string
+	deletedRoomCalls                 int
 	deletedEmployeeCorpID            int
 	deletedEmployeeWXUserID          string
 	syncedDepartmentCorpID           int
@@ -1407,6 +2096,8 @@ type fakeWeWorkCallbackWorkerStore struct {
 	roomSOPLogs                      []RoomSOPLogCreate
 	contactSOPLogKeys                map[string]struct{}
 	roomSOPLogKeys                   map[string]struct{}
+	callbackExecution                WeWorkCallbackExecution
+	callbackExecutionFound           bool
 }
 
 func (s *fakeWeWorkCallbackWorkerStore) TenantIDByCorpID(_ context.Context, corpID int) (int, error) {
@@ -1558,6 +2249,13 @@ func (s *fakeWeWorkCallbackWorkerStore) HandleWorkFissionAddContact(_ context.Co
 }
 
 func (s *fakeWeWorkCallbackWorkerStore) RoomTagPullRemindAgentByCorpID(_ context.Context, corpID int) (RoomTagPullAgentCredential, bool, error) {
+	if len(s.remindAgentErrors) > 0 {
+		err := s.remindAgentErrors[0]
+		s.remindAgentErrors = s.remindAgentErrors[1:]
+		if err != nil {
+			return RoomTagPullAgentCredential{}, false, err
+		}
+	}
 	if s.remindAgent.CorpID == 0 {
 		s.remindAgent.CorpID = corpID
 	}
@@ -1634,7 +2332,9 @@ func (s *fakeWeWorkCallbackWorkerStore) AutoTagContactTimeTask(_ context.Context
 	return s.contactTimeTaskResult, nil
 }
 
-func (s *fakeWeWorkCallbackWorkerStore) DeleteWorkRoomByWXChatID(_ context.Context, corpID int, wxChatID string) (bool, error) {
+func (s *fakeWeWorkCallbackWorkerStore) DeleteWorkRoomByWXChatID(ctx context.Context, corpID int, wxChatID string) (bool, error) {
+	s.callbackExecution, s.callbackExecutionFound = WeWorkCallbackExecutionFromContext(ctx)
+	s.deletedRoomCalls++
 	s.deletedRoomCorpID = corpID
 	s.deletedRoomWXChatID = wxChatID
 	return true, nil
@@ -1679,9 +2379,12 @@ type fakeWeWorkCallbackWorkerClient struct {
 	uploadedImagePath          string
 	contactBatchSendCredential RoomWelcomeCorpCredential
 	contactBatchSendPayload    ContactMessageBatchSendMessagePayload
+	contactBatchSendErr        error
+	contactBatchSendCalls      int
 	agentTextCredential        RoomTagPullAgentCredential
 	agentTextToUser            string
 	agentTextContent           string
+	agentTextDuplicateChecks   int
 }
 
 func (c *fakeWeWorkCallbackWorkerClient) Departments(_ context.Context, _ WorkEmployeeSyncCredential) ([]WorkEmployeeSyncDepartment, error) {
@@ -1731,12 +2434,24 @@ func (c *fakeWeWorkCallbackWorkerClient) UploadTemporaryImage(_ context.Context,
 }
 
 func (c *fakeWeWorkCallbackWorkerClient) SubmitContactMessageBatchSend(_ context.Context, credential RoomWelcomeCorpCredential, payload ContactMessageBatchSendMessagePayload) (ContactMessageBatchSendMessageResult, error) {
+	c.contactBatchSendCalls++
 	c.contactBatchSendCredential = credential
 	c.contactBatchSendPayload = payload
+	if c.contactBatchSendErr != nil {
+		return ContactMessageBatchSendMessageResult{}, c.contactBatchSendErr
+	}
 	return ContactMessageBatchSendMessageResult{ErrCode: 0, ErrMsg: "ok", MsgID: "msg-fission-push"}, nil
 }
 
 func (c *fakeWeWorkCallbackWorkerClient) SendAgentTextMessage(_ context.Context, credential RoomTagPullAgentCredential, toUser string, content string) error {
+	c.agentTextCredential = credential
+	c.agentTextToUser = toUser
+	c.agentTextContent = content
+	return nil
+}
+
+func (c *fakeWeWorkCallbackWorkerClient) SendAgentTextMessageWithDuplicateCheck(_ context.Context, credential RoomTagPullAgentCredential, toUser string, content string) error {
+	c.agentTextDuplicateChecks++
 	c.agentTextCredential = credential
 	c.agentTextToUser = toUser
 	c.agentTextContent = content
@@ -1754,40 +2469,39 @@ func (c *fakeWeWorkCallbackWorkerClient) GroupChatDetail(_ context.Context, _ Ro
 }
 
 type fakeWeWorkCallbackWorkerQueue struct {
-	ackedRaw            string
-	retryRaw            string
-	retryReason         string
-	retryMaxAttempts    int
-	deadLettered        bool
-	contactWelcomeEvent ContactWelcomeEvent
-	welcomeStatuses     map[int]int
-	welcomeStatusTTL    time.Duration
-	markTagsEvents      []MarkTagsEvent
+	contactWelcomeEvent  ContactWelcomeEvent
+	contactWelcomeEvents []ContactWelcomeEvent
+	welcomeStatuses      map[int]int
+	welcomeStatusTTL     time.Duration
+	markTagsEvents       []MarkTagsEvent
 }
 
-func (q *fakeWeWorkCallbackWorkerQueue) DequeueWeWorkCallback(_ context.Context, _ time.Duration) (WeWorkCallbackDelivery, bool, error) {
-	return WeWorkCallbackDelivery{}, false, nil
-}
-
-func (q *fakeWeWorkCallbackWorkerQueue) AckWeWorkCallback(_ context.Context, delivery WeWorkCallbackDelivery) error {
-	q.ackedRaw = delivery.Raw
-	return nil
-}
-
-func (q *fakeWeWorkCallbackWorkerQueue) RetryWeWorkCallback(_ context.Context, delivery WeWorkCallbackDelivery, reason string, maxAttempts int) (bool, error) {
-	q.retryRaw = delivery.Raw
-	q.retryReason = reason
-	q.retryMaxAttempts = maxAttempts
-	return q.deadLettered, nil
-}
-
-func (q *fakeWeWorkCallbackWorkerQueue) RecoverWeWorkCallbackProcessing(_ context.Context, _ time.Duration, _ int) (int, error) {
-	return 0, nil
+func fakeWeWorkCallbackWorkerCapabilities(queue *fakeWeWorkCallbackWorkerQueue) WeWorkCallbackWorkerCapabilities {
+	return WeWorkCallbackWorkerCapabilities{
+		ContactWelcomeQueue: queue,
+		ContactWelcomeCache: queue,
+		MarkTagsQueue:       queue,
+	}
 }
 
 func (q *fakeWeWorkCallbackWorkerQueue) EnqueueContactWelcome(_ context.Context, event ContactWelcomeEvent) error {
 	q.contactWelcomeEvent = event
+	q.contactWelcomeEvents = append(q.contactWelcomeEvents, event)
 	return nil
+}
+
+type fakeWeWorkCallbackCapabilityResolver struct {
+	capabilities WeWorkCallbackWorkerCapabilities
+	err          error
+	calls        int
+}
+
+func (r *fakeWeWorkCallbackCapabilityResolver) ResolveWeWorkCallbackCapabilities(context.Context) (WeWorkCallbackWorkerCapabilities, error) {
+	r.calls++
+	if r.err != nil {
+		return WeWorkCallbackWorkerCapabilities{}, fmt.Errorf("%w: redis: %v", ErrWeWorkCallbackDependencyUnavailable, r.err)
+	}
+	return r.capabilities, nil
 }
 
 func (q *fakeWeWorkCallbackWorkerQueue) EnqueueMarkTags(_ context.Context, event MarkTagsEvent) error {
@@ -1805,5 +2519,213 @@ func (q *fakeWeWorkCallbackWorkerQueue) SetWorkContactWelcomeStatus(_ context.Co
 	}
 	q.welcomeStatuses[contactID] = status
 	q.welcomeStatusTTL = ttl
+	return nil
+}
+
+type fakeDurableWeWorkCallbackWorkerStore struct {
+	*fakeWeWorkCallbackWorkerStore
+	mu                       sync.Mutex
+	claims                   []WeWorkCallbackClaim
+	completedClaims          []WeWorkCallbackClaim
+	failedClaims             []WeWorkCallbackClaim
+	failedReasons            []string
+	failRetryDelays          []time.Duration
+	deferredClaims           []WeWorkCallbackClaim
+	deferredReasons          []string
+	deferRetryDelays         []time.Duration
+	currentFences            map[string]uint64
+	claimLeaseDurations      []time.Duration
+	completed                chan WeWorkCallbackClaim
+	acceptLegacyErr          error
+	acceptedLegacyEvents     []WeWorkCallbackEvent
+	acceptedLegacyKeys       []string
+	legacyUniqueKeys         map[string]struct{}
+	completeErrors           []error
+	sideEffects              map[string]string
+	sideEffectBeginErrors    map[string][]error
+	sideEffectCompleteErrors map[string][]error
+	manualReconcileCalls     int
+}
+
+func (s *fakeDurableWeWorkCallbackWorkerStore) reconcileUnknownSideEffect(eventKey, actionKey, decision string) error {
+	key := eventKey + "\x00" + actionKey
+	if s.sideEffects[key] != WeWorkCallbackSideEffectUnknown {
+		return errors.New("fake manual reconcile requires unknown")
+	}
+	switch decision {
+	case "confirm_sent":
+		s.sideEffects[key] = WeWorkCallbackSideEffectSent
+	case "confirm_not_sent_and_retry":
+		s.sideEffects[key] = WeWorkCallbackSideEffectPending
+	default:
+		return errors.New("fake manual reconcile decision is invalid")
+	}
+	s.manualReconcileCalls++
+	return nil
+}
+
+func (s *fakeDurableWeWorkCallbackWorkerStore) HandleWorkFissionAddContact(ctx context.Context, event WorkFissionAddContactEvent) (WorkFissionAddContactResult, bool, error) {
+	result, found, err := s.fakeWeWorkCallbackWorkerStore.HandleWorkFissionAddContact(ctx, event)
+	if err != nil || !found {
+		return result, found, err
+	}
+	execution, ok := WeWorkCallbackExecutionFromContext(ctx)
+	if ok && result.Completed {
+		if s.sideEffects == nil {
+			s.sideEffects = map[string]string{}
+		}
+		for actionKey, payload := range map[string]any{
+			WeWorkCallbackActionFissionEmployeeReminder: result.EmployeeReminder,
+			WeWorkCallbackActionFissionCustomerPush:     result.CustomerPush,
+		} {
+			if payload == nil {
+				continue
+			}
+			key := execution.EventKey + "\x00" + actionKey
+			if _, exists := s.sideEffects[key]; !exists {
+				s.sideEffects[key] = WeWorkCallbackSideEffectPending
+			}
+		}
+	}
+	return result, found, nil
+}
+
+func (s *fakeDurableWeWorkCallbackWorkerStore) BeginWeWorkCallbackSideEffect(_ context.Context, execution WeWorkCallbackExecution, actionKey, payloadHash string) (bool, string, error) {
+	key := execution.EventKey + "\x00" + actionKey
+	if queued := s.sideEffectBeginErrors[actionKey]; len(queued) > 0 {
+		err := queued[0]
+		s.sideEffectBeginErrors[actionKey] = queued[1:]
+		if err != nil {
+			return false, "", err
+		}
+	}
+	switch s.sideEffects[key] {
+	case "pending":
+		s.sideEffects[key] = "unknown"
+		return true, "unknown", nil
+	case "sent":
+		return false, "sent", nil
+	case "unknown":
+		return false, "unknown", nil
+	default:
+		return false, "", errors.New("side effect intent is missing")
+	}
+}
+
+func (s *fakeDurableWeWorkCallbackWorkerStore) CompleteWeWorkCallbackSideEffect(_ context.Context, execution WeWorkCallbackExecution, actionKey, payloadHash string) error {
+	key := execution.EventKey + "\x00" + actionKey
+	if s.sideEffects[key] != "unknown" {
+		return errors.New("side effect is not unknown")
+	}
+	if queued := s.sideEffectCompleteErrors[actionKey]; len(queued) > 0 {
+		err := queued[0]
+		s.sideEffectCompleteErrors[actionKey] = queued[1:]
+		if err != nil {
+			return err
+		}
+	}
+	s.sideEffects[key] = "sent"
+	return nil
+}
+
+func (s *fakeDurableWeWorkCallbackWorkerStore) AcceptWeWorkCallback(_ context.Context, event WeWorkCallbackEvent, eventKey string, _ string) (bool, error) {
+	if s.acceptLegacyErr != nil {
+		return false, s.acceptLegacyErr
+	}
+	s.acceptedLegacyEvents = append(s.acceptedLegacyEvents, event)
+	s.acceptedLegacyKeys = append(s.acceptedLegacyKeys, eventKey)
+	if s.legacyUniqueKeys == nil {
+		s.legacyUniqueKeys = map[string]struct{}{}
+	}
+	_, replayed := s.legacyUniqueKeys[eventKey]
+	s.legacyUniqueKeys[eventKey] = struct{}{}
+	return replayed, nil
+}
+
+func (s *fakeDurableWeWorkCallbackWorkerStore) ClaimWeWorkCallback(_ context.Context, leaseDuration time.Duration, _ int) (WeWorkCallbackClaim, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.claimLeaseDurations = append(s.claimLeaseDurations, leaseDuration)
+	if len(s.claims) == 0 {
+		return WeWorkCallbackClaim{}, false, nil
+	}
+	claim := s.claims[0]
+	s.claims = s.claims[1:]
+	return claim, true, nil
+}
+
+func (s *fakeDurableWeWorkCallbackWorkerStore) ValidateWeWorkCallbackClaim(_ context.Context, claim WeWorkCallbackClaim) error {
+	if current, ok := s.currentFences[claim.EventKey]; ok && current != claim.LeaseFence {
+		return ErrWeWorkCallbackLeaseLost
+	}
+	return nil
+}
+
+func (s *fakeDurableWeWorkCallbackWorkerStore) CompleteWeWorkCallback(_ context.Context, claim WeWorkCallbackClaim) error {
+	if len(s.completeErrors) > 0 {
+		err := s.completeErrors[0]
+		s.completeErrors = s.completeErrors[1:]
+		if err != nil {
+			return err
+		}
+	}
+	s.mu.Lock()
+	s.completedClaims = append(s.completedClaims, claim)
+	s.mu.Unlock()
+	if s.completed != nil {
+		s.completed <- claim
+	}
+	return nil
+}
+
+func (s *fakeDurableWeWorkCallbackWorkerStore) FailWeWorkCallback(_ context.Context, claim WeWorkCallbackClaim, reason string, _ int, retryDelay time.Duration) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.failedClaims = append(s.failedClaims, claim)
+	s.failedReasons = append(s.failedReasons, reason)
+	s.failRetryDelays = append(s.failRetryDelays, retryDelay)
+	return false, nil
+}
+
+func (s *fakeDurableWeWorkCallbackWorkerStore) DeferWeWorkCallbackDependency(_ context.Context, claim WeWorkCallbackClaim, reason string, retryDelay time.Duration) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.deferredClaims = append(s.deferredClaims, claim)
+	s.deferredReasons = append(s.deferredReasons, reason)
+	s.deferRetryDelays = append(s.deferRetryDelays, retryDelay)
+	return nil
+}
+
+type fakeLegacyWeWorkCallbackBacklog struct {
+	stats      LegacyWeWorkCallbackBacklogStats
+	deliveries []LegacyWeWorkCallbackDelivery
+	acked      []LegacyWeWorkCallbackDelivery
+	nextCalls  int
+	preflights int
+}
+
+func (b *fakeLegacyWeWorkCallbackBacklog) PreflightLegacyWeWorkCallbackBacklog(context.Context) (LegacyWeWorkCallbackBacklogStats, error) {
+	b.preflights++
+	if b.preflights > 1 {
+		return LegacyWeWorkCallbackBacklogStats{}, nil
+	}
+	return b.stats, nil
+}
+
+func (b *fakeLegacyWeWorkCallbackBacklog) NextLegacyWeWorkCallback(context.Context) (LegacyWeWorkCallbackDelivery, bool, error) {
+	b.nextCalls++
+	if len(b.deliveries) == 0 {
+		return LegacyWeWorkCallbackDelivery{}, false, nil
+	}
+	delivery := b.deliveries[0]
+	return delivery, true, nil
+}
+
+func (b *fakeLegacyWeWorkCallbackBacklog) AckLegacyWeWorkCallback(_ context.Context, delivery LegacyWeWorkCallbackDelivery) error {
+	if len(b.deliveries) == 0 || b.deliveries[0].Raw != delivery.Raw {
+		return errors.New("delivery is not pending acknowledgement")
+	}
+	b.deliveries = b.deliveries[1:]
+	b.acked = append(b.acked, delivery)
 	return nil
 }

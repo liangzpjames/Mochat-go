@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 
 export const phase35TargetRoutes = [
+  '/chat/file-audio',
   '/customer/friends',
   '/customer/group',
   '/customer/order',
@@ -59,7 +60,7 @@ export async function readManifest(url = new URL('../web/apps/dashboard/src/benc
 
 async function main() {
   validatePhase35Manifest(await readManifest());
-  console.log('9/9 Phase 3.5 routes passed the implementation gate.');
+  console.log('10/10 Phase 3.5 routes passed the implementation gate.');
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {

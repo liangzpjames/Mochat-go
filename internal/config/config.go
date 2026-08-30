@@ -2149,7 +2149,13 @@ func FromEnv() (Config, error) {
 
 	jwtWorkerEnabled := cfg.EnableWeWorkCallbackWorker || cfg.EnableEmployeeApplyWorker || cfg.EnableWorkDepartmentListWorker
 	mysqlWorkerEnabled := jwtWorkerEnabled || cfg.EnableMarkTagsWorker || cfg.EnableMessageRemindWorker || cfg.EnableWorkRoomSyncWorker || cfg.EnableWorkContactSyncWorker || cfg.EnableMediaIDUpdateWorker || cfg.EnableEmployeeStatisticWorker
-	redisWorkerEnabled := mysqlWorkerEnabled || cfg.EnableAsyncFileUploadWorker
+	// The durable WeWork callback inbox is MySQL-only. Redis is an optional
+	// downstream capability for that worker, while every worker listed here is
+	// an actual Redis consumer and therefore keeps its fail-closed requirement.
+	redisWorkerEnabled := cfg.EnableEmployeeApplyWorker || cfg.EnableAsyncFileUploadWorker ||
+		cfg.EnableMarkTagsWorker || cfg.EnableMessageRemindWorker || cfg.EnableWorkRoomSyncWorker ||
+		cfg.EnableWorkContactSyncWorker || cfg.EnableWorkDepartmentListWorker ||
+		cfg.EnableMediaIDUpdateWorker || cfg.EnableEmployeeStatisticWorker
 	cronEnabled := cfg.EnablePullAgentCron || cfg.EnableEmployeeStatisticCron || cfg.EnableChannelCodeCron || cfg.EnableContactBatchSendCron || cfg.EnableRoomBatchSendCron || cfg.EnableContactSyncSendResultCron || cfg.EnableRoomSyncSendResultCron || cfg.EnableRoomTagPullCron || cfg.EnableCorpDataCron || cfg.EnableMediaIDUpdateCron || cfg.EnableTransferStateRefreshCron || cfg.EnableSOPLogCron || cfg.EnableSensitiveWordMonitorCron || cfg.EnableWorkMessageArchiveSyncCron || cfg.EnableDurableWorkMessageArchive || cfg.EnableConversationExportWorker || cfg.EnableSaaSStorageReconcileCron || cfg.EnableSaaSPaymentSettlementSyncCron
 	if (mysqlBacked || mysqlWorkerEnabled || cronEnabled) && cfg.MySQLDSN == "" {
 		return Config{}, fmt.Errorf("MOCHAT_MYSQL_DSN is required when migrated MySQL-backed routes, MySQL-backed Go workers, or Go cron tasks are enabled")
@@ -2302,8 +2308,6 @@ func (cfg *Config) applyRuntimeRole() {
 		cfg.EnableTransferStateRefreshCron = false
 		cfg.EnableSOPLogCron = false
 		cfg.EnableSensitiveWordMonitorCron = false
-		cfg.EnableWorkMessageArchiveSyncCron = false
-		cfg.EnableDurableWorkMessageArchive = false
 		cfg.EnableSaaSStorageReconcileCron = false
 		cfg.EnableSaaSAlertNotificationDispatchCron = false
 		cfg.EnableSaaSOperationQueueAssignmentReminderCron = false
@@ -2503,7 +2507,7 @@ func paymentSettlementProvidersFromEnv(raw string) ([]string, error) {
 
 func redisAddrFromEnv() string {
 	if value := os.Getenv("MOCHAT_REDIS_ADDR"); value != "" {
-		return value
+		return strings.TrimSpace(value)
 	}
 	host := envOrDefault("REDIS_HOST", "localhost")
 	port := envOrDefault("REDIS_PORT", "6379")

@@ -2253,6 +2253,7 @@ type SaaSAdminHandler struct {
 	backupManager                       *saasbackup.Manager
 	auditAnchorManager                  *saasauditanchor.Manager
 	complianceManager                   *saascompliance.Manager
+	complianceExportOpener              complianceExportOpener
 	identitySecurityManager             *identitysecurity.Manager
 	dashboardAdminApprovalExecutor      func(context.Context, int, int64, int, string, json.RawMessage) (map[string]any, error)
 	tenantDomainVerifier                SaaSTenantDomainOwnershipVerifier

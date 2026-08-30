@@ -56,6 +56,55 @@ type queryRower interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
 }
 
+const authoritativeWeWorkCallbackCorpSelect = `SELECT c.id,c.tenant_id,COALESCE(c.wx_corpid,''),
+       COALESCE(c.wecom_credentials_ciphertext,''),COALESCE(c.wecom_credentials_key_id,'')
+FROM mc_corp c
+INNER JOIN mc_tenant t
+        ON t.id=c.tenant_id
+       AND t.status=1
+       AND t.deleted_at IS NULL
+INNER JOIN mochat_go_tenant_corp_bindings b
+        ON b.tenant_id=c.tenant_id
+       AND b.corp_id=c.id
+       AND b.status=2
+       AND b.verified_at IS NOT NULL
+	   AND b.verified_wx_corpid<>''
+       AND b.verified_wx_corpid=c.wx_corpid`
+
+func (s *MySQLStore) loadAuthoritativeWeWorkCallbackCorpByID(ctx context.Context, corpID int) (corpCredentialRecord, bool, error) {
+	row := s.db.QueryRowContext(ctx, authoritativeWeWorkCallbackCorpSelect+`
+WHERE c.id=? AND c.deleted_at IS NULL`, corpID)
+	return scanCorpCredentialRecord(row)
+}
+
+func (s *MySQLStore) loadAuthoritativeWeWorkCallbackCorpByWXID(ctx context.Context, wxCorpID string) (corpCredentialRecord, bool, error) {
+	rows, err := s.db.QueryContext(ctx, authoritativeWeWorkCallbackCorpSelect+`
+WHERE c.wx_corpid=? AND c.deleted_at IS NULL
+ORDER BY c.id ASC
+LIMIT 2`, strings.TrimSpace(wxCorpID))
+	if err != nil {
+		return corpCredentialRecord{}, false, err
+	}
+	defer rows.Close()
+	if !rows.Next() {
+		if err := rows.Err(); err != nil {
+			return corpCredentialRecord{}, false, err
+		}
+		return corpCredentialRecord{}, false, nil
+	}
+	var item corpCredentialRecord
+	if err := rows.Scan(&item.ID, &item.TenantID, &item.WXCorpID, &item.Ciphertext, &item.KeyID); err != nil {
+		return corpCredentialRecord{}, false, err
+	}
+	if rows.Next() {
+		return corpCredentialRecord{}, false, errors.New("multiple active verified corp bindings match callback receiver")
+	}
+	if err := rows.Err(); err != nil {
+		return corpCredentialRecord{}, false, err
+	}
+	return item, true, nil
+}
+
 func (s *MySQLStore) loadCorpCredentialByID(ctx context.Context, queryer queryRower, corpID int, forUpdate bool) (corpCredentialRecord, bool, error) {
 	suffix := ""
 	if forUpdate {

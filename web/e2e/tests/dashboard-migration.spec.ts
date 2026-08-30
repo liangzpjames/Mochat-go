@@ -1,19 +1,22 @@
 import { expect, test } from '@playwright/test';
-import { readFileSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
 import { resolve } from 'node:path';
 
+import { currentPhase2Routes } from '../../../scripts/phase2_current_routes.mjs';
+import {
+  assertPhase2MobileAuditClean,
+  getPhase2MobileRouteContract,
+  injectPhase2SidebarSession,
+  installPhase2MobileFixtures,
+} from '../fixtures/phase2-mobile';
 import {
   mockDashboardBackend,
   seedSession,
 } from './helpers';
-type Route = { path: string };
-const routes = (app: string): Route[] => JSON.parse(
-  readFileSync(resolve(process.cwd(), `../apps/${app}/src/migration-routes.json`), 'utf8'),
-) as Route[];
-const dashboardRoutes = routes('dashboard');
-const sidebarRoutes = routes('sidebar');
-const operationRoutes = routes('operation');
+const currentRoutes = currentPhase2Routes(resolve(process.cwd(), '../..'));
+const dashboardRoutes = currentRoutes.dashboard;
+const sidebarRoutes = currentRoutes.sidebar;
+const operationRoutes = currentRoutes.operation;
 
 const evidenceRoot = resolve(
   process.cwd(),
@@ -60,10 +63,26 @@ for (const [app, routes] of [
   for (const route of routes) {
     test(`${app} ${route.path} renders React and records visual evidence`, async ({ page }) => {
       await mkdir(evidenceRoot, { recursive: true });
+      const audit = await installPhase2MobileFixtures(page);
+      const contract = getPhase2MobileRouteContract(app, route.path);
+      if (!contract) throw new Error(`${app} ${route.path} must have a current route contract`);
+      if ('needsSession' in contract && contract.needsSession) {
+        await injectPhase2SidebarSession(page);
+      }
       const mountedPath = `/${app}-app${route.path === '/' ? '/' : route.path}`;
+      const search = new URLSearchParams(contract.query ?? '');
+      search.set('phase2', 'e2e');
       await page.setViewportSize({ width: 1440, height: 900 });
-      await page.goto(`${mountedPath}?phase2=e2e#visual`);
-      await expect(page.getByTestId('react-migrated-page')).toHaveAttribute('data-route', route.path);
+      await page.goto(`${mountedPath}?${search.toString()}#visual`);
+      await expect(page.locator('main')).toBeVisible();
+      await expect(page.getByRole('heading', { level: 1, name: contract.heading })).toBeVisible();
+      await expect(page.getByText(contract.moduleLabel, { exact: true })).toBeVisible();
+      await expect(page.getByRole('heading', { name: '页面不存在' })).toHaveCount(0);
+      const currentURL = new URL(page.url());
+      expect(currentURL.pathname).toBe(mountedPath);
+      expect([...currentURL.searchParams.entries()]).toEqual([...search.entries()]);
+      expect(currentURL.hash).toBe('#visual');
+      await assertPhase2MobileAuditClean(page, audit, `${app} ${route.path}`);
       await page.screenshot({
         fullPage: true,
         path: resolve(evidenceRoot, `${app}--${slug(route.path)}--desktop.png`),

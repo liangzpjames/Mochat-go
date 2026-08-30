@@ -177,32 +177,55 @@ func (store *DashboardIdentityStore) DashboardActivationStatus(ctx context.Conte
 		return invalid, nil
 	}
 	row, err := store.query(ctx, `
-		SELECT COALESCE(tenant.name, ''), identity_row.login_identifier,
+		SELECT activation.user_id, identity_row.login_identifier,
 		       activation.expires_at, activation.consumed_at, identity_row.activated_at,
-		       identity_row.status, dashboard_user.status, tenant.status
+		       identity_row.status
 		FROM mochat_go_dashboard_identity_activations activation
 		INNER JOIN mochat_go_dashboard_identities identity_row ON identity_row.user_id = activation.user_id
-		INNER JOIN mc_user dashboard_user ON dashboard_user.id = identity_row.user_id AND dashboard_user.deleted_at IS NULL
-		INNER JOIN mc_tenant tenant ON tenant.id = dashboard_user.tenant_id AND tenant.deleted_at IS NULL
 		WHERE activation.token_digest = ?
 		LIMIT 1
 	`, tokenDigest[:])
 	if err != nil {
 		return dashboardauth.DashboardActivationStatus{}, err
 	}
-	var tenantName, loginIdentifier string
+	var userID int
+	var loginIdentifier string
 	var expiresAt time.Time
 	var consumedAt, activatedAt sql.NullTime
-	var identityStatus, userStatus, tenantStatus int
-	if err := row.Scan(&tenantName, &loginIdentifier, &expiresAt, &consumedAt, &activatedAt, &identityStatus, &userStatus, &tenantStatus); err != nil {
+	var identityStatus int
+	if err := row.Scan(&userID, &loginIdentifier, &expiresAt, &consumedAt, &activatedAt, &identityStatus); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return invalid, nil
 		}
 		return dashboardauth.DashboardActivationStatus{}, err
 	}
+	identity, err := store.ResolveIdentity(ctx, userID)
+	if err != nil {
+		if errors.Is(err, dashboardprincipal.ErrPrincipalUnavailable) {
+			return dashboardauth.DashboardActivationStatus{Status: dashboardauth.ActivationStatusRevoked, AccountHint: maskDashboardAccount(loginIdentifier), ExpiresAt: expiresAt.Unix(), PrimaryAction: dashboardauth.ActivationPrimaryActionContactAdmin}, nil
+		}
+		return dashboardauth.DashboardActivationStatus{}, err
+	}
+	tenantRow, err := store.query(ctx, `
+		SELECT COALESCE(name, ''), status
+		FROM mc_tenant
+		WHERE id = ? AND deleted_at IS NULL
+		LIMIT 1
+	`, identity.TenantID)
+	if err != nil {
+		return dashboardauth.DashboardActivationStatus{}, err
+	}
+	var tenantName string
+	var tenantStatus int
+	if err := tenantRow.Scan(&tenantName, &tenantStatus); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return dashboardauth.DashboardActivationStatus{Status: dashboardauth.ActivationStatusRevoked, AccountHint: maskDashboardAccount(loginIdentifier), ExpiresAt: expiresAt.Unix(), PrimaryAction: dashboardauth.ActivationPrimaryActionContactAdmin}, nil
+		}
+		return dashboardauth.DashboardActivationStatus{}, err
+	}
 	result := dashboardauth.DashboardActivationStatus{TenantName: strings.TrimSpace(tenantName), AccountHint: maskDashboardAccount(loginIdentifier), ExpiresAt: expiresAt.Unix()}
 	switch {
-	case identityStatus != dashboardauth.DashboardIdentityStatusActive || userStatus != 1 || tenantStatus != 1:
+	case identityStatus != dashboardauth.DashboardIdentityStatusActive || !identity.Active || tenantStatus != 1:
 		result.Status, result.PrimaryAction = dashboardauth.ActivationStatusRevoked, dashboardauth.ActivationPrimaryActionContactAdmin
 	case consumedAt.Valid && activatedAt.Valid:
 		result.Status, result.PrimaryAction = dashboardauth.ActivationStatusActivated, dashboardauth.ActivationPrimaryActionLogin
@@ -243,12 +266,15 @@ func (store *DashboardIdentityStore) ResolveIdentity(ctx context.Context, userID
 		LIMIT 1
 	`, userID)
 	if err != nil {
-		return dashboardprincipal.AuthenticatedIdentity{}, dashboardprincipal.ErrPrincipalUnavailable
+		return dashboardprincipal.AuthenticatedIdentity{}, err
 	}
 	var identity dashboardprincipal.AuthenticatedIdentity
 	var isSuperAdmin, userStatus int
 	if err := row.Scan(&identity.UserID, &identity.TenantID, &isSuperAdmin, &userStatus, &identity.AuthVersion); err != nil {
-		return dashboardprincipal.AuthenticatedIdentity{}, dashboardprincipal.ErrPrincipalUnavailable
+		if errors.Is(err, sql.ErrNoRows) {
+			return dashboardprincipal.AuthenticatedIdentity{}, dashboardprincipal.ErrPrincipalUnavailable
+		}
+		return dashboardprincipal.AuthenticatedIdentity{}, err
 	}
 	identity.IsSuperAdmin = isSuperAdmin == 1
 	identity.Active = userStatus == 1 && identity.UserID == userID && identity.TenantID > 0 && identity.AuthVersion > 0

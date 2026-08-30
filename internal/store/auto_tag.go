@@ -1891,11 +1891,11 @@ func (s *MySQLStore) WorkMessageToUsers(ctx context.Context, filter dashboard.Wo
 		return dashboard.WorkMessageToUserPage{}, nil
 	}
 	whereSQL, filterArgs := workMessageUserWhere(filterForSQL)
-	args := append(append([]any{}, sourceArgs...), filterArgs...)
 	if strings.TrimSpace(filter.Name) != "" {
 		whereSQL += ` AND target_name LIKE ? ESCAPE '\\'`
-		args = append(args, workMessageLikePattern(filter.Name))
+		filterArgs = append(filterArgs, workMessageLikePattern(filter.Name))
 	}
+	args := append(append([]any{}, sourceArgs...), filterArgs...)
 	var total int
 	groupColumns, _ := workMessageConversationGrouping()
 	if err := s.db.QueryRowContext(ctx, `
@@ -1914,18 +1914,24 @@ func (s *MySQLStore) WorkMessageToUsers(ctx context.Context, filter dashboard.Wo
 		totalPage = (total + filter.PerPage - 1) / filter.PerPage
 	}
 	offset := (filter.Page - 1) * filter.PerPage
-	queryArgs := append(append([]any{}, args...), filter.PerPage, offset)
+	queryArgs := append(append([]any{}, args...), sourceArgs...)
+	queryArgs = append(queryArgs, filterArgs...)
+	queryArgs = append(queryArgs, filter.PerPage, offset)
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, table_index, seq, msgid, work_employee_id, employee_name, employee_avatar, to_user_type, to_user_id, target_name, target_alias, target_avatar, content_text, msg_data_time, COALESCE(msg_type, 100), CASE WHEN COALESCE(is_current_user, 0) = 1 THEN 'outbound' ELSE 'inbound' END`+archiveSourceProjectionForState(registryState)+`
 		FROM (
-			SELECT wm.*`+archiveSourceInnerProjectionForState(registryState)+`,
-			       `+workMessageConversationRankingExpression()+`
+			SELECT wm.*`+archiveSourceInnerProjectionForState(registryState)+`
 			FROM (`+sourceSQL+`) wm`+archiveSourceRegistryJoinForState(registryState)+`
 			WHERE `+whereSQL+`
-			ORDER BY wm.work_employee_id, wm.to_user_type, wm.to_user_id,
-			         wm.msg_data_time DESC, wm.seq DESC, wm.table_index DESC, wm.id DESC
+			  AND NOT EXISTS (
+				SELECT 1 FROM (`+sourceSQL+`) newer
+				WHERE `+whereSQL+`
+				  AND newer.work_employee_id = wm.work_employee_id
+				  AND newer.to_user_type = wm.to_user_type
+				  AND newer.to_user_id = wm.to_user_id
+				  AND `+workMessageNewerRowPredicate("newer", "wm")+`
+			  )
 		) ranked
-		WHERE rn = 1
 		ORDER BY msg_data_time DESC, seq DESC, table_index DESC, id DESC,
 		         work_employee_id DESC, to_user_type DESC, to_user_id DESC
 		LIMIT ? OFFSET ?
@@ -2488,7 +2494,7 @@ func archiveMessageSourceShardPredicateForState(source string, state archiveSour
 		SELECT 1
 		FROM mochat_go_archive_message_sources archive_source_filter
 		INNER JOIN mc_corp archive_source_corp
-			ON archive_source_corp.id = wm.corp_id
+			ON archive_source_corp.id = archive_source_filter.corp_id
 			AND archive_source_corp.tenant_id = archive_source_filter.tenant_id
 		WHERE archive_source_filter.corp_id = wm.corp_id
 		  AND archive_source_filter.msgid = wm.msgid)`
@@ -2497,7 +2503,7 @@ func archiveMessageSourceShardPredicateForState(source string, state archiveSour
 			SELECT 1
 			FROM mochat_go_archive_message_sources archive_source_filter
 			INNER JOIN mc_corp archive_source_corp
-				ON archive_source_corp.id = wm.corp_id
+				ON archive_source_corp.id = archive_source_filter.corp_id
 				AND archive_source_corp.tenant_id = archive_source_filter.tenant_id
 			WHERE archive_source_filter.corp_id = wm.corp_id
 			  AND archive_source_filter.msgid = wm.msgid
@@ -2976,11 +2982,13 @@ func workMessageConversationGrouping() (string, string) {
 		"CONCAT(wm.work_employee_id, ':', wm.to_user_type, ':', wm.to_user_id)"
 }
 
-func workMessageConversationRankingExpression() string {
-	return `ROW_NUMBER() OVER (
-		PARTITION BY wm.work_employee_id, wm.to_user_type, wm.to_user_id
-		ORDER BY wm.msg_data_time DESC, wm.seq DESC, wm.table_index DESC, wm.id DESC
-	) AS rn`
+func workMessageNewerRowPredicate(candidate, current string) string {
+	candidate = strings.TrimSpace(candidate)
+	current = strings.TrimSpace(current)
+	return `(COALESCE(` + candidate + `.msg_data_time, '1000-01-01 00:00:00') > COALESCE(` + current + `.msg_data_time, '1000-01-01 00:00:00')
+		OR (COALESCE(` + candidate + `.msg_data_time, '1000-01-01 00:00:00') = COALESCE(` + current + `.msg_data_time, '1000-01-01 00:00:00') AND ` + candidate + `.seq > ` + current + `.seq)
+		OR (COALESCE(` + candidate + `.msg_data_time, '1000-01-01 00:00:00') = COALESCE(` + current + `.msg_data_time, '1000-01-01 00:00:00') AND ` + candidate + `.seq = ` + current + `.seq AND ` + candidate + `.table_index > ` + current + `.table_index)
+		OR (COALESCE(` + candidate + `.msg_data_time, '1000-01-01 00:00:00') = COALESCE(` + current + `.msg_data_time, '1000-01-01 00:00:00') AND ` + candidate + `.seq = ` + current + `.seq AND ` + candidate + `.table_index = ` + current + `.table_index AND ` + candidate + `.id > ` + current + `.id))`
 }
 
 func workMessagePageWindow(filter dashboard.WorkMessageFilter) (string, int, bool) {

@@ -15,7 +15,7 @@ import (
 	"jiyi/mochat-go/internal/migration"
 	"jiyi/mochat-go/internal/modules/providers"
 	archiveprovider "jiyi/mochat-go/internal/modules/providers/archive"
-	archivesourcefixture "jiyi/mochat-go/internal/testfixtures/archivesource"
+	"jiyi/mochat-go/internal/sqlscript"
 )
 
 func TestArchiveSourceMigrationContainsLegacySimulationBackfillContract(t *testing.T) {
@@ -40,10 +40,11 @@ func TestArchiveSourceMigrationContainsLegacySimulationBackfillContract(t *testi
 }
 
 func TestArchiveSourceMigrationBackfillsLegacySimulationRowsOnTemporaryMariaDB(t *testing.T) {
-	db := newDashboardAdminProvisioningDB(t)
-	createArchiveSyncCorpFixture(t, db)
-	executeArchiveMigrationFile(t, db, "0133_archive_simulation_registry.up.sql")
-	defer executeArchiveMigrationFile(t, db, "0133_archive_simulation_registry.down.sql")
+	db := newStoreIntegrationDBThrough(t, "0132_company_settings_credentials")
+	seedCurrentArchiveSyncCorpFixture(t, db)
+	if _, err := newStoreMigrationRunnerThrough(t, db, "0133_archive_simulation_registry").Apply(context.Background()); err != nil {
+		t.Fatalf("apply production registry through 0133: %v", err)
+	}
 	if _, err := db.Exec(`INSERT INTO mochat_go_archive_simulation_batches (corp_id,batch_key,status,message_count) VALUES (27,'legacy-backfill','complete',1)`); err != nil {
 		t.Fatal(err)
 	}
@@ -54,8 +55,9 @@ func TestArchiveSourceMigrationBackfillsLegacySimulationRowsOnTemporaryMariaDB(t
 	if _, err := db.Exec(`INSERT INTO mochat_go_archive_simulation_messages (batch_id,corp_id,msgid,table_index) VALUES (?,?,?,1)`, batchID, 27, "legacy-backfill-msg"); err != nil {
 		t.Fatal(err)
 	}
-	executeArchiveMigrationFile(t, db, "0138_archive_source_sync.up.sql")
-	defer executeArchiveMigrationFile(t, db, "0138_archive_source_sync.down.sql")
+	if _, err := newStoreMigrationRunnerThrough(t, db, "0138_archive_source_sync").Apply(context.Background()); err != nil {
+		t.Fatalf("apply production registry through 0138: %v", err)
+	}
 	var runs, sources int
 	if err := db.QueryRow(`SELECT COUNT(*) FROM mochat_go_archive_sync_runs WHERE tenant_id=11 AND corp_id=27 AND source_kind='simulated' AND source_id='simulation:legacy-backfill' AND namespace='MOCHAT-SIM:legacy-backfill' AND status='succeeded'`).Scan(&runs); err != nil {
 		t.Fatal(err)
@@ -69,12 +71,8 @@ func TestArchiveSourceMigrationBackfillsLegacySimulationRowsOnTemporaryMariaDB(t
 }
 
 func TestArchiveSyncStoreUsesTemporarySchemaForLifecycleAndTenantIsolation(t *testing.T) {
-	db := newDashboardAdminProvisioningDB(t)
-	createArchiveSyncCorpFixture(t, db)
-	executeArchiveMigrationFile(t, db, "0138_archive_source_sync.up.sql")
-	t.Cleanup(func() {
-		executeArchiveMigrationFile(t, db, "0138_archive_source_sync.down.sql")
-	})
+	db := newCurrentStoreIntegrationDB(t)
+	seedCurrentArchiveSyncCorpFixture(t, db)
 
 	store := NewMySQLStore(db)
 	run, err := store.EnqueueArchiveSync(context.Background(), archiveprovider.SyncRun{
@@ -130,22 +128,16 @@ func TestArchiveSyncStoreUsesTemporarySchemaForLifecycleAndTenantIsolation(t *te
 }
 
 func TestArchiveSourceStatusUsesCurrentCorpArchiveMode(t *testing.T) {
-	db := newDashboardAdminProvisioningDB(t)
-	createArchiveSyncCorpFixture(t, db)
-	executeArchiveMigrationFile(t, db, "0133_archive_simulation_registry.up.sql")
-	t.Cleanup(func() { executeArchiveMigrationFile(t, db, "0133_archive_simulation_registry.down.sql") })
+	db := newCurrentStoreIntegrationDB(t)
+	seedCurrentArchiveSyncCorpFixture(t, db)
 	if _, err := db.Exec(`INSERT INTO mochat_go_archive_simulation_batches (corp_id,batch_key,status,message_count) VALUES (27,'status-mode','complete',1)`); err != nil {
-		t.Fatal(err)
-	}
-	executeArchiveMigrationFile(t, db, "0138_archive_source_sync.up.sql")
-	t.Cleanup(func() { executeArchiveMigrationFile(t, db, "0138_archive_source_sync.down.sql") })
-	if _, err := db.Exec(`UPDATE mochat_go_archive_sync_runs SET updated_at='2026-08-14 09:00:00.000000', finished_at='2026-08-14 09:00:00.000000' WHERE tenant_id=11 AND corp_id=27 AND source_kind='simulated' AND source_id='simulation:status-mode'`); err != nil {
 		t.Fatal(err)
 	}
 	for _, run := range []struct {
 		sourceKind, sourceID, namespace, idempotency, status, errorCode string
 		updatedAt                                                       string
 	}{
+		{"simulated", "simulation:status-mode", "MOCHAT-SIM:status-mode", "status-simulated-old", "succeeded", "", "2026-08-14 09:00:00.000000"},
 		{"external", "wecom", "wecom", "status-external", "succeeded", "", "2026-08-14 10:00:00.000000"},
 		{"simulated", "simulation:status-mode-new", "MOCHAT-SIM:status-mode-new", "status-simulated", "failed", "archive.simulation_fixture_failed", "2026-08-14 11:00:00.000000"},
 	} {
@@ -176,10 +168,8 @@ func TestArchiveSourceStatusUsesCurrentCorpArchiveMode(t *testing.T) {
 }
 
 func TestArchiveSyncStaleRunningRunIsTakenOverWithAudit(t *testing.T) {
-	db := newDashboardAdminProvisioningDB(t)
-	createArchiveSyncCorpFixture(t, db)
-	executeArchiveMigrationFile(t, db, "0138_archive_source_sync.up.sql")
-	defer executeArchiveMigrationFile(t, db, "0138_archive_source_sync.down.sql")
+	db := newCurrentStoreIntegrationDB(t)
+	seedCurrentArchiveSyncCorpFixture(t, db)
 	store := NewMySQLStore(db)
 	template := archiveprovider.SyncRun{
 		Scope: archiveprovider.Scope{TenantID: 11, CorpID: 27}, Source: providers.SourceSimulated,
@@ -210,10 +200,8 @@ func TestArchiveSyncStaleRunningRunIsTakenOverWithAudit(t *testing.T) {
 }
 
 func TestArchiveSyncConcurrentFirstEnqueueRereadsDuplicateRun(t *testing.T) {
-	db := newDashboardAdminProvisioningDB(t)
-	createArchiveSyncCorpFixture(t, db)
-	executeArchiveMigrationFile(t, db, "0138_archive_source_sync.up.sql")
-	defer executeArchiveMigrationFile(t, db, "0138_archive_source_sync.down.sql")
+	db := newCurrentStoreIntegrationDB(t)
+	seedCurrentArchiveSyncCorpFixture(t, db)
 	store := NewMySQLStore(db)
 	template := archiveprovider.SyncRun{
 		Scope: archiveprovider.Scope{TenantID: 11, CorpID: 27}, Source: providers.SourceSimulated,
@@ -256,10 +244,8 @@ func TestArchiveSyncConcurrentFirstEnqueueRereadsDuplicateRun(t *testing.T) {
 }
 
 func TestArchiveSyncEnqueueRejectsNamespaceMismatchWithoutMutation(t *testing.T) {
-	db := newDashboardAdminProvisioningDB(t)
-	createArchiveSyncCorpFixture(t, db)
-	executeArchiveMigrationFile(t, db, "0138_archive_source_sync.up.sql")
-	defer executeArchiveMigrationFile(t, db, "0138_archive_source_sync.down.sql")
+	db := newCurrentStoreIntegrationDB(t)
+	seedCurrentArchiveSyncCorpFixture(t, db)
 	store := NewMySQLStore(db)
 	base := archiveprovider.SyncRun{
 		Scope: archiveprovider.Scope{TenantID: 11, CorpID: 27}, Source: providers.SourceSimulated,
@@ -287,7 +273,7 @@ func TestArchiveSyncEnqueueRejectsNamespaceMismatchWithoutMutation(t *testing.T)
 }
 
 func TestArchiveSyncMigrationRejectsIncompleteResidualTable(t *testing.T) {
-	db := newDashboardAdminProvisioningDB(t)
+	db := newArchiveSyncProbeDB(t)
 	if _, err := db.Exec(`CREATE TABLE mochat_go_archive_sync_runs (id BIGINT UNSIGNED NOT NULL PRIMARY KEY) ENGINE=InnoDB`); err != nil {
 		t.Fatal(err)
 	}
@@ -301,8 +287,7 @@ func TestArchiveSyncMigrationRejectsIncompleteResidualTable(t *testing.T) {
 }
 
 func TestArchiveSyncMigrationRejectsSingleFactorIdempotencyKeyTypeMismatch(t *testing.T) {
-	db := newDashboardAdminProvisioningDB(t)
-	createArchiveSyncCorpFixture(t, db)
+	db := newArchiveSyncProbeDB(t)
 	executeArchiveMigrationFile(t, db, "0138_archive_source_sync.up.sql")
 	if _, err := db.Exec(`ALTER TABLE mochat_go_archive_sync_runs MODIFY idempotency_key VARCHAR(1) NOT NULL`); err != nil {
 		t.Fatal(err)
@@ -680,8 +665,7 @@ func TestArchiveSyncColumnDefaultNormalization(t *testing.T) {
 }
 
 func TestArchiveSyncMigrationRejectsWrongCompositeSourceForeignKey(t *testing.T) {
-	db := newDashboardAdminProvisioningDB(t)
-	createArchiveSyncCorpFixture(t, db)
+	db := newArchiveSyncProbeDB(t)
 	executeArchiveMigrationFile(t, db, "0138_archive_source_sync.up.sql")
 	if _, err := db.Exec("DROP TABLE mochat_go_archive_message_sources"); err != nil {
 		t.Fatal(err)
@@ -707,8 +691,7 @@ func TestArchiveSyncMigrationRejectsWrongCompositeSourceForeignKey(t *testing.T)
 }
 
 func TestArchiveSyncMigrationRejectsNonUniqueResidualScopeIndex(t *testing.T) {
-	db := newDashboardAdminProvisioningDB(t)
-	createArchiveSyncCorpFixture(t, db)
+	db := newArchiveSyncProbeDB(t)
 	executeArchiveMigrationFile(t, db, "0138_archive_source_sync.up.sql")
 	if _, err := db.Exec("DROP TABLE mochat_go_archive_message_sources"); err != nil {
 		t.Fatal(err)
@@ -735,8 +718,7 @@ func TestArchiveSyncMigrationRejectsNonUniqueResidualScopeIndex(t *testing.T) {
 }
 
 func TestArchiveSyncMigrationRejectsPrefixedResidualScopeIndex(t *testing.T) {
-	db := newDashboardAdminProvisioningDB(t)
-	createArchiveSyncCorpFixture(t, db)
+	db := newArchiveSyncProbeDB(t)
 	executeArchiveMigrationFile(t, db, "0138_archive_source_sync.up.sql")
 	if _, err := db.Exec("DROP TABLE mochat_go_archive_message_sources"); err != nil {
 		t.Fatal(err)
@@ -763,8 +745,7 @@ func TestArchiveSyncMigrationRejectsPrefixedResidualScopeIndex(t *testing.T) {
 }
 
 func TestArchiveSyncMigrationRejectsWrongAuditScopeIndex(t *testing.T) {
-	db := newDashboardAdminProvisioningDB(t)
-	createArchiveSyncCorpFixture(t, db)
+	db := newArchiveSyncProbeDB(t)
 	executeArchiveMigrationFile(t, db, "0138_archive_source_sync.up.sql")
 	if _, err := db.Exec("DROP TABLE mochat_go_archive_sync_audits"); err != nil {
 		t.Fatal(err)
@@ -794,12 +775,18 @@ func TestArchiveSyncMigrationRejectsWrongAuditScopeIndex(t *testing.T) {
 }
 
 func TestArchiveSyncMigrationApplyDownApplyAndRejectsCrossTenantRun(t *testing.T) {
-	db := newDashboardAdminProvisioningDB(t)
-	createArchiveSyncCorpFixture(t, db)
-	executeArchiveMigrationFile(t, db, "0138_archive_source_sync.up.sql")
-	executeArchiveMigrationFile(t, db, "0138_archive_source_sync.down.sql")
-	executeArchiveMigrationFile(t, db, "0138_archive_source_sync.up.sql")
-	defer executeArchiveMigrationFile(t, db, "0138_archive_source_sync.down.sql")
+	db := newStoreIntegrationDBThrough(t, "0137_reconcile_ai_settings_schema")
+	seedCurrentArchiveSyncCorpFixture(t, db)
+	runner := newStoreMigrationRunnerThrough(t, db, "0138_archive_source_sync")
+	if _, err := runner.Apply(context.Background()); err != nil {
+		t.Fatalf("apply production 0138 migration: %v", err)
+	}
+	if _, err := runner.RollbackLast(context.Background()); err != nil {
+		t.Fatalf("roll back production 0138 migration: %v", err)
+	}
+	if _, err := runner.Apply(context.Background()); err != nil {
+		t.Fatalf("reapply production 0138 migration: %v", err)
+	}
 
 	_, err := db.Exec(`INSERT INTO mochat_go_archive_sync_runs
 		(tenant_id, corp_id, source_kind, source_id, namespace, idempotency_key, status)
@@ -826,13 +813,8 @@ func TestArchiveSyncMigrationApplyDownApplyAndRejectsCrossTenantRun(t *testing.T
 }
 
 func TestArchiveSyncUpsertValidatesRunScopeAndRollsBackSourceFailure(t *testing.T) {
-	db := newDashboardAdminProvisioningDB(t)
-	createArchiveSyncCorpFixture(t, db)
-	executeArchiveMigrationFile(t, db, "0138_archive_source_sync.up.sql")
-	defer executeArchiveMigrationFile(t, db, "0138_archive_source_sync.down.sql")
-	executeArchiveMigrationFile(t, db, "0143_group_conversation_workspace.up.sql")
-	defer executeArchiveMigrationFile(t, db, "0143_group_conversation_workspace.down.sql")
-	createArchiveMessageUpsertFixture(t, db)
+	db := newCurrentStoreIntegrationDB(t)
+	seedCurrentArchiveMessageFixture(t, db)
 
 	ctx := context.Background()
 	store := NewMySQLStore(db)
@@ -881,13 +863,8 @@ func TestArchiveSyncUpsertValidatesRunScopeAndRollsBackSourceFailure(t *testing.
 }
 
 func TestArchiveSyncLeaseFenceRejectsStaleWorkerMutations(t *testing.T) {
-	db := newDashboardAdminProvisioningDB(t)
-	createArchiveSyncCorpFixture(t, db)
-	executeArchiveMigrationFile(t, db, "0138_archive_source_sync.up.sql")
-	defer executeArchiveMigrationFile(t, db, "0138_archive_source_sync.down.sql")
-	executeArchiveMigrationFile(t, db, "0143_group_conversation_workspace.up.sql")
-	defer executeArchiveMigrationFile(t, db, "0143_group_conversation_workspace.down.sql")
-	createArchiveMessageUpsertFixture(t, db)
+	db := newCurrentStoreIntegrationDB(t)
+	seedCurrentArchiveMessageFixture(t, db)
 	store := NewMySQLStore(db)
 	ctx := context.Background()
 	template := archiveprovider.SyncRun{Scope: archiveprovider.Scope{TenantID: 11, CorpID: 27}, Source: providers.SourceSimulated, SourceID: "simulation:fence", Namespace: "MOCHAT-SIM:fence", IdempotencyKey: "fence-1"}
@@ -937,13 +914,8 @@ func TestArchiveSyncLeaseFenceRejectsStaleWorkerMutations(t *testing.T) {
 }
 
 func TestArchiveSyncConcurrentDifferentRunsClaimOneMessageIdentity(t *testing.T) {
-	db := newDashboardAdminProvisioningDB(t)
-	createArchiveSyncCorpFixture(t, db)
-	executeArchiveMigrationFile(t, db, "0138_archive_source_sync.up.sql")
-	defer executeArchiveMigrationFile(t, db, "0138_archive_source_sync.down.sql")
-	executeArchiveMigrationFile(t, db, "0143_group_conversation_workspace.up.sql")
-	defer executeArchiveMigrationFile(t, db, "0143_group_conversation_workspace.down.sql")
-	createArchiveMessageUpsertFixture(t, db)
+	db := newCurrentStoreIntegrationDB(t)
+	seedCurrentArchiveMessageFixture(t, db)
 	store := NewMySQLStore(db)
 	ctx := context.Background()
 	base := archiveprovider.SyncRun{Scope: archiveprovider.Scope{TenantID: 11, CorpID: 27}, Source: providers.SourceSimulated, SourceID: "simulation:claim", Namespace: "MOCHAT-SIM:claim"}
@@ -1005,25 +977,25 @@ func TestArchiveSyncConcurrentDifferentRunsClaimOneMessageIdentity(t *testing.T)
 	}
 }
 
-func createArchiveMessageUpsertFixture(t *testing.T, db *sql.DB) {
+func seedCurrentArchiveMessageFixture(t *testing.T, db *sql.DB) {
 	t.Helper()
-	for index := 1; index <= 10; index++ {
-		if _, err := db.Exec(fmt.Sprintf(`CREATE TABLE mc_work_message_%d (
-			id INT UNSIGNED NOT NULL AUTO_INCREMENT, corp_id INT UNSIGNED NOT NULL, msgid VARCHAR(255) NOT NULL,
-			seq BIGINT NOT NULL, work_employee_id INT NOT NULL, to_user_type INT NOT NULL, to_user_id INT NOT NULL,
-			sender_type INT NOT NULL, action INT NOT NULL, type INT NOT NULL, msg_type INT NOT NULL,
-			content TEXT NOT NULL, content_text TEXT NOT NULL, room_id INT NOT NULL DEFAULT 0, status INT NOT NULL DEFAULT 0,
-			msg_data_time DATETIME NULL, created_at DATETIME NULL, updated_at DATETIME NULL, deleted_at DATETIME NULL,
-			PRIMARY KEY (id), KEY idx_archive_fixture_msg (corp_id, msgid)
-		) ENGINE=InnoDB`, index)); err != nil {
+	seedCurrentArchiveSyncCorpFixture(t, db)
+	for _, statement := range []string{
+		`INSERT INTO mc_work_employee (id,corp_id,wx_user_id,name) VALUES (1001,27,'employee-atomic','Atomic employee')`,
+		`INSERT INTO mc_work_contact (id,corp_id,wx_external_userid,name) VALUES (2001,27,'contact-atomic','Atomic contact')`,
+	} {
+		if _, err := db.Exec(statement); err != nil {
 			t.Fatal(err)
 		}
 	}
+}
+
+func seedCurrentArchiveSyncCorpFixture(t *testing.T, db *sql.DB) {
+	t.Helper()
 	for _, statement := range []string{
-		`CREATE TABLE mc_work_employee (id INT UNSIGNED NOT NULL AUTO_INCREMENT, corp_id INT UNSIGNED NOT NULL, wx_user_id VARCHAR(255) NOT NULL, name VARCHAR(255) NOT NULL DEFAULT '', avatar VARCHAR(255) NOT NULL DEFAULT '', deleted_at DATETIME NULL, PRIMARY KEY (id), KEY idx_archive_fixture_employee (corp_id, wx_user_id)) ENGINE=InnoDB`,
-		`CREATE TABLE mc_work_contact (id INT UNSIGNED NOT NULL AUTO_INCREMENT, corp_id INT UNSIGNED NOT NULL, wx_external_userid VARCHAR(255) NOT NULL, name VARCHAR(255) NOT NULL DEFAULT '', avatar VARCHAR(255) NOT NULL DEFAULT '', deleted_at DATETIME NULL, PRIMARY KEY (id), KEY idx_archive_fixture_contact (corp_id, wx_external_userid)) ENGINE=InnoDB`,
-		`INSERT INTO mc_work_employee (id, corp_id, wx_user_id, name) VALUES (1001, 27, 'employee-atomic', 'Atomic employee')`,
-		`INSERT INTO mc_work_contact (id, corp_id, wx_external_userid, name) VALUES (2001, 27, 'contact-atomic', 'Atomic contact')`,
+		`INSERT INTO mc_tenant (id,name,status) VALUES (11,'Archive sync tenant',1)`,
+		`INSERT INTO mc_corp (id,tenant_id,name,chat_status) VALUES (27,11,'Archive sync corp',1)`,
+		`INSERT INTO mochat_go_tenant_corp_bindings (tenant_id,corp_id,status,version) VALUES (11,27,1,1)`,
 	} {
 		if _, err := db.Exec(statement); err != nil {
 			t.Fatal(err)
@@ -1045,19 +1017,11 @@ func assertArchiveMessageWriteCounts(t *testing.T, db *sql.DB, msgID string, wan
 	}
 }
 
-func createArchiveSyncCorpFixture(t *testing.T, db *sql.DB) {
+func newArchiveSyncProbeDB(t *testing.T) *sql.DB {
 	t.Helper()
-	for _, statement := range []string{
-		`CREATE TABLE mc_corp (id INT(10) UNSIGNED NOT NULL AUTO_INCREMENT, tenant_id INT(10) UNSIGNED NOT NULL, chat_status TINYINT NOT NULL DEFAULT 1, deleted_at DATETIME NULL, PRIMARY KEY (id), UNIQUE KEY uni_mc_corp_tenant_id_id (tenant_id, id)) ENGINE=InnoDB`,
-		`INSERT INTO mc_corp (id, tenant_id, deleted_at) VALUES (27, 11, NULL)`,
-	} {
-		if _, err := db.Exec(statement); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := archivesourcefixture.PrepareDashboardPermissionDependencies(context.Background(), db); err != nil {
-		t.Fatalf("0127 dashboard permission fixture: %v", err)
-	}
+	db := newStoreIntegrationDBThrough(t, "0137_reconcile_ai_settings_schema")
+	seedCurrentArchiveSyncCorpFixture(t, db)
+	return db
 }
 
 func executeArchiveMigrationFile(t *testing.T, db *sql.DB, name string) {
@@ -1083,7 +1047,7 @@ func executeArchiveMigrationFileErr(db *sql.DB, name string) error {
 	}
 	defer conn.Close()
 	for _, statement := range statements {
-		if _, err := conn.ExecContext(context.Background(), statement); err != nil {
+		if err := sqlscript.ExecuteStatement(context.Background(), conn, statement); err != nil {
 			return err
 		}
 	}

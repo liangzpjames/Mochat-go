@@ -13,6 +13,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"jiyi/mochat-go/internal/sqlscript"
 )
 
 const VersionTable = "mochat_go_schema_migrations"
@@ -155,6 +157,12 @@ func (r *Runner) Apply(ctx context.Context) ([]StatusItem, error) {
 				item.State = "checksum_mismatch"
 				return append(result, item), fmt.Errorf("migration %s checksum mismatch: applied=%s current=%s", migration.Version, existing.Checksum, checksum)
 			}
+			if migration.Kind == MigrationControlled {
+				if err := controlledMigrationBaselineEvidence(ctx, r.db, migration, checksum); err != nil {
+					item.State = "controlled_incomplete"
+					return append(result, item), err
+				}
+			}
 			result = append(result, item)
 			continue
 		}
@@ -185,8 +193,34 @@ func (r *Runner) Status(ctx context.Context) ([]StatusItem, error) {
 	if err != nil {
 		return nil, err
 	}
+	return r.statusItems(ctx, applied)
+}
+
+// StatusReadOnly inspects migration state without creating or changing the
+// ledger. A missing ledger is an unambiguous pending state for readiness.
+func (r *Runner) StatusReadOnly(ctx context.Context) ([]StatusItem, error) {
+	count, err := r.informationSchemaTableCount(ctx, []string{VersionTable})
+	if err != nil {
+		return nil, err
+	}
+	if count > 1 {
+		return nil, fmt.Errorf("inspect %s returned invalid table count %d", VersionTable, count)
+	}
+	applied := map[string]AppliedMigration{}
+	if count == 1 {
+		applied, err = r.applied(ctx)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return r.statusItems(ctx, applied)
+}
+
+func (r *Runner) statusItems(ctx context.Context, applied map[string]AppliedMigration) ([]StatusItem, error) {
 	result := make([]StatusItem, 0, len(r.migrations))
+	known := make(map[string]struct{}, len(r.migrations))
 	for _, migration := range r.migrations {
+		known[migration.Version] = struct{}{}
 		_, checksum, err := migrationBodyAndChecksum(migration)
 		if err != nil {
 			return nil, err
@@ -201,9 +235,30 @@ func (r *Runner) Status(ctx context.Context) ([]StatusItem, error) {
 			item.State = "applied"
 			if !checksumMatches(existing.Checksum, checksum, migration.ChecksumAliases) {
 				item.State = "checksum_mismatch"
+			} else if migration.Kind == MigrationControlled {
+				if err := controlledMigrationBaselineEvidence(ctx, r.db, migration, checksum); err != nil {
+					item.State = "controlled_incomplete"
+					return append(result, item), err
+				}
 			}
 		}
 		result = append(result, item)
+	}
+	unknown := make([]string, 0)
+	for version := range applied {
+		if _, ok := known[version]; !ok {
+			unknown = append(unknown, version)
+		}
+	}
+	sort.Strings(unknown)
+	for _, version := range unknown {
+		existing := applied[version]
+		result = append(result, StatusItem{
+			Migration: Migration{Version: existing.Version, Description: existing.Description},
+			Checksum:  existing.Checksum,
+			Applied:   &existing,
+			State:     "database_ahead",
+		})
 	}
 	return result, nil
 }
@@ -270,12 +325,24 @@ func (r *Runner) baseline(ctx context.Context, throughVersion string) ([]StatusI
 				item.State = "checksum_mismatch"
 				return append(result, item), fmt.Errorf("migration %s checksum mismatch: applied=%s current=%s", migration.Version, existing.Checksum, checksum)
 			}
+			if migration.Kind == MigrationControlled {
+				if err := controlledMigrationBaselineEvidence(ctx, r.db, migration, checksum); err != nil {
+					item.State = "controlled_incomplete"
+					return append(result, item), err
+				}
+			}
 			result = append(result, item)
 			continue
 		}
 		if migration.Kind == MigrationControlled {
-			blockedErr = ControlledMigrationBlocked(migration.Version)
-			break
+			if throughVersion != "" {
+				blockedErr = ControlledMigrationBlocked(migration.Version)
+				break
+			}
+			if err := controlledMigrationBaselineEvidence(ctx, r.db, migration, checksum); err != nil {
+				blockedErr = err
+				break
+			}
 		}
 		pending = append(pending, pendingRecord{migration: migration, checksum: checksum})
 		appliedItem := AppliedMigration{
@@ -391,6 +458,27 @@ func (r *Runner) execMigrationScript(ctx context.Context, migration Migration, b
 		return 0, fmt.Errorf("pin migration connection %s: %w", migration.Version, err)
 	}
 	defer conn.Close()
+	body = runtimeCompatibleMigrationBody(migration.Version, body)
+	if automaticMigrationNeedsServerDetection(body) {
+		var serverVersion string
+		if err := conn.QueryRowContext(ctx, "SELECT VERSION()").Scan(&serverVersion); err != nil {
+			return 0, fmt.Errorf("read database version for %s: %w", migration.Version, err)
+		}
+		if strings.HasPrefix(strings.TrimSpace(serverVersion), "5.7.") {
+			start := r.currentTime()
+			if err := execSQLScriptMySQL57(ctx, conn, body); err != nil {
+				return 0, err
+			}
+			executionMS := int(r.currentTime().Sub(start).Milliseconds())
+			if executionMS < 0 {
+				executionMS = 0
+			}
+			if err := recordAppliedWith(ctx, conn, migration, checksum, executionMS); err != nil {
+				return 0, err
+			}
+			return executionMS, nil
+		}
+	}
 	start := r.currentTime()
 	if err := execSQLScriptWithExecutor(ctx, conn, body); err != nil {
 		return 0, err
@@ -405,17 +493,181 @@ func (r *Runner) execMigrationScript(ctx context.Context, migration Migration, b
 	return executionMS, nil
 }
 
+func runtimeCompatibleMigrationBody(version, body string) string {
+	if version == "0152_group_code_direct_join" {
+		return strings.ReplaceAll(body, "ADD COLUMN `", "ADD COLUMN IF NOT EXISTS `")
+	}
+	return body
+}
+
 func (r *Runner) execRollbackScript(ctx context.Context, migration Migration, body string) error {
 	conn, err := r.db.Conn(ctx)
 	if err != nil {
 		return fmt.Errorf("pin rollback connection %s: %w", migration.Version, err)
 	}
 	defer conn.Close()
+	if automaticMigrationNeedsServerDetection(body) {
+		var serverVersion string
+		if err := conn.QueryRowContext(ctx, "SELECT VERSION()").Scan(&serverVersion); err != nil {
+			return fmt.Errorf("read database version for rollback %s: %w", migration.Version, err)
+		}
+		if strings.HasPrefix(strings.TrimSpace(serverVersion), "5.7.") {
+			if err := execSQLScriptMySQL57(ctx, conn, body); err != nil {
+				return err
+			}
+			_, err = conn.ExecContext(ctx, `DELETE FROM `+VersionTable+` WHERE version = ?`, migration.Version)
+			return err
+		}
+	}
 	if err := execSQLScriptWithExecutor(ctx, conn, body); err != nil {
 		return err
 	}
 	_, err = conn.ExecContext(ctx, `DELETE FROM `+VersionTable+` WHERE version = ?`, migration.Version)
 	return err
+}
+
+func automaticMigrationNeedsServerDetection(body string) bool {
+	return strings.Contains(body, "ADD COLUMN IF NOT EXISTS") || strings.Contains(body, "ADD UNIQUE KEY IF NOT EXISTS") ||
+		strings.Contains(body, "ADD INDEX IF NOT EXISTS") || strings.Contains(body, "ADD KEY IF NOT EXISTS") ||
+		strings.Contains(body, "DROP COLUMN IF EXISTS") || strings.Contains(body, "DROP INDEX IF EXISTS")
+}
+
+type migrationQueryExecer interface {
+	migrationExecer
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}
+
+func execSQLScriptMySQL57(ctx context.Context, execer migrationQueryExecer, script string) error {
+	statements, err := SplitSQLStatements(script)
+	if err != nil {
+		return err
+	}
+	for _, statement := range statements {
+		compatible, err := mysql57ConditionalAlterStatement(ctx, execer, statement)
+		if err != nil {
+			return err
+		}
+		if strings.TrimSpace(compatible) == "" {
+			continue
+		}
+		if err := sqlscript.ExecuteStatement(ctx, execer, compatible); err != nil {
+			return fmt.Errorf("%s: %w", compactStatement(compatible), err)
+		}
+	}
+	return nil
+}
+
+func mysql57ConditionalAlterStatement(ctx context.Context, queryer migrationQueryExecer, statement string) (string, error) {
+	trimmed := strings.TrimSpace(statement)
+	if !strings.HasPrefix(strings.ToUpper(trimmed), "ALTER TABLE ") || !automaticMigrationNeedsServerDetection(trimmed) {
+		return statement, nil
+	}
+	rest := strings.TrimSpace(trimmed[len("ALTER TABLE "):])
+	tableToken, clausesBody := firstSQLToken(rest)
+	tableName := strings.Trim(tableToken, "`")
+	if tableName == "" || strings.TrimSpace(clausesBody) == "" {
+		return "", errors.New("invalid conditional ALTER TABLE statement")
+	}
+	clauses := splitSQLTopLevelCommas(clausesBody)
+	kept := make([]string, 0, len(clauses))
+	for _, clause := range clauses {
+		compatible, keep, err := mysql57ConditionalAlterClause(ctx, queryer, tableName, clause)
+		if err != nil {
+			return "", err
+		}
+		if keep {
+			kept = append(kept, compatible)
+		}
+	}
+	if len(kept) == 0 {
+		return "", nil
+	}
+	return "ALTER TABLE " + tableToken + "\n  " + strings.Join(kept, ",\n  "), nil
+}
+
+func mysql57ConditionalAlterClause(ctx context.Context, queryer migrationQueryExecer, tableName, clause string) (string, bool, error) {
+	trimmed := strings.TrimSpace(clause)
+	upper := strings.ToUpper(trimmed)
+	type conditional struct {
+		prefix, replacement, catalog string
+		add                          bool
+	}
+	conditions := []conditional{
+		{"ADD COLUMN IF NOT EXISTS ", "ADD COLUMN ", "COLUMNS", true},
+		{"ADD UNIQUE INDEX IF NOT EXISTS ", "ADD UNIQUE INDEX ", "STATISTICS", true},
+		{"ADD UNIQUE KEY IF NOT EXISTS ", "ADD UNIQUE KEY ", "STATISTICS", true},
+		{"ADD INDEX IF NOT EXISTS ", "ADD INDEX ", "STATISTICS", true},
+		{"ADD KEY IF NOT EXISTS ", "ADD KEY ", "STATISTICS", true},
+		{"DROP COLUMN IF EXISTS ", "DROP COLUMN ", "COLUMNS", false},
+		{"DROP INDEX IF EXISTS ", "DROP INDEX ", "STATISTICS", false},
+	}
+	for _, condition := range conditions {
+		if !strings.HasPrefix(upper, condition.prefix) {
+			continue
+		}
+		identifier, _ := firstSQLToken(strings.TrimSpace(trimmed[len(condition.prefix):]))
+		identifier = strings.Trim(identifier, "`")
+		column := "COLUMN_NAME"
+		if condition.catalog == "STATISTICS" {
+			column = "INDEX_NAME"
+		}
+		var count int
+		query := "SELECT COUNT(*) FROM information_schema." + condition.catalog + " WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=? AND " + column + "=?"
+		if err := queryer.QueryRowContext(ctx, query, tableName, identifier).Scan(&count); err != nil {
+			return "", false, err
+		}
+		if (condition.add && count > 0) || (!condition.add && count == 0) {
+			return "", false, nil
+		}
+		return condition.replacement + strings.TrimSpace(trimmed[len(condition.prefix):]), true, nil
+	}
+	return trimmed, true, nil
+}
+
+func firstSQLToken(value string) (string, string) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "", ""
+	}
+	if value[0] == '`' {
+		if end := strings.Index(value[1:], "`"); end >= 0 {
+			end++
+			return value[:end+1], strings.TrimSpace(value[end+1:])
+		}
+	}
+	if end := strings.IndexAny(value, " \t\r\n"); end >= 0 {
+		return value[:end], strings.TrimSpace(value[end:])
+	}
+	return value, ""
+}
+
+func splitSQLTopLevelCommas(value string) []string {
+	var result []string
+	start, depth := 0, 0
+	var quote byte
+	for i := 0; i < len(value); i++ {
+		current := value[i]
+		if quote != 0 {
+			if current == quote && (i == 0 || value[i-1] != '\\') {
+				quote = 0
+			}
+			continue
+		}
+		if current == '\'' || current == '"' || current == '`' {
+			quote = current
+			continue
+		}
+		if current == '(' {
+			depth++
+		} else if current == ')' && depth > 0 {
+			depth--
+		} else if current == ',' && depth == 0 {
+			result = append(result, strings.TrimSpace(value[start:i]))
+			start = i + 1
+		}
+	}
+	result = append(result, strings.TrimSpace(value[start:]))
+	return result
 }
 
 type migrationExecer interface {
@@ -821,13 +1073,13 @@ func execSQLScript(ctx context.Context, db *sql.DB, script string) error {
 	return execSQLScriptWithExecutor(ctx, conn, script)
 }
 
-func execSQLScriptWithExecutor(ctx context.Context, execer migrationExecer, script string) error {
+func execSQLScriptWithExecutor(ctx context.Context, execer migrationQueryExecer, script string) error {
 	statements, err := SplitSQLStatements(script)
 	if err != nil {
 		return err
 	}
 	for _, statement := range statements {
-		if _, err := execer.ExecContext(ctx, statement); err != nil {
+		if err := sqlscript.ExecuteStatement(ctx, execer, statement); err != nil {
 			return fmt.Errorf("%s: %w", compactStatement(statement), err)
 		}
 	}

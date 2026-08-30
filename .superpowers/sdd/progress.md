@@ -27,3 +27,15 @@ Task 9: complete (commits b0dc60b + 13f7969 + cb2cd80, review PASS; target Vites
 Task 10: complete (commits 8787fa7 + d2b60ee, review PASS; target Vitest 26/26 and ESLint pass)
 Task 11: complete (commit 42eb452, independent review PASS; style contract 3/3 pass)
 Task 12: in_progress (Docker/browser acceptance, Chinese implementation document, final verification)
+
+Plan: docs/superpowers/plans/2026-08-29-p0-local-production-readiness.zh-CN.md
+
+Task 1: complete (commit 22445e1, spec and quality review clean; parent Go and scheduler contract verification pass)
+Task 2: complete (commits b7f1a2e + 55fb4ef + 7491b72, two review fix rounds then clean; parent package and Compose verification pass; real Provider SKIP)
+Task 3: complete (commits 923c639 + 872719f + c453197 + a77e35f + aae8f62, five review rounds then approved; parent focused packages pass; real Provider and race SKIP)
+Task 4: complete (commits a54ba1b + 0382b07 + c33c1c7 + 8f8cc14 + e771640 + 229743a + 289558a, six review rounds then approved; parent Windows focused and Linux race pass; real controlled migration and Docker SKIP)
+Task 5: complete (commits 18fe290 + 9621ebf, one review fix round then approved; parent focused Go and front-end pass; MariaDB 10.6 and MySQL 5.7 integration pass)
+Task 6: complete (commits 71fdb36 + 266e2f9 + ccce3e9 + 6d80886 + e490f51 + 446f8c1, four review rounds then approved; MariaDB risk/keyword integration and repeated concurrency pass)
+Task 7: complete (commits 710f94c + 126b7a0 + 5982657 + c2acfbe + 348245a + 50bf187, runtime-derived gates and migration inventory; all nine target gates and MySQL 5.7 full lifecycle pass)
+Task 8: complete (commits 4dc19ca + 1498093, controlled 0165 and pinned supply-chain inputs; govulncheck and pnpm audit report no reachable/high vulnerabilities)
+Task 9: complete (exact-SHA image 95c26a0 and four-surface runtime/browser acceptance pass; Redis/MySQL readiness degradation and recovery pass; graceful exit 0; final cumulative review found callback external side-effect replay gap; commits 688407b + 8de6477 + f0c5bed added 0174 durable intent/unknown/sent and closed three review rounds; MariaDB/MySQL57/race/full Go pass; final independent review APPROVED; historical broad store/migration integration fixture FAIL documented; real Provider/AI/production/signing/reconcile API SKIP)

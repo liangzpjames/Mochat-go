@@ -5,17 +5,12 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/go-sql-driver/mysql"
-
 	"jiyi/mochat-go/internal/companyprofile"
 	"jiyi/mochat-go/internal/dashboardprincipal"
-	"jiyi/mochat-go/internal/migration"
 	"jiyi/mochat-go/internal/wecomcapability"
 )
 
@@ -27,60 +22,8 @@ type capabilityDispatchIntegrationHarness struct {
 
 func newCapabilityDispatchIntegrationHarness(t *testing.T) *capabilityDispatchIntegrationHarness {
 	t.Helper()
-	dsn := strings.TrimSpace(os.Getenv("MOCHAT_GO_MYSQL_INTEGRATION_DSN"))
-	if dsn == "" {
-		t.Skip("SKIP: MOCHAT_GO_MYSQL_INTEGRATION_DSN is not set; isolated MariaDB DSN is required")
-	}
-	cfg, err := mysql.ParseDSN(dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	adminCfg := *cfg
-	adminCfg.DBName = ""
-	admin, err := sql.Open("mysql", adminCfg.FormatDSN())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := admin.PingContext(context.Background()); err != nil {
-		_ = admin.Close()
-		t.Fatal(err)
-	}
-	schema := fmt.Sprintf("mochat_wecom_dispatch_%d_%d", os.Getpid(), capabilityLedgerStoreSchemaSequence.Add(1))
-	if _, err := admin.Exec("CREATE DATABASE `" + schema + "` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"); err != nil {
-		_ = admin.Close()
-		t.Fatal(err)
-	}
-	cfg.DBName = schema
-	db, err := sql.Open("mysql", cfg.FormatDSN())
-	if err != nil {
-		_, _ = admin.Exec("DROP DATABASE IF EXISTS `" + schema + "`")
-		_ = admin.Close()
-		t.Fatal(err)
-	}
-	cleanup := func() {
-		_ = db.Close()
-		if _, err := admin.Exec("DROP DATABASE IF EXISTS `" + schema + "`"); err != nil {
-			t.Errorf("drop temporary schema: %v", err)
-		}
-		_ = admin.Close()
-	}
-	t.Cleanup(cleanup)
-	if err := db.PingContext(context.Background()); err != nil {
-		t.Fatal(err)
-	}
+	db := newCurrentStoreIntegrationDB(t)
 	createCapabilityLedgerStoreFixture(t, db)
-	root := filepath.Join("..", "..")
-	runner, err := migration.NewRunner(db, []migration.Migration{{
-		Version: "0139_wecom_capability_ledger", Description: "wecom capability ledger",
-		Path:     filepath.Join(root, "deploy", "standalone", "migrations", "0139_wecom_capability_ledger.up.sql"),
-		DownPath: filepath.Join(root, "deploy", "standalone", "migrations", "0139_wecom_capability_ledger.down.sql"),
-	}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := runner.Apply(context.Background()); err != nil {
-		t.Fatal(err)
-	}
 	return &capabilityDispatchIntegrationHarness{
 		db: db, store: NewMySQLStore(db),
 		principal: dashboardprincipal.DashboardPrincipal{TenantID: 11, CorpID: 1101, AuthVersion: 1},

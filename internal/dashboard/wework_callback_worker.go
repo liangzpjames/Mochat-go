@@ -2,6 +2,7 @@ package dashboard
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"net/url"
@@ -15,14 +16,14 @@ import (
 const (
 	workContactEmployeeStatusRemoved        = 2
 	workContactEmployeeStatusPassiveRemoved = 3
+	weWorkCallbackLeaseCompletionGrace      = 30 * time.Second
+	weWorkCallbackDependencyDeferMaxDelay   = 5 * time.Minute
 )
 
-type WeWorkCallbackWorkerQueue interface {
-	DequeueWeWorkCallback(ctx context.Context, timeout time.Duration) (WeWorkCallbackDelivery, bool, error)
-	AckWeWorkCallback(ctx context.Context, delivery WeWorkCallbackDelivery) error
-	RetryWeWorkCallback(ctx context.Context, delivery WeWorkCallbackDelivery, reason string, maxAttempts int) (bool, error)
-	RecoverWeWorkCallbackProcessing(ctx context.Context, staleAfter time.Duration, maxAttempts int) (int, error)
-}
+var (
+	ErrWeWorkCallbackDependencyUnavailable       = errors.New("wework callback dependency is unavailable")
+	ErrWeWorkCallbackSideEffectReconcileRequired = errors.New("wework callback side effect requires reconciliation")
+)
 
 type WeWorkCallbackWorkerStore interface {
 	SOPLogCronStore
@@ -54,6 +55,17 @@ type WeWorkCallbackWorkerStore interface {
 	DeleteWorkEmployeeByWXUserID(ctx context.Context, corpID int, wxUserID string) (bool, error)
 	SyncWorkDepartment(ctx context.Context, corpID int, department WorkDepartmentEventDepartment) (WorkEmployeeSyncResult, error)
 	DeleteWorkDepartmentByWXDepartmentID(ctx context.Context, corpID int, wxDepartmentID int) (bool, error)
+	TenantIDByCorpID(ctx context.Context, corpID int) (int, error)
+}
+
+type WeWorkCallbackWorkerCapabilities struct {
+	ContactWelcomeQueue ContactWelcomeEnqueuer
+	ContactWelcomeCache ContactWelcomeStatusCache
+	MarkTagsQueue       AutoTagMarkTagsQueue
+}
+
+type WeWorkCallbackCapabilityResolver interface {
+	ResolveWeWorkCallbackCapabilities(context.Context) (WeWorkCallbackWorkerCapabilities, error)
 }
 
 type WorkFissionContactRule struct {
@@ -122,7 +134,7 @@ type WeWorkCallbackWorkerClient interface {
 	MarkExternalContactTags(ctx context.Context, credential RoomWelcomeCorpCredential, payload WorkContactMarkTagsPayload) error
 	UploadTemporaryImage(ctx context.Context, credential RoomWelcomeCorpCredential, filePath string) (string, error)
 	SubmitContactMessageBatchSend(ctx context.Context, credential RoomWelcomeCorpCredential, payload ContactMessageBatchSendMessagePayload) (ContactMessageBatchSendMessageResult, error)
-	SendAgentTextMessage(ctx context.Context, credential RoomTagPullAgentCredential, toUser string, content string) error
+	SendAgentTextMessageWithDuplicateCheck(ctx context.Context, credential RoomTagPullAgentCredential, toUser string, content string) error
 	GroupChats(ctx context.Context, credential RoomWelcomeCorpCredential) ([]WorkRoomSyncGroupChat, error)
 	GroupChatDetail(ctx context.Context, credential RoomWelcomeCorpCredential, wxChatID string) (WorkRoomSyncRoom, error)
 }
@@ -131,51 +143,68 @@ type WorkMessageArchiveSyncTrigger interface {
 	RunCorp(context.Context, int) error
 }
 
+type WeWorkCallbackWakeupWaiter interface {
+	WaitWeWorkCallbackWakeup(context.Context, time.Duration) error
+}
+
 type WeWorkCallbackWorker struct {
-	queue              WeWorkCallbackWorkerQueue
+	capabilities       WeWorkCallbackWorkerCapabilities
+	capabilityResolver WeWorkCallbackCapabilityResolver
+	inbox              WeWorkCallbackInbox
 	store              WeWorkCallbackWorkerStore
 	client             WeWorkCallbackWorkerClient
 	passwordKey        string
 	pollTimeout        time.Duration
 	maxAttempts        int
 	processingTimeout  time.Duration
-	recoveryInterval   time.Duration
+	retryDelay         time.Duration
 	apiBaseURL         string
 	operationBaseURL   string
 	sidebarBaseURL     string
 	fileStorageRoot    string
 	alertNotifier      SaaSAlertNotifier
 	archiveSyncTrigger WorkMessageArchiveSyncTrigger
+	wakeupWaiter       WeWorkCallbackWakeupWaiter
 	logger             *log.Logger
 	now                func() time.Time
 }
 
-func NewWeWorkCallbackWorker(queue WeWorkCallbackWorkerQueue, store WeWorkCallbackWorkerStore, client WeWorkCallbackWorkerClient, passwordKey string, logger *log.Logger) *WeWorkCallbackWorker {
+func NewWeWorkCallbackWorker(capabilities WeWorkCallbackWorkerCapabilities, store WeWorkCallbackWorkerStore, client WeWorkCallbackWorkerClient, passwordKey string, logger *log.Logger) *WeWorkCallbackWorker {
 	if logger == nil {
 		logger = log.Default()
 	}
-	return &WeWorkCallbackWorker{
-		queue:             queue,
+	worker := &WeWorkCallbackWorker{
+		capabilities:      capabilities,
 		store:             store,
 		client:            client,
 		passwordKey:       passwordKey,
 		pollTimeout:       5 * time.Second,
 		maxAttempts:       3,
 		processingTimeout: 5 * time.Minute,
-		recoveryInterval:  time.Minute,
+		retryDelay:        time.Second,
 		fileStorageRoot:   defaultRoomTagPullFileStorageRoot,
 		logger:            logger,
 		now:               time.Now,
 	}
+	worker.inbox, _ = store.(WeWorkCallbackInbox)
+	return worker
+}
+
+func (w *WeWorkCallbackWorker) WithCapabilityResolver(resolver WeWorkCallbackCapabilityResolver) *WeWorkCallbackWorker {
+	w.capabilityResolver = resolver
+	return w
+}
+
+func (w *WeWorkCallbackWorker) resolveCapabilities(ctx context.Context) (WeWorkCallbackWorkerCapabilities, error) {
+	if w.capabilityResolver == nil {
+		return w.capabilities, nil
+	}
+	return w.capabilityResolver.ResolveWeWorkCallbackCapabilities(ctx)
 }
 
 func (w *WeWorkCallbackWorker) WithProcessingTimeout(timeout time.Duration) *WeWorkCallbackWorker {
 	if timeout > 0 {
 		w.processingTimeout = timeout
-		w.recoveryInterval = timeout
-		if w.recoveryInterval > time.Minute {
-			w.recoveryInterval = time.Minute
-		}
 	}
 	return w
 }
@@ -208,6 +237,11 @@ func (w *WeWorkCallbackWorker) WithArchiveSyncTrigger(trigger WorkMessageArchive
 	return w
 }
 
+func (w *WeWorkCallbackWorker) WithWakeupWaiter(waiter WeWorkCallbackWakeupWaiter) *WeWorkCallbackWorker {
+	w.wakeupWaiter = waiter
+	return w
+}
+
 func (w *WeWorkCallbackWorker) WithNow(now func() time.Time) *WeWorkCallbackWorker {
 	if now != nil {
 		w.now = now
@@ -216,71 +250,196 @@ func (w *WeWorkCallbackWorker) WithNow(now func() time.Time) *WeWorkCallbackWork
 }
 
 func (w *WeWorkCallbackWorker) Run(ctx context.Context) error {
-	if w.queue == nil || w.store == nil || w.client == nil {
+	if w.inbox == nil || w.store == nil || w.client == nil {
 		return fmt.Errorf("wework callback worker dependencies are not configured")
 	}
-	nextRecovery := time.Now()
 	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
 		}
-		if !time.Now().Before(nextRecovery) {
-			w.recoverProcessing(ctx)
-			nextRecovery = time.Now().Add(w.recoveryInterval)
-		}
-		delivery, ok, err := w.queue.DequeueWeWorkCallback(ctx, w.pollTimeout)
+		claim, ok, err := w.inbox.ClaimWeWorkCallback(ctx, w.processingTimeout+weWorkCallbackLeaseCompletionGrace, w.maxAttempts)
 		if err != nil {
 			if ctx.Err() != nil {
 				return ctx.Err()
 			}
-			w.logger.Printf("wework callback dequeue failed: %v", err)
+			w.logger.Printf("wework callback durable claim failed: %v", errors.New(SanitizeWeWorkCallbackFailure(err.Error())))
+			if err := waitWeWorkCallbackPoll(ctx, w.pollTimeout); err != nil {
+				return err
+			}
 			continue
 		}
 		if !ok {
+			if err := w.waitForCallbackWork(ctx); err != nil {
+				return err
+			}
 			continue
 		}
-		w.handleDelivery(ctx, delivery)
+		w.handleClaim(ctx, claim)
 	}
 }
 
-func (w *WeWorkCallbackWorker) recoverProcessing(ctx context.Context) {
-	recovered, err := w.queue.RecoverWeWorkCallbackProcessing(ctx, w.processingTimeout, w.maxAttempts)
+func (w *WeWorkCallbackWorker) waitForCallbackWork(ctx context.Context) error {
+	if w.wakeupWaiter == nil {
+		return waitWeWorkCallbackPoll(ctx, w.pollTimeout)
+	}
+	if err := w.wakeupWaiter.WaitWeWorkCallbackWakeup(ctx, w.pollTimeout); err == nil {
+		return nil
+	} else if ctx.Err() != nil {
+		return ctx.Err()
+	} else {
+		w.logger.Printf("wework callback wakeup wait failed: %v", errors.New(SanitizeWeWorkCallbackFailure(err.Error())))
+		return waitWeWorkCallbackPoll(ctx, w.pollTimeout)
+	}
+}
+
+// ImportLegacyWeWorkCallbackBacklog is used only by the explicit maintenance
+// cutover command after every legacy producer, consumer, and retry writer has
+// been stopped. Ordinary inbox workers never call it and therefore do not
+// depend on Redis availability.
+func ImportLegacyWeWorkCallbackBacklog(ctx context.Context, legacy LegacyWeWorkCallbackBacklog, store LegacyWeWorkCallbackImportStore, logger *log.Logger) (int, error) {
+	if legacy == nil || store == nil {
+		return 0, errors.New("legacy wework callback cutover dependencies are not configured")
+	}
+	if logger == nil {
+		logger = log.Default()
+	}
+	stats, err := legacy.PreflightLegacyWeWorkCallbackBacklog(ctx)
 	if err != nil {
-		w.logger.Printf("wework callback processing recovery failed: %v", err)
-		return
+		return 0, fmt.Errorf("legacy wework callback backlog preflight: %w", err)
 	}
-	if recovered > 0 {
-		w.logger.Printf("wework callback recovered processing jobs: %d", recovered)
+	logger.Printf("legacy wework callback backlog preflight: pending=%d processing=%d dead=%d", stats.Pending, stats.Processing, stats.Dead)
+	if stats.Dead > 0 {
+		return 0, fmt.Errorf("%w: dead=%d pending=%d processing=%d", ErrLegacyWeWorkCallbackDeadBacklog, stats.Dead, stats.Pending, stats.Processing)
+	}
+	imported := 0
+	for {
+		delivery, ok, err := legacy.NextLegacyWeWorkCallback(ctx)
+		if err != nil {
+			return imported, fmt.Errorf("read legacy wework callback backlog: %w", err)
+		}
+		if !ok {
+			break
+		}
+		event := delivery.Event
+		if event.TenantID <= 0 {
+			event.TenantID, err = store.TenantIDByCorpID(ctx, event.CorpID)
+			if err != nil {
+				return imported, fmt.Errorf("resolve legacy wework callback tenant: %w", err)
+			}
+		}
+		if event.TenantID <= 0 || event.CorpID <= 0 {
+			return imported, fmt.Errorf("legacy wework callback scope is incomplete")
+		}
+		event.RawXML = ""
+		event.Message = normalizedWeWorkCallbackMessage(event.Message)
+		if _, err := store.AcceptWeWorkCallback(ctx, event, WeWorkCallbackEventKey(event), WeWorkCallbackPayloadFingerprint(event)); err != nil {
+			return imported, fmt.Errorf("accept legacy wework callback durably: %w", err)
+		}
+		if err := legacy.AckLegacyWeWorkCallback(ctx, delivery); err != nil {
+			return imported, fmt.Errorf("ack imported legacy wework callback: %w", err)
+		}
+		imported++
+	}
+	if imported > 0 {
+		logger.Printf("legacy wework callback backlog imported: count=%d", imported)
+	}
+	finalStats, err := legacy.PreflightLegacyWeWorkCallbackBacklog(ctx)
+	if err != nil {
+		return imported, fmt.Errorf("legacy wework callback final preflight: %w", err)
+	}
+	if finalStats.Pending != 0 || finalStats.Processing != 0 || finalStats.Dead != 0 {
+		return imported, fmt.Errorf("legacy wework callback backlog changed during cutover: pending=%d processing=%d dead=%d", finalStats.Pending, finalStats.Processing, finalStats.Dead)
+	}
+	return imported, nil
+}
+
+func waitWeWorkCallbackPoll(ctx context.Context, delay time.Duration) error {
+	if delay <= 0 {
+		delay = time.Second
+	}
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
 	}
 }
 
-func (w *WeWorkCallbackWorker) handleDelivery(ctx context.Context, delivery WeWorkCallbackDelivery) {
-	ctx = WithSaaSAlertNotifier(ctx, w.alertNotifier)
-	tenantID := tenantIDForQueueExecution(ctx, w.logger, w.store, delivery.Event.CorpID)
-	finishExecution := startQueueItemExecution(ctx, w.logger, "wework-callback", w.store, tenantID)
-	if err := w.Process(ctx, delivery.Event); err != nil {
-		deadLettered, retryErr := w.queue.RetryWeWorkCallback(ctx, delivery, err.Error(), w.maxAttempts)
-		if retryErr != nil {
-			finishExecution(taskrunner.StatusFailed, fmt.Errorf("%w; retry failed: %v", err, retryErr))
-			w.logger.Printf("wework callback retry failed: corp=%d wx=%s event=%s err=%v retry_err=%v", delivery.Event.CorpID, delivery.Event.WxCorpID, delivery.Event.EventPath, err, retryErr)
-			return
-		}
-		finishExecution(taskrunner.StatusFailed, err)
-		if deadLettered {
-			w.logger.Printf("wework callback moved to dead letter: corp=%d wx=%s event=%s attempts=%d err=%v", delivery.Event.CorpID, delivery.Event.WxCorpID, delivery.Event.EventPath, delivery.Attempts+1, err)
-			return
-		}
-		w.logger.Printf("wework callback requeued: corp=%d wx=%s event=%s attempts=%d err=%v", delivery.Event.CorpID, delivery.Event.WxCorpID, delivery.Event.EventPath, delivery.Attempts+1, err)
+func (w *WeWorkCallbackWorker) handleClaim(ctx context.Context, claim WeWorkCallbackClaim) {
+	if err := w.inbox.ValidateWeWorkCallbackClaim(ctx, claim); err != nil {
+		w.logger.Printf("wework callback claim rejected before side effects: event_key=%s fence=%d err=%v", claim.EventKey, claim.LeaseFence, errors.New(SanitizeWeWorkCallbackFailure(err.Error())))
 		return
 	}
-	if err := w.queue.AckWeWorkCallback(ctx, delivery); err != nil {
-		finishExecution(taskrunner.StatusFailed, fmt.Errorf("ack failed: %w", err))
-		w.logger.Printf("wework callback ack failed: corp=%d wx=%s event=%s err=%v", delivery.Event.CorpID, delivery.Event.WxCorpID, delivery.Event.EventPath, err)
+	leaseCtx := ctx
+	processCtx, cancelProcess := context.WithTimeout(ctx, w.processingTimeout)
+	defer cancelProcess()
+	claim.Event.EventKey = claim.EventKey
+	claim.Event.LeaseFence = claim.LeaseFence
+	processCtx = withWeWorkCallbackExecution(processCtx, claim)
+	processCtx = WithSaaSAlertNotifier(processCtx, w.alertNotifier)
+	tenantID := claim.Event.TenantID
+	if tenantID <= 0 {
+		tenantID = tenantIDForQueueExecution(processCtx, w.logger, w.store, claim.Event.CorpID)
+	}
+	finishExecution := startQueueItemExecution(processCtx, w.logger, "wework-callback", w.store, tenantID)
+	if err := w.Process(processCtx, claim.Event); err != nil {
+		safeErr := errors.New(SanitizeWeWorkCallbackFailure(err.Error()))
+		if errors.Is(err, ErrWeWorkCallbackDependencyUnavailable) {
+			retryDelay := weWorkCallbackDependencyDeferDelay(w.retryDelay, claim.DependencyDeferCount)
+			deferErr := w.inbox.DeferWeWorkCallbackDependency(leaseCtx, claim, safeErr.Error(), retryDelay)
+			if deferErr != nil {
+				safeDeferErr := errors.New(SanitizeWeWorkCallbackFailure(deferErr.Error()))
+				finishExecution(taskrunner.StatusFailed, fmt.Errorf("%w; durable dependency defer failed: %v", safeErr, safeDeferErr))
+				w.logger.Printf("wework callback durable dependency defer failed: event_key=%s fence=%d err=%v transition_err=%v", claim.EventKey, claim.LeaseFence, safeErr, safeDeferErr)
+				return
+			}
+			finishExecution(taskrunner.StatusFailed, safeErr)
+			w.logger.Printf("wework callback durable dependency deferred: event_key=%s fence=%d dependency_defers=%d retry_in=%s err=%v", claim.EventKey, claim.LeaseFence, claim.DependencyDeferCount+1, retryDelay, safeErr)
+			return
+		}
+		deadLettered, failErr := w.inbox.FailWeWorkCallback(leaseCtx, claim, safeErr.Error(), w.maxAttempts, w.retryDelay)
+		if failErr != nil {
+			safeFailErr := errors.New(SanitizeWeWorkCallbackFailure(failErr.Error()))
+			finishExecution(taskrunner.StatusFailed, fmt.Errorf("%w; durable fail transition failed: %v", safeErr, safeFailErr))
+			w.logger.Printf("wework callback durable fail transition failed: event_key=%s fence=%d err=%v transition_err=%v", claim.EventKey, claim.LeaseFence, safeErr, safeFailErr)
+			return
+		}
+		finishExecution(taskrunner.StatusFailed, safeErr)
+		if deadLettered {
+			w.logger.Printf("wework callback durable event dead lettered: event_key=%s fence=%d attempts=%d err=%v", claim.EventKey, claim.LeaseFence, claim.Attempt, safeErr)
+			return
+		}
+		w.logger.Printf("wework callback durable event scheduled for replay: event_key=%s fence=%d attempts=%d err=%v", claim.EventKey, claim.LeaseFence, claim.Attempt, safeErr)
+		return
+	}
+	if err := w.inbox.CompleteWeWorkCallback(leaseCtx, claim); err != nil {
+		safeErr := errors.New(SanitizeWeWorkCallbackFailure(err.Error()))
+		finishExecution(taskrunner.StatusFailed, fmt.Errorf("durable completion failed: %w", safeErr))
+		w.logger.Printf("wework callback durable completion failed: event_key=%s fence=%d err=%v", claim.EventKey, claim.LeaseFence, safeErr)
 		return
 	}
 	finishExecution(taskrunner.StatusSucceeded, nil)
+}
+
+func weWorkCallbackDependencyDeferDelay(base time.Duration, deferCount int) time.Duration {
+	if base <= 0 {
+		base = time.Second
+	}
+	if base >= weWorkCallbackDependencyDeferMaxDelay {
+		return weWorkCallbackDependencyDeferMaxDelay
+	}
+	delay := base
+	for count := 0; count < deferCount; count++ {
+		if delay >= weWorkCallbackDependencyDeferMaxDelay/2 {
+			return weWorkCallbackDependencyDeferMaxDelay
+		}
+		delay *= 2
+	}
+	return delay
 }
 
 func (w *WeWorkCallbackWorker) Process(ctx context.Context, event WeWorkCallbackEvent) error {
@@ -627,7 +786,10 @@ func (w *WeWorkCallbackWorker) syncContactFromEvent(ctx context.Context, corpID 
 			return fmt.Errorf("wework callback mark contact tags failed: corp=%d employee=%d contact=%d state=%q: %w", corpID, employee.ID, result.ContactID, contactWelcomeState(event), err)
 		}
 		if err := w.handleFissionAddContactFromState(ctx, corpID, credential, employee, contact, result, event); err != nil {
-			w.logger.Printf("wework callback work fission add contact skipped: corp=%d employee=%d contact=%d state=%q err=%v", corpID, employee.ID, result.ContactID, contactWelcomeState(event), err)
+			w.logger.Printf("wework callback work fission add contact skipped: corp=%d employee=%d contact=%d state=%q err=%v", corpID, employee.ID, result.ContactID, contactWelcomeState(event), errors.New(SanitizeWeWorkCallbackFailure(err.Error())))
+			if _, durable := WeWorkCallbackExecutionFromContext(ctx); durable {
+				return err
+			}
 		}
 		return w.enqueueGenericContactWelcome(ctx, corpID, employee.ID, contact.Name, result.ContactID, event)
 	}
@@ -642,7 +804,11 @@ func (w *WeWorkCallbackWorker) handleAutoTagContactTime(ctx context.Context, cor
 	if len(result.MarkTagsEvents) == 0 {
 		return nil
 	}
-	enqueuer, _ := w.queue.(AutoTagMarkTagsQueue)
+	capabilities, err := w.resolveCapabilities(ctx)
+	if err != nil {
+		return err
+	}
+	enqueuer := capabilities.MarkTagsQueue
 	if enqueuer == nil {
 		return nil
 	}
@@ -686,10 +852,9 @@ func (w *WeWorkCallbackWorker) handleFissionAddContactFromState(ctx context.Cont
 	if err != nil {
 		return err
 	}
-	if err := w.sendWorkFissionEmployeeReminder(ctx, corpID, fissionResult); err != nil {
-		return err
-	}
-	return w.sendWorkFissionCustomerPush(ctx, credential, fissionResult)
+	reminderErr := w.sendWorkFissionEmployeeReminder(ctx, corpID, fissionResult)
+	customerErr := w.sendWorkFissionCustomerPush(ctx, credential, fissionResult)
+	return errors.Join(reminderErr, customerErr)
 }
 
 func (w *WeWorkCallbackWorker) sendWorkFissionEmployeeReminder(ctx context.Context, corpID int, result WorkFissionAddContactResult) error {
@@ -703,26 +868,92 @@ func (w *WeWorkCallbackWorker) sendWorkFissionEmployeeReminder(ctx context.Conte
 	if !found || strings.TrimSpace(agent.WXCorpID) == "" || strings.TrimSpace(agent.WXAgentID) == "" || strings.TrimSpace(agent.WXSecret) == "" {
 		return fmt.Errorf("work fission employee reminder agent is incomplete")
 	}
-	return w.client.SendAgentTextMessage(ctx, agent, result.EmployeeReminder.ToUser, result.EmployeeReminder.Content)
+	execute, complete, err := w.beginDurableSideEffect(ctx, WeWorkCallbackActionFissionEmployeeReminder, result.EmployeeReminder)
+	if err != nil || !execute {
+		return err
+	}
+	if err := w.client.SendAgentTextMessageWithDuplicateCheck(ctx, agent, result.EmployeeReminder.ToUser, result.EmployeeReminder.Content); err != nil {
+		return weWorkCallbackSideEffectFailure(ctx, err)
+	}
+	return complete(ctx)
 }
 
 func (w *WeWorkCallbackWorker) sendWorkFissionCustomerPush(ctx context.Context, credential RoomWelcomeCorpCredential, result WorkFissionAddContactResult) error {
 	if !result.Completed || result.CustomerPush == nil || strings.TrimSpace(result.CustomerPush.Sender) == "" || strings.TrimSpace(result.CustomerPush.ExternalUserID) == "" || len(result.CustomerPush.Content) == 0 {
 		return nil
 	}
-	content, err := prepareContactMessageBatchSendContent(ctx, w.client, credential, w.fileStorageRoot, result.CustomerPush.Content)
-	if err != nil {
+	execute, complete, err := w.beginDurableSideEffect(ctx, WeWorkCallbackActionFissionCustomerPush, result.CustomerPush)
+	if err != nil || !execute {
 		return err
 	}
+	content, err := prepareContactMessageBatchSendContent(ctx, w.client, credential, w.fileStorageRoot, result.CustomerPush.Content)
+	if err != nil {
+		return weWorkCallbackSideEffectFailure(ctx, err)
+	}
 	if len(content) == 0 {
-		return nil
+		return weWorkCallbackSideEffectFailure(ctx, errors.New("work fission customer push content is empty"))
 	}
 	_, err = w.client.SubmitContactMessageBatchSend(ctx, credential, ContactMessageBatchSendMessagePayload{
 		Content:        content,
 		Sender:         result.CustomerPush.Sender,
 		ExternalUserID: []string{result.CustomerPush.ExternalUserID},
 	})
-	return err
+	if err != nil {
+		return weWorkCallbackSideEffectFailure(ctx, err)
+	}
+	return complete(ctx)
+}
+
+func weWorkCallbackSideEffectFailure(ctx context.Context, err error) error {
+	if err == nil {
+		return nil
+	}
+	if _, durable := WeWorkCallbackExecutionFromContext(ctx); !durable {
+		return err
+	}
+	return errors.Join(ErrWeWorkCallbackSideEffectReconcileRequired, err)
+}
+
+func (w *WeWorkCallbackWorker) beginDurableSideEffect(ctx context.Context, actionKey string, payload any) (bool, func(context.Context) error, error) {
+	execution, durable := WeWorkCallbackExecutionFromContext(ctx)
+	if !durable {
+		return true, func(context.Context) error { return nil }, nil
+	}
+	if execution.TenantID <= 0 || execution.CorpID <= 0 {
+		return false, nil, errors.Join(ErrWeWorkCallbackSideEffectReconcileRequired, errors.New("callback side effect scope is incomplete"))
+	}
+	store, ok := w.store.(WeWorkCallbackSideEffectStore)
+	if !ok {
+		return false, nil, errors.Join(ErrWeWorkCallbackSideEffectReconcileRequired, errors.New("callback side effect store is unavailable"))
+	}
+	payloadHash, err := WeWorkCallbackSideEffectPayloadHash(actionKey, payload)
+	if err != nil {
+		return false, nil, err
+	}
+	execute, status, err := store.BeginWeWorkCallbackSideEffect(ctx, execution, actionKey, payloadHash)
+	if err != nil {
+		return false, nil, err
+	}
+	if !execute {
+		switch status {
+		case WeWorkCallbackSideEffectSent:
+			return false, nil, nil
+		case WeWorkCallbackSideEffectUnknown:
+			return false, nil, ErrWeWorkCallbackSideEffectReconcileRequired
+		default:
+			return false, nil, errors.Join(ErrWeWorkCallbackSideEffectReconcileRequired, fmt.Errorf("invalid callback side effect status %q", status))
+		}
+	}
+	if status != WeWorkCallbackSideEffectUnknown {
+		return false, nil, errors.Join(ErrWeWorkCallbackSideEffectReconcileRequired, fmt.Errorf("callback side effect did not enter unknown state: %q", status))
+	}
+	complete := func(completeCtx context.Context) error {
+		if err := store.CompleteWeWorkCallbackSideEffect(completeCtx, execution, actionKey, payloadHash); err != nil {
+			return errors.Join(ErrWeWorkCallbackSideEffectReconcileRequired, err)
+		}
+		return nil
+	}
+	return true, complete, nil
 }
 
 func (w *WeWorkCallbackWorker) markContactTagsFromState(ctx context.Context, corpID int, credential RoomWelcomeCorpCredential, employeeID int, contactID int, event WeWorkCallbackEvent) error {
@@ -783,7 +1014,18 @@ func (w *WeWorkCallbackWorker) enqueueGenericContactWelcome(ctx context.Context,
 	if contactID <= 0 || employeeID <= 0 || welcomeCode == "" {
 		return nil
 	}
-	cache, _ := w.queue.(ContactWelcomeStatusCache)
+	content, found, err := w.selectContactWelcomeContent(ctx, corpID, employeeID, event)
+	if err != nil {
+		return err
+	}
+	if !found {
+		return nil
+	}
+	capabilities, err := w.resolveCapabilities(ctx)
+	if err != nil {
+		return err
+	}
+	cache := capabilities.ContactWelcomeCache
 	if cache != nil {
 		status, err := cache.WorkContactWelcomeStatus(ctx, contactID)
 		if err != nil {
@@ -793,14 +1035,7 @@ func (w *WeWorkCallbackWorker) enqueueGenericContactWelcome(ctx context.Context,
 			return nil
 		}
 	}
-	content, found, err := w.selectContactWelcomeContent(ctx, corpID, employeeID, event)
-	if err != nil {
-		return err
-	}
-	if !found {
-		return nil
-	}
-	enqueuer, _ := w.queue.(ContactWelcomeEnqueuer)
+	enqueuer := capabilities.ContactWelcomeQueue
 	if enqueuer == nil {
 		return nil
 	}
@@ -939,7 +1174,7 @@ func (w *WeWorkCallbackWorker) sendWorkContactRemovalReminder(ctx context.Contex
 	if !found || strings.TrimSpace(agent.WXCorpID) == "" || strings.TrimSpace(agent.WXAgentID) == "" || strings.TrimSpace(agent.WXSecret) == "" {
 		return fmt.Errorf("work contact removal reminder agent is incomplete")
 	}
-	return w.client.SendAgentTextMessage(ctx, agent, result.WXUserID, w.workContactRemovalReminderContent(result))
+	return w.client.SendAgentTextMessageWithDuplicateCheck(ctx, agent, result.WXUserID, w.workContactRemovalReminderContent(result))
 }
 
 func (w *WeWorkCallbackWorker) workContactRemovalReminderContent(result WorkContactRemovalResult) string {
@@ -1014,7 +1249,11 @@ func (w *WeWorkCallbackWorker) handleAutoTagRoomJoin(ctx context.Context, corpID
 	if len(result.MarkTagsEvents) == 0 {
 		return nil
 	}
-	enqueuer, _ := w.queue.(AutoTagMarkTagsQueue)
+	capabilities, err := w.resolveCapabilities(ctx)
+	if err != nil {
+		return err
+	}
+	enqueuer := capabilities.MarkTagsQueue
 	if enqueuer == nil {
 		return nil
 	}

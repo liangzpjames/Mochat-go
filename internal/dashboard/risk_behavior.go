@@ -112,6 +112,19 @@ const (
 	RiskSubjectBoth     RiskSubject = "both"
 )
 
+const (
+	MaxRiskRuleStrategies          = 1
+	RiskBehaviorPrivateTransaction = "private_transaction"
+	RiskBehaviorPromiseRebate      = "promise_rebate"
+	RiskBehaviorSensitiveWord      = "sensitive_word"
+)
+
+var supportedRiskBehaviors = map[string]struct{}{
+	RiskBehaviorPrivateTransaction: {},
+	RiskBehaviorPromiseRebate:      {},
+	RiskBehaviorSensitiveWord:      {},
+}
+
 type RiskRuleStrategy struct {
 	ID         int64  `json:"id"`
 	Behavior   string `json:"behavior"`
@@ -136,8 +149,8 @@ type RiskRule struct {
 type RiskRuleProviderWriter interface {
 	CreateRiskRule(context.Context, RiskRule) (int64, error)
 	UpdateRiskRule(context.Context, RiskRule) (bool, error)
-	SetRiskRuleStatus(context.Context, int, int64, RiskRuleStatus) (bool, error)
-	DeleteRiskRule(context.Context, int, int64) (bool, error)
+	SetRiskRuleStatus(context.Context, int, int, int64, RiskRuleStatus) (bool, error)
+	DeleteRiskRule(context.Context, int, int, int64) (bool, error)
 }
 
 type RiskRecordProviderWriter interface {
@@ -172,11 +185,17 @@ func ValidateRiskRule(rule RiskRule) error {
 	if rule.Subject != RiskSubjectEmployee && rule.Subject != RiskSubjectCustomer && rule.Subject != RiskSubjectBoth {
 		return fmt.Errorf("监听主体无效")
 	}
+	if len(rule.Strategies) != MaxRiskRuleStrategies {
+		return fmt.Errorf("当前产品规则必须恰好配置 1 条风险策略")
+	}
 	seen := map[string]struct{}{}
 	for _, strategy := range rule.Strategies {
 		behavior := strings.TrimSpace(strategy.Behavior)
 		if behavior == "" || strings.TrimSpace(strategy.Pattern) == "" {
 			return fmt.Errorf("风险策略必须包含行为和匹配内容")
+		}
+		if _, ok := supportedRiskBehaviors[behavior]; !ok {
+			return fmt.Errorf("风险行为无效")
 		}
 		if _, ok := seen[behavior]; ok {
 			return fmt.Errorf("同一风险行为只能配置一条策略")

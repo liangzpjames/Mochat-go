@@ -1,8 +1,10 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -260,7 +262,7 @@ func TestStandaloneComposeFailsClosedForArchiveSecretsAndFixtures(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	text := string(raw)
+	text := strings.ReplaceAll(string(raw), "\r\n", "\n")
 	for _, name := range []string{"MOCHAT_ARCHIVE_BRIDGE_BEARER", "MOCHAT_GO_WECOM_CREDENTIAL_ENCRYPTION_KEY"} {
 		if !strings.Contains(text, "${"+name+":?") || strings.Contains(text, "${"+name+":-local-") {
 			t.Fatalf("compose must require protected %s without a public default", name)
@@ -279,6 +281,33 @@ func TestStandaloneComposeFailsClosedForArchiveSecretsAndFixtures(t *testing.T) 
 		if strings.Contains(text, value) {
 			t.Fatalf("compose contains public suite callback fixture credential %q", value)
 		}
+	}
+	bridgeStart := strings.Index(text, "\n  archive-bridge:\n")
+	bridgeEnd := strings.Index(text, "\n  archive-simulator:\n")
+	if bridgeStart < 0 || bridgeEnd <= bridgeStart {
+		t.Fatal("archive bridge compose service block is missing")
+	}
+	bridge := text[bridgeStart:bridgeEnd]
+	for _, fragment := range []string{
+		`restart: unless-stopped`,
+		`MOCHAT_MYSQL_DSN: "${MOCHAT_MYSQL_USER:-mochat}:${MOCHAT_MYSQL_PASSWORD:-mochat_pass}@tcp(mysql:3306)/${MOCHAT_MYSQL_DATABASE:-mochat}?parseTime=true&loc=Local"`,
+		`MOCHAT_GO_WECOM_CREDENTIAL_ENCRYPTION_KEY: "${MOCHAT_GO_WECOM_CREDENTIAL_ENCRYPTION_KEY:?MOCHAT_GO_WECOM_CREDENTIAL_ENCRYPTION_KEY must be set}"`,
+		`MOCHAT_ARCHIVE_BRIDGE_STATE_ROOT: "/app/storage/archive-bridge/finance"`,
+		`WECOM_FINANCE_SDK_PATH: "/opt/wecom-sdk/libWeWorkFinanceSdk_C.so"`,
+		`"${MOCHAT_WECOM_FINANCE_SDK_DIR:-./wecom-sdk}:/opt/wecom-sdk:ro"`,
+		"depends_on:\n      mysql:\n        condition: service_healthy",
+		`test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:8083/readyz"]`,
+	} {
+		if !strings.Contains(bridge, fragment) {
+			t.Fatalf("archive bridge production bootstrap is missing %q", fragment)
+		}
+	}
+	appStart := strings.Index(text, "\n  app:\n")
+	if appStart < 0 || !strings.Contains(text[appStart:bridgeStart], "archive-bridge:\n        condition: service_healthy") {
+		t.Fatal("app must wait for archive bridge readiness")
+	}
+	if strings.Contains(bridge, "\n      app:") {
+		t.Fatal("archive bridge must not depend on app and create a startup cycle")
 	}
 }
 
@@ -458,6 +487,32 @@ func TestFromEnvRuntimeRoleFiltersBackgroundResponsibilities(t *testing.T) {
 				t.Fatalf("EnablePullAgentCron = %v, want %v", cfg.EnablePullAgentCron, tt.wantScheduler)
 			}
 		})
+	}
+}
+
+func TestFromEnvRuntimeRolePreservesArchiveSwitches(t *testing.T) {
+	for _, role := range []string{"all", "api", "worker", "scheduler"} {
+		for _, durable := range []bool{false, true} {
+			for _, scheduled := range []bool{false, true} {
+				t.Run(fmt.Sprintf("role=%s/durable=%t/scheduled=%t", role, durable, scheduled), func(t *testing.T) {
+					clearEnv(t)
+					t.Setenv("MOCHAT_GO_RUNTIME_ROLE", role)
+					t.Setenv("MOCHAT_GO_ENABLE_DURABLE_WORK_MESSAGE_ARCHIVE", strconv.FormatBool(durable))
+					t.Setenv("MOCHAT_GO_ENABLE_WORK_MESSAGE_ARCHIVE_SYNC_CRON", strconv.FormatBool(scheduled))
+					t.Setenv("MOCHAT_GO_WORK_MESSAGE_ARCHIVE_BRIDGE_BASE_URL", "https://archive-bridge.example")
+					t.Setenv("MOCHAT_GO_WORK_MESSAGE_ARCHIVE_BRIDGE_TOKEN", "MOCHAT-LOCAL-ACCEPTANCE-BEARER-0123456789")
+					t.Setenv("MOCHAT_MYSQL_DSN", "user:pass@tcp(127.0.0.1:3306)/mochat")
+
+					cfg, err := FromEnv()
+					if err != nil {
+						t.Fatal(err)
+					}
+					if cfg.EnableDurableWorkMessageArchive != durable || cfg.EnableWorkMessageArchiveSyncCron != scheduled {
+						t.Fatalf("archive switches = durable %t scheduled %t, want durable %t scheduled %t", cfg.EnableDurableWorkMessageArchive, cfg.EnableWorkMessageArchiveSyncCron, durable, scheduled)
+					}
+				})
+			}
+		}
 	}
 }
 
@@ -2838,6 +2893,30 @@ func TestWorkDepartmentListWorkerRequiresMySQLAndJWT(t *testing.T) {
 	if !cfg.EnableWorkDepartmentListWorker {
 		t.Fatalf("EnableWorkDepartmentListWorker = false")
 	}
+}
+
+func TestWeWorkCallbackWorkerAllowsNoRedisWhileRedisConsumersFailClosed(t *testing.T) {
+	clearEnv(t)
+	t.Setenv("MOCHAT_GO_ENABLE_WEWORK_CALLBACK_WORKER", "1")
+	t.Setenv("MOCHAT_MYSQL_DSN", "user:pass@tcp(127.0.0.1:3306)/mochat")
+	t.Setenv("MOCHAT_SIMPLE_JWT_SECRET", "worker-secret")
+	t.Setenv("MOCHAT_REDIS_ADDR", " ")
+
+	cfg, err := FromEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.EnableWeWorkCallbackWorker || cfg.RedisAddr != "" {
+		t.Fatalf("callback enabled=%t RedisAddr=%q", cfg.EnableWeWorkCallbackWorker, cfg.RedisAddr)
+	}
+
+	clearEnv(t)
+	t.Setenv("MOCHAT_GO_ENABLE_EMPLOYEE_APPLY_WORKER", "1")
+	t.Setenv("MOCHAT_MYSQL_DSN", "user:pass@tcp(127.0.0.1:3306)/mochat")
+	t.Setenv("MOCHAT_SIMPLE_JWT_SECRET", "worker-secret")
+	t.Setenv("MOCHAT_REDIS_ADDR", " ")
+	_, err = FromEnv()
+	requireErrorContains(t, err, "MOCHAT_REDIS_ADDR")
 }
 
 func TestMediaIDUpdateWorkerRequiresMySQLButNotJWT(t *testing.T) {

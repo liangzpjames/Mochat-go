@@ -59,30 +59,36 @@ func registerAIDebtClearanceModules(
 	if cfg.EnableAIInsight {
 		aiResolver = mysqlStore.TenantAIProviderResolver()
 	}
+	assistantContext, err := appbootstrap.NewAIInsightAssistantContext(mysqlStore.DB())
+	if err != nil {
+		return err
+	}
 	if err := appbootstrap.RegisterAIInsight(router, true, appbootstrap.AIInsightDependencies{
 		PrincipalResolver:  aiInsightPrincipalResolver{},
 		Authorizer:         aiInsightAuthorizer{delegate: leadAuthorizer},
 		DB:                 mysqlStore.DB(),
 		AIProviderResolver: aiResolver,
+		AssistantContext:   assistantContext,
 	}); err != nil {
 		return err
 	}
-	startAIInsightDailyAnalysis(cfg, mysqlStore, aiResolver)
+	startAIInsightDailyAnalysis(cfg, mysqlStore, aiResolver, assistantContext)
 	return nil
 }
 
 // startAIInsightDailyAnalysis starts the once-per-day analysis loop. It is the
 // only component allowed to call the AI model; page reads are read-only.
-func startAIInsightDailyAnalysis(cfg config.Config, mysqlStore *store.MySQLStore, resolver providers.AIProviderResolver) {
+func startAIInsightDailyAnalysis(cfg config.Config, mysqlStore *store.MySQLStore, resolver providers.AIProviderResolver, assistantContext any) {
 	if !cfg.EnableAIInsight || !cfg.AIInsightDailyAnalysisEnabled || mysqlStore == nil || resolver == nil {
 		return
 	}
 	go aiinsight.RunDailyLoop(context.Background(), aiinsight.DailyConfig{
-		DB:         mysqlStore.DB(),
-		Resolver:   resolver,
-		Hour:       cfg.AIInsightAnalysisHour,
-		RunOnStart: cfg.AIInsightAnalysisRunOnStart,
-		Logger:     log.Default(),
+		DB:               mysqlStore.DB(),
+		Resolver:         resolver,
+		Hour:             cfg.AIInsightAnalysisHour,
+		RunOnStart:       cfg.AIInsightAnalysisRunOnStart,
+		Logger:           log.Default(),
+		AssistantContext: assistantContext,
 	})
 	log.Printf("go cron enabled: AI insight daily analysis hour=%02d run_on_start=%v", cfg.AIInsightAnalysisHour, cfg.AIInsightAnalysisRunOnStart)
 }

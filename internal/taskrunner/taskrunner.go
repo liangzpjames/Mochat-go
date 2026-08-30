@@ -26,8 +26,11 @@ const (
 )
 
 type Task struct {
-	Name string
-	Run  func(context.Context) error
+	Name                   string
+	Run                    func(context.Context) error
+	Periodic               bool
+	PeriodicReadinessGrace time.Duration
+	PeriodicMaxRunDuration time.Duration
 }
 
 type PeriodicConfig struct {
@@ -36,15 +39,23 @@ type PeriodicConfig struct {
 	RunOnStart          bool
 	Logger              *slog.Logger
 	SuppressOutcomeLogs bool
+	MaxRunDuration      time.Duration
 }
 
 type Snapshot struct {
-	Name      string `json:"name"`
-	RunID     string `json:"run_id,omitempty"`
-	Status    string `json:"status"`
-	StartedAt string `json:"started_at"`
-	StoppedAt string `json:"stopped_at,omitempty"`
-	Error     string `json:"error,omitempty"`
+	Name                      string             `json:"name"`
+	RunID                     string             `json:"run_id,omitempty"`
+	Status                    string             `json:"status"`
+	StartedAt                 string             `json:"started_at"`
+	StoppedAt                 string             `json:"stopped_at,omitempty"`
+	Error                     string             `json:"error,omitempty"`
+	LastSuccessAt             string             `json:"last_success_at,omitempty"`
+	ConsecutiveFailures       int                `json:"consecutive_failures"`
+	LatestExecution           *ExecutionSnapshot `json:"latest_execution,omitempty"`
+	Periodic                  bool               `json:"periodic"`
+	ReadinessGraceUntil       string             `json:"readiness_grace_until,omitempty"`
+	CurrentExecutionStartedAt string             `json:"current_execution_started_at,omitempty"`
+	PeriodicMaxRunDuration    string             `json:"periodic_max_run_duration,omitempty"`
 }
 
 type Recorder interface {
@@ -73,7 +84,10 @@ const (
 	runtimeTaskNameKey runtimeContextKey = "task_name"
 	runtimeRunIDKey    runtimeContextKey = "run_id"
 	runtimeRecorderKey runtimeContextKey = "recorder"
+	runtimeSnapshotKey runtimeContextKey = "snapshot_updater"
 )
+
+const periodicReadinessFailureThreshold = 3
 
 type Group struct {
 	logger *slog.Logger
@@ -83,6 +97,8 @@ type Group struct {
 	snapshot map[string]Snapshot
 	recorder Recorder
 	started  bool
+	wait     sync.WaitGroup
+	done     chan struct{}
 }
 
 var runIDCounter atomic.Uint64
@@ -92,7 +108,7 @@ func New(logger *slog.Logger) *Group {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Group{logger: logger, snapshot: map[string]Snapshot{}}
+	return &Group{logger: logger, snapshot: map[string]Snapshot{}, done: make(chan struct{})}
 }
 
 func (g *Group) WithRecorder(recorder Recorder) *Group {
@@ -117,14 +133,38 @@ func Periodic(cfg PeriodicConfig, run func(context.Context) error) func(context.
 		if cfg.Interval <= 0 {
 			return fmt.Errorf("periodic task %s interval must be positive", strings.TrimSpace(cfg.Name))
 		}
+		if cfg.MaxRunDuration < 0 {
+			return fmt.Errorf("periodic task %s max run duration cannot be negative", strings.TrimSpace(cfg.Name))
+		}
+		startupGrace := periodicStartupGrace(cfg)
+		updateRuntimeSnapshot(ctx, func(snapshot Snapshot) Snapshot {
+			snapshot.ReadinessGraceUntil = time.Now().Add(startupGrace).Format(time.RFC3339)
+			return snapshot
+		})
 		consecutiveFailures := 0
 		lastFailureLog := time.Time{}
 		runOnce := func() {
 			startedAt := time.Now()
 			taskName := periodicTaskName(ctx, cfg.Name)
-			err := run(ctx)
+			updateRuntimeSnapshot(ctx, func(snapshot Snapshot) Snapshot {
+				snapshot.CurrentExecutionStartedAt = startedAt.Format(time.RFC3339Nano)
+				return snapshot
+			})
+			var err error
+			func() {
+				defer func() {
+					if recovered := recover(); recovered != nil {
+						err = errors.New("periodic_task_panicked")
+					}
+				}()
+				err = run(ctx)
+			}()
 			stoppedAt := time.Now()
 			if errors.Is(err, context.Canceled) {
+				updateRuntimeSnapshot(ctx, func(snapshot Snapshot) Snapshot {
+					snapshot.CurrentExecutionStartedAt = ""
+					return snapshot
+				})
 				return
 			}
 			execution := ExecutionSnapshot{
@@ -144,6 +184,7 @@ func Periodic(cfg PeriodicConfig, run func(context.Context) error) func(context.
 			recordTaskExecution(ctx, logger, execution)
 			if err != nil {
 				consecutiveFailures++
+				updatePeriodicSnapshot(ctx, execution, consecutiveFailures, false)
 				if !cfg.SuppressOutcomeLogs && (lastFailureLog.IsZero() || stoppedAt.Sub(lastFailureLog) >= time.Minute) {
 					logger.Error("周期任务持续失败并将自动重试；请按任务名和运行标识检查依赖，重复日志已限流",
 						"event", "periodic_task_failed", "component", "taskrunner", "task_name", taskName,
@@ -153,14 +194,16 @@ func Periodic(cfg PeriodicConfig, run func(context.Context) error) func(context.
 				}
 				return
 			}
-			if consecutiveFailures > 0 {
+			previousFailures := consecutiveFailures
+			consecutiveFailures = 0
+			updatePeriodicSnapshot(ctx, execution, 0, true)
+			if previousFailures > 0 {
 				if !cfg.SuppressOutcomeLogs {
 					logger.Info("周期任务已从连续失败中恢复",
 						"event", "periodic_task_recovered", "component", "taskrunner", "task_name", taskName,
-						"run_id", taskRunID(ctx), "execution_id", execution.ExecutionID, "step", "tick", "result", "success", "retry_count", consecutiveFailures,
+						"run_id", taskRunID(ctx), "execution_id", execution.ExecutionID, "step", "tick", "result", "success", "retry_count", previousFailures,
 						"duration_ms", stoppedAt.Sub(startedAt).Milliseconds())
 				}
-				consecutiveFailures = 0
 				lastFailureLog = time.Time{}
 			}
 			if !cfg.SuppressOutcomeLogs {
@@ -184,10 +227,41 @@ func Periodic(cfg PeriodicConfig, run func(context.Context) error) func(context.
 	}
 }
 
+func periodicStartupGrace(cfg PeriodicConfig) time.Duration {
+	startupGrace := 30 * time.Second
+	if !cfg.RunOnStart {
+		startupGrace += cfg.Interval
+	}
+	return startupGrace
+}
+
+func periodicMaxRunDuration(cfg PeriodicConfig) time.Duration {
+	if cfg.MaxRunDuration > 0 {
+		return cfg.MaxRunDuration
+	}
+	maxRunDuration := 3 * cfg.Interval
+	if startupGrace := periodicStartupGrace(cfg); startupGrace > maxRunDuration {
+		maxRunDuration = startupGrace
+	}
+	return maxRunDuration
+}
+
 func (g *Group) Add(name string, run func(context.Context) error) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.tasks = append(g.tasks, Task{Name: strings.TrimSpace(name), Run: run})
+}
+
+func (g *Group) AddPeriodic(name string, cfg PeriodicConfig, run func(context.Context) error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.tasks = append(g.tasks, Task{
+		Name:                   strings.TrimSpace(name),
+		Run:                    Periodic(cfg, run),
+		Periodic:               true,
+		PeriodicReadinessGrace: periodicStartupGrace(cfg),
+		PeriodicMaxRunDuration: periodicMaxRunDuration(cfg),
+	})
 }
 
 func (g *Group) Start(ctx context.Context) error {
@@ -214,11 +288,31 @@ func (g *Group) Start(ctx context.Context) error {
 		g.snapshot[task.Name] = Snapshot{Name: task.Name, Status: StatusPending}
 	}
 	g.started = true
+	g.wait.Add(len(g.tasks))
 	for _, task := range g.tasks {
 		task := task
-		go g.run(ctx, task)
+		go func() {
+			defer g.wait.Done()
+			g.run(ctx, task)
+		}()
 	}
+	go func() {
+		g.wait.Wait()
+		close(g.done)
+	}()
 	return nil
+}
+
+func (g *Group) Wait(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	select {
+	case <-g.done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 func (g *Group) Snapshots() []Snapshot {
@@ -241,6 +335,11 @@ func (g *Group) run(ctx context.Context, task Task) {
 		snapshot.StartedAt = startedAt.Format(time.RFC3339)
 		snapshot.StoppedAt = ""
 		snapshot.Error = ""
+		snapshot.Periodic = task.Periodic
+		if task.Periodic {
+			snapshot.ReadinessGraceUntil = startedAt.Add(task.PeriodicReadinessGrace).Format(time.RFC3339)
+			snapshot.PeriodicMaxRunDuration = task.PeriodicMaxRunDuration.String()
+		}
 		return snapshot
 	})
 	g.logger.Info("后台任务已启动", "event", "background_task_started", "component", "taskrunner", "task_name", task.Name, "run_id", runID, "step", "run", "result", "started")
@@ -250,7 +349,7 @@ func (g *Group) run(ctx context.Context, task Task) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			status = StatusFailed
-			errText = observability.SanitizeText(fmt.Sprintf("panic: %v", recovered))
+			errText = "background_task_panicked"
 		}
 		stoppedAt := time.Now()
 		g.set(task.Name, func(snapshot Snapshot) Snapshot {
@@ -270,10 +369,67 @@ func (g *Group) run(ctx context.Context, task Task) {
 	}()
 
 	taskCtx := WithTaskRuntime(ctx, task.Name, runID, g.runtimeRecorder())
+	taskCtx = context.WithValue(taskCtx, runtimeSnapshotKey, func(update func(Snapshot) Snapshot) {
+		g.set(task.Name, update)
+	})
 	if err := task.Run(taskCtx); err != nil && !errors.Is(err, context.Canceled) {
 		status = StatusFailed
 		errText = observability.SanitizeText(err.Error())
 	}
+}
+
+// RequiredTasksReady applies the runtime health contract for tasks that are
+// actually registered by the current role. One transient periodic failure is
+// tolerated; three consecutive failures remove readiness until recovery.
+func RequiredTasksReady(snapshots []Snapshot, now time.Time) bool {
+	if len(snapshots) == 0 {
+		return false
+	}
+	for _, snapshot := range snapshots {
+		if snapshot.Status != StatusRunning || snapshot.ConsecutiveFailures >= periodicReadinessFailureThreshold {
+			return false
+		}
+		// A running execution owns its explicit/computed budget even when it is
+		// the task's first tick. Startup grace only covers tasks that have not
+		// started an execution yet.
+		if snapshot.CurrentExecutionStartedAt != "" {
+			startedAt, startedErr := time.Parse(time.RFC3339Nano, snapshot.CurrentExecutionStartedAt)
+			maxRunDuration, durationErr := time.ParseDuration(snapshot.PeriodicMaxRunDuration)
+			if startedErr != nil || durationErr != nil || maxRunDuration <= 0 || now.After(startedAt.Add(maxRunDuration)) {
+				return false
+			}
+			continue
+		}
+		if snapshot.LastSuccessAt == "" && snapshot.ReadinessGraceUntil != "" {
+			graceUntil, err := time.Parse(time.RFC3339, snapshot.ReadinessGraceUntil)
+			if err != nil || now.After(graceUntil) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func updateRuntimeSnapshot(ctx context.Context, update func(Snapshot) Snapshot) {
+	if ctx == nil || update == nil {
+		return
+	}
+	if updater, ok := ctx.Value(runtimeSnapshotKey).(func(func(Snapshot) Snapshot)); ok && updater != nil {
+		updater(update)
+	}
+}
+
+func updatePeriodicSnapshot(ctx context.Context, execution ExecutionSnapshot, consecutiveFailures int, succeeded bool) {
+	updateRuntimeSnapshot(ctx, func(snapshot Snapshot) Snapshot {
+		latest := execution
+		snapshot.LatestExecution = &latest
+		snapshot.ConsecutiveFailures = consecutiveFailures
+		snapshot.CurrentExecutionStartedAt = ""
+		if succeeded {
+			snapshot.LastSuccessAt = execution.StoppedAt
+		}
+		return snapshot
+	})
 }
 
 func (g *Group) runtimeRecorder() Recorder {

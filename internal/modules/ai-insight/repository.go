@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/go-sql-driver/mysql"
+	mysqlerror "jiyi/mochat-go/internal/modules/ai-insight/adapters/mysqlerror"
 )
 
 type SQLRepository struct{ db *sql.DB }
@@ -124,8 +124,7 @@ func (r *SQLRepository) archiveMessages(ctx context.Context, corpID int64, start
 		if err != nil {
 			// Fresh installations may not have all ten shards yet. A missing
 			// table is indistinguishable from an empty shard for read purposes.
-			var mysqlErr *mysql.MySQLError
-			if errors.As(err, &mysqlErr) && mysqlErr.Number == 1146 {
+			if mysqlerror.IsMissingTable(err) {
 				continue
 			}
 			return nil, err

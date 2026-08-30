@@ -25,10 +25,18 @@ const (
 var requiredTriggerPaths = []string{
 	".github/workflows/mysql57-amd64.yml",
 	"architecture-policy.json",
+	"Dockerfile",
 	"cmd/mochat-architecture/**",
+	"cmd/mochat-ai-insight-0165/**",
 	"cmd/mochat-go/**",
+	"go.mod",
 	phase3Plan,
 	"internal/**",
+	"package.json",
+	"pnpm-lock.yaml",
+	"pnpm-workspace.yaml",
+	"scripts/check_supply_chain_policy.mjs",
+	"scripts/check_supply_chain_policy.test.mjs",
 	"scripts/dev_check.sh",
 	"scripts/test.sh",
 	"scripts/audit_architecture_boundaries.sh",
@@ -36,6 +44,8 @@ var requiredTriggerPaths = []string{
 	"scripts/test_audit_architecture_boundaries.sh",
 	"scripts/test_backend_quality_gate_contract.sh",
 	"scripts/ci_mysql57_amd64.sh",
+	"scripts/lib/migration_inventory_smoke.sh",
+	"scripts/preflight_0165_ai_daily_insight_unification.go",
 	"scripts/smoke_schema_migrate.sh",
 	"scripts/smoke_mysql57_schema_migrate.sh",
 }
@@ -46,10 +56,11 @@ var githubRunnerStatePattern = regexp.MustCompile(
 )
 
 type workflowDocument struct {
-	On       workflowTriggers       `yaml:"on"`
-	Jobs     map[string]workflowJob `yaml:"jobs"`
-	Env      map[string]string      `yaml:"env"`
-	Defaults workflowDefaults       `yaml:"defaults"`
+	On          workflowTriggers       `yaml:"on"`
+	Jobs        map[string]workflowJob `yaml:"jobs"`
+	Env         map[string]string      `yaml:"env"`
+	Defaults    workflowDefaults       `yaml:"defaults"`
+	Permissions yaml.Node              `yaml:"permissions"`
 }
 
 type workflowTriggers struct {
@@ -70,6 +81,7 @@ type workflowJob struct {
 	Defaults        workflowDefaults  `yaml:"defaults"`
 	Steps           []workflowStep    `yaml:"steps"`
 	Env             map[string]string `yaml:"env"`
+	Permissions     yaml.Node         `yaml:"permissions"`
 }
 
 type workflowStep struct {
@@ -98,22 +110,26 @@ type requiredStep struct {
 }
 
 var requiredSteps = []requiredStep{
+	{name: "Supply-chain policy gate", command: "pnpm check:supply-chain"},
+	{name: "Frontend dependency vulnerability gate", command: "pnpm audit --audit-level high"},
 	{name: "Go architecture gate", command: "go run ./cmd/mochat-architecture -root ."},
 	{name: "Go module race gate", command: "go test -race ./internal/modules/..."},
 	{name: "Go tests", command: "go test ./..."},
 	{name: "Go vet", command: "go vet ./..."},
-	{name: "Migration 0098 lifecycle gate", command: "bash ./scripts/smoke_schema_migrate.sh"},
+	{name: "Go reachable vulnerability gate", command: "go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 ./..."},
+	{name: "Migration registry lifecycle gate", command: "bash ./scripts/smoke_schema_migrate.sh"},
 	{name: "SCRM MySQL integration gate", command: "go test -v -count=1 -tags=integration ./internal/modules/scrm/adapters/mysql"},
 }
 
 var requiredStepEnvironments = map[string]map[string]string{
-	"Migration 0098 lifecycle gate": {
+	"Migration registry lifecycle gate": {
 		"MOCHAT_STACK_PROJECT": "mochat-go-schema-migrate-ci",
 		"MOCHAT_MYSQL_PORT":    "13331",
 	},
 	"SCRM MySQL integration gate": {
 		"MOCHAT_STACK_PROJECT":             "mochat-go-scrm-integration",
 		"MOCHAT_MYSQL57_PORT":              "13333",
+		"MOCHAT_GO_MYSQL_INTEGRATION_DSN":  "root:mochat_root@tcp(127.0.0.1:13333)/mysql?parseTime=true&multiStatements=true",
 		"MOCHAT_MYSQL_DSN":                 "mochat:mochat_pass@tcp(127.0.0.1:13333)/mochat?parseTime=true&loc=UTC",
 		"MOCHAT_REQUIRE_MYSQL_INTEGRATION": "1",
 	},
@@ -125,6 +141,7 @@ var approvedNonRequiredRunSteps = map[string]string{
 	"Frontend build gate":                     "./scripts/frontend_check.sh build",
 	"Architecture wrapper compatibility test": "sh ./scripts/test_audit_architecture_boundaries.sh",
 	"Backend quality gate workflow contract":  "sh ./scripts/test_backend_quality_gate_contract.sh",
+	"Checksum source dependency SBOM":         "sha256sum mochat-go.spdx.json | tee mochat-go.spdx.json.sha256",
 	"Docker info":                             "docker info",
 	"Architecture boundaries":                 "./scripts/audit_architecture_boundaries.sh\n./scripts/test_audit_architecture_boundaries.sh\n",
 	"Run MySQL 5.7 amd64 gate":                "mkdir -p docs/phases/phase-pre0-standalone/evidence/ci\nenv -u GOROOT ./scripts/ci_mysql57_amd64.sh 2>&1 | tee docs/phases/phase-pre0-standalone/evidence/ci/mysql57-amd64.log\ngrep -q \"mysql57 amd64 CI gate passed\" docs/phases/phase-pre0-standalone/evidence/ci/mysql57-amd64.log\n",
@@ -143,6 +160,7 @@ func Validate(root string) []string {
 		"scripts/test.sh",
 		phase3Plan,
 		"scripts/smoke_schema_migrate.sh",
+		"scripts/lib/migration_inventory_smoke.sh",
 	} {
 		contents, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(path)))
 		if err != nil {
@@ -153,7 +171,10 @@ func Validate(root string) []string {
 	}
 
 	failures = append(failures, validateDeveloperScripts(files)...)
-	failures = append(failures, validateLifecycle(files["scripts/smoke_schema_migrate.sh"])...)
+	failures = append(failures, validateLifecycle(
+		files["scripts/smoke_schema_migrate.sh"],
+		files["scripts/lib/migration_inventory_smoke.sh"],
+	)...)
 	failures = append(failures, validatePhase3Plan(files[phase3Plan])...)
 	sort.Strings(failures)
 	return failures
@@ -171,6 +192,9 @@ func validateWorkflow(path string) []string {
 	}
 
 	failures := make([]string, 0)
+	if !exactReadOnlyWorkflowPermissions(document.Permissions) {
+		failures = append(failures, "workflow permissions must be exactly contents: read")
+	}
 	if !supportedWorkflowShell(document.Defaults.Run.Shell) {
 		failures = append(
 			failures,
@@ -212,6 +236,9 @@ func validateWorkflow(path string) []string {
 			failures,
 			"workflow job "+workflowJobID+" must use supported runner ubuntu-22.04",
 		)
+	}
+	if job.Permissions.Kind != 0 {
+		failures = append(failures, "workflow job "+workflowJobID+" must not override permissions")
 	}
 	if !yamlBooleanOrAbsent(job.If, true) {
 		failures = append(failures, "workflow job "+workflowJobID+" must be unconditional")
@@ -348,11 +375,11 @@ func validateWorkflow(path string) []string {
 	if len(positions) == len(requiredSteps) && !strictlyIncreasing(positions) {
 		failures = append(
 			failures,
-			"workflow gate order must be architecture -> race -> full test -> vet -> lifecycle -> integration within job "+workflowJobID,
+			"workflow gate order must be supply policy -> frontend vulnerability -> architecture -> race -> full test -> vet -> Go vulnerability -> lifecycle -> integration within job "+workflowJobID,
 		)
 	}
 
-	lifecycle := stepByName["Migration 0098 lifecycle gate"]
+	lifecycle := stepByName["Migration registry lifecycle gate"]
 	if lifecycle.Env["MOCHAT_STACK_PROJECT"] != "mochat-go-schema-migrate-ci" {
 		failures = append(failures, "migration lifecycle must use the dedicated mochat-go-schema-migrate-ci project")
 	}
@@ -372,6 +399,10 @@ func validateWorkflow(path string) []string {
 	}
 	if integration.Env["MOCHAT_MYSQL57_PORT"] != "13333" {
 		failures = append(failures, "integration step must use dedicated port 13333")
+	}
+	const fullFixtureGate = "go test ./internal/store ./internal/migration -count=1 -timeout 20m"
+	if !containsExecutableCommandsInOrder(integration.Run, []string{fullFixtureGate}) {
+		failures = append(failures, "integration step must run the complete store/migration fixture gate with a 20m timeout budget")
 	}
 	integrationCleanup := `docker compose -p "$MOCHAT_STACK_PROJECT" -f deploy/mysql57/docker-compose.yml down -v --remove-orphans`
 	integrationMarkers := []string{
@@ -401,7 +432,7 @@ func validateWorkflow(path string) []string {
 
 func validateDeveloperScripts(files map[string]string) []string {
 	failures := make([]string, 0)
-	build := "go build ./cmd/mochat-go ./cmd/mochat-inventory ./cmd/mochat-migrate ./cmd/mochat-bootstrap ./cmd/mochat-saas-maintenance ./cmd/mochat-architecture"
+	build := "go build ./cmd/mochat-go ./cmd/mochat-inventory ./cmd/mochat-migrate ./cmd/mochat-bootstrap ./cmd/mochat-saas-maintenance ./cmd/mochat-architecture ./cmd/mochat-callback-legacy-cutover"
 	devQuickScripts := literalCommandArguments(files["scripts/dev_check.sh"], "run_go")
 	for _, required := range []string{
 		"sh scripts/test_backend_quality_gate_contract.sh",
@@ -422,29 +453,46 @@ func validateDeveloperScripts(files map[string]string) []string {
 	return failures
 }
 
-func validateLifecycle(contents string) []string {
+func validateLifecycle(contents, inventoryLifecycle string) []string {
 	failures := make([]string, 0)
-	markers := []string{
-		`"$MIGRATE_BIN" -dsn "$MIGRATE_DSN" -project-root "$PWD" -action apply >"$WORK_DIR/apply.out"`,
-		`test "$(mysql_scalar mochat_migrate_check "SELECT COUNT(*) FROM mochat_go_schema_migrations WHERE version = '0098_scrm_lead_foundation' AND CHAR_LENGTH(checksum) = 64")" = "1"`,
-		`"$MIGRATE_BIN" -dsn "$MIGRATE_DSN" -project-root "$PWD" -action rollback >"$WORK_DIR/rollback-0098.out"`,
-		`grep -q $'0098_scrm_lead_foundation\trolled_back' "$WORK_DIR/rollback-0098.out"`,
-		`test "$(mysql_scalar mochat_migrate_check "SHOW TABLES LIKE 'mochat_go_scrm_leads'")" = ""`,
-		`"$MIGRATE_BIN" -dsn "$MIGRATE_DSN" -project-root "$PWD" -action apply >"$WORK_DIR/reapply-latest.out"`,
-		`grep -q $'0098_scrm_lead_foundation\tapplied_now' "$WORK_DIR/reapply-latest.out"`,
-	}
-	if !containsExecutableCommandsInOrder(contents, markers) {
-		failures = append(failures, "authoritative lifecycle script must execute 0098 apply/checksum/rollback/replay in order")
+	if !containsExecutableCommandsInOrder(contents, []string{
+		"source scripts/lib/migration_inventory_smoke.sh",
+		"run_migration_inventory_smoke",
+	}) {
+		failures = append(failures, "authoritative lifecycle wrapper must execute the shared runtime inventory smoke")
 	}
 
-	cleanupCommand := "compose down -v --remove-orphans >/dev/null 2>&1"
+	if strings.Contains(inventoryLifecycle, "0098_scrm_lead_foundation") ||
+		!shellFunctionExecutes(inventoryLifecycle, "load_migration_inventory", `"$MIGRATE_BIN" -project-root "$PWD" -action inventory >"$INVENTORY_FILE"`) {
+		failures = append(failures, "shared lifecycle must derive the migration registry from runtime inventory")
+	}
+	for _, stage := range []string{
+		"build_migration_smoke_binaries",
+		"load_migration_inventory",
+		"apply_full_inventory",
+		"verify_full_inventory_ledger",
+		"verify_latest_rollback_reapply",
+		"verify_checksum_drift_rejected",
+		"verify_baseline_from_full_schema",
+	} {
+		if !shellFunctionExecutes(inventoryLifecycle, "run_migration_inventory_smoke", stage) {
+			failures = append(failures, "shared lifecycle must execute inventory stage: "+stage)
+		}
+	}
+	if !shellFunctionExecutes(inventoryLifecycle, "run_migration_inventory_smoke", `echo "migration inventory smoke passed: count=$INVENTORY_COUNT first=$INVENTORY_FIRST latest=$INVENTORY_LATEST checksum=$INVENTORY_LATEST_CHECKSUM kind=$INVENTORY_LATEST_KIND schema=$MYSQL_SCHEMA"`) {
+		failures = append(failures, "shared lifecycle must emit dynamic count/first/latest/checksum/kind/schema evidence")
+	}
+
+	cleanupCommand := "compose down --remove-orphans >/dev/null 2>&1"
 	cleanupMarkers := []string{
 		"trap cleanup EXIT INT TERM",
-		"compose up -d mysql",
+		"start_mysql",
+		"wait_healthy",
 	}
 	if !containsExecutableCommandsInOrder(contents, cleanupMarkers) ||
+		!shellFunctionExecutes(contents, "start_mysql", "compose up -d mysql") ||
 		!shellFunctionExecutes(contents, "cleanup", cleanupCommand) {
-		failures = append(failures, "authoritative lifecycle cleanup trap must be installed before startup")
+		failures = append(failures, "authoritative lifecycle cleanup trap must be installed before startup without deleting volumes")
 	}
 	return failures
 }
@@ -493,6 +541,15 @@ func strictlyIncreasing(values []int) bool {
 		}
 	}
 	return true
+}
+
+func exactReadOnlyWorkflowPermissions(node yaml.Node) bool {
+	if node.Kind != yaml.MappingNode || len(node.Content) != 2 {
+		return false
+	}
+	key, value := node.Content[0], node.Content[1]
+	return key.Kind == yaml.ScalarNode && key.Value == "contents" &&
+		value.Kind == yaml.ScalarNode && value.Value == "read"
 }
 
 func yamlBooleanOrAbsent(node yaml.Node, expected bool) bool {

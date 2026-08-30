@@ -37,8 +37,8 @@ func TestParseRoleRejectsUnknownRole(t *testing.T) {
 
 func TestRoleCapabilities(t *testing.T) {
 	tests := []struct {
-		role                       Role
-		api, workers, scheduler    bool
+		role                    Role
+		api, workers, scheduler bool
 	}{
 		{role: RoleAll, api: true, workers: true, scheduler: true},
 		{role: RoleAPI, api: true},
@@ -58,5 +58,25 @@ func TestRoleCapabilities(t *testing.T) {
 				t.Errorf("RunsScheduler() = %v, want %v", got, tt.scheduler)
 			}
 		})
+	}
+}
+
+func TestRoleResponsibilitiesMatrix(t *testing.T) {
+	tests := []struct {
+		role               Role
+		durable, automatic bool
+		want               Responsibilities
+	}{
+		{RoleAll, true, true, Responsibilities{API: true, Workers: true, Schedulers: true, DurableArchiveAPI: true, DurableArchiveWorkers: true, ArchiveEnqueuer: true}},
+		{RoleAPI, true, true, Responsibilities{API: true, DurableArchiveAPI: true}},
+		{RoleWorker, true, true, Responsibilities{Workers: true, DurableArchiveWorkers: true}},
+		{RoleScheduler, true, true, Responsibilities{Schedulers: true, ArchiveEnqueuer: true}},
+		{RoleAll, false, true, Responsibilities{API: true, Workers: true, Schedulers: true}},
+		{RoleAll, true, false, Responsibilities{API: true, Workers: true, Schedulers: true, DurableArchiveAPI: true, DurableArchiveWorkers: true}},
+	}
+	for _, tt := range tests {
+		if got := tt.role.Responsibilities(tt.durable, tt.automatic); got != tt.want {
+			t.Errorf("role=%s durable=%t automatic=%t got=%+v want=%+v", tt.role, tt.durable, tt.automatic, got, tt.want)
+		}
 	}
 }

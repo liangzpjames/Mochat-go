@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -10,6 +11,32 @@ func TestNewOrderRejectsInvalidMoneyAndState(t *testing.T) {
 		if _, err := NewOrder(input); err == nil {
 			t.Fatalf("expected rejection for %#v", input)
 		}
+	}
+}
+
+func TestNewOrderRequiresInjectedID(t *testing.T) {
+	_, err := NewOrder(NewOrderInput{TenantID: 1, CorpID: 2, ContactID: "c", Title: "order", AmountCents: 1, Status: OrderPending})
+	if err == nil {
+		t.Fatal("blank ID must be rejected by domain")
+	}
+}
+
+func TestOrderCreateRequestHashRequiresExplicitClientOrderID(t *testing.T) {
+	hashType := reflect.TypeOf(OrderCreateRequestHash)
+	if hashType.IsVariadic() || hashType.NumIn() != 2 || hashType.In(1).Kind() != reflect.String {
+		t.Fatalf("OrderCreateRequestHash type = %s, want non-variadic func(Order, string)", hashType)
+	}
+	order := Order{ContactID: "contact", Title: "renewal", AmountCents: 100, Currency: "CNY", Status: OrderPending}
+	first, err := OrderCreateRequestHash(order, "client-order-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := OrderCreateRequestHash(order, "client-order-2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first == second {
+		t.Fatal("explicit client order ID must affect the canonical payload hash")
 	}
 }
 

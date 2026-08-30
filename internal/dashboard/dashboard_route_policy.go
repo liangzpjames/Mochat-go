@@ -1,55 +1,5 @@
 package dashboard
 
-// These contracts are policy, not routing evidence. The catalog gate independently
-// extracts reachable registrations from production Go dispatch and composition code.
-var exactExemptDashboardRouteContracts = []string{
-	"GET /dashboard/access/profile",
-	"GET /dashboard/corp/weWorkCallback",
-	"GET /dashboard/officialAccount/authEventCallback",
-	"GET /dashboard/officialAccount/authRedirect/",
-	"GET /dashboard/user/securityMFA",
-	"POST /dashboard/corp/weWorkCallback",
-	"POST /dashboard/officialAccount/authEventCallback",
-	"POST /dashboard/officialAccount/authRedirect/",
-	"POST /dashboard/user/auth",
-	"POST /dashboard/user/authMFA",
-	"POST /dashboard/auth/activate",
-	"POST /dashboard/auth/activation/status",
-	"POST /dashboard/auth/password/reset",
-	"POST /dashboard/auth/password/reset-request",
-	"GET /dashboard/auth/session",
-	"POST /dashboard/auth/logout",
-	"POST /dashboard/user/securityMFA",
-	"PUT /dashboard/user/logout",
-	"PUT /dashboard/user/securityMFA",
-}
-
-// ExactExemptDashboardRouteContracts returns a copy so callers cannot mutate
-// the policy shared by the catalog gate and the runtime guard.
-func ExactExemptDashboardRouteContracts() []string {
-	return append([]string(nil), exactExemptDashboardRouteContracts...)
-}
-
-// publicDashboardRouteContracts are the exact exemptions that cannot have an
-// authenticated tenant yet. Every other exemption still passes the tenant gate.
-var publicDashboardRouteContracts = []string{
-	"GET /dashboard/corp/weWorkCallback",
-	"GET /dashboard/officialAccount/authEventCallback",
-	"GET /dashboard/officialAccount/authRedirect/",
-	"POST /dashboard/corp/weWorkCallback",
-	"POST /dashboard/officialAccount/authEventCallback",
-	"POST /dashboard/officialAccount/authRedirect/",
-	"POST /dashboard/user/auth",
-	"POST /dashboard/user/authMFA",
-	"POST /dashboard/auth/activate",
-	"POST /dashboard/auth/activation/status",
-	"POST /dashboard/auth/password/reset",
-}
-
-func PublicDashboardRouteContracts() []string {
-	return append([]string(nil), publicDashboardRouteContracts...)
-}
-
 // pageMappedDashboardRouteContracts contains registered route templates whose
 // page-RBAC mapping is expressed by the catalog/migration rather than by an
 // individual permission constant in this package.

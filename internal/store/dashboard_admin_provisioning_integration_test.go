@@ -6,26 +6,18 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
 	"jiyi/mochat-go/internal/dashboard"
 	"jiyi/mochat-go/internal/dashboardadmin"
-	"jiyi/mochat-go/internal/migration"
 	"jiyi/mochat-go/internal/saasauth"
-
-	mysqldriver "github.com/go-sql-driver/mysql"
 )
 
-var dashboardAdminSchemaSequence atomic.Int64
-
 func TestDashboardAdminApprovalExecutionRealMariaDB(t *testing.T) {
-	db := newDashboardAdminProvisioningDB(t)
+	db := newCurrentStoreIntegrationDB(t)
 	createDashboardAdminProvisioningFixture(t, db)
 	rootUserID := seedDashboardAdminProvisioningPackageAndActor(t, db)
 
@@ -58,7 +50,7 @@ func TestDashboardAdminApprovalExecutionRealMariaDB(t *testing.T) {
 	}
 	resendResult := executeRealDashboardAdminApproval(t, ctx, db, store, actor, dashboardadmin.ApprovalActionActivationResend, resendRaw, "dashboard_identity_activation", fmt.Sprintf("%d", resendSeedResult.DashboardUserID))
 	if !realApprovalResultHasPositiveID(resendResult, "dashboardUserId") || !realApprovalResultHasPositiveVersion(resendResult, 2) {
-		t.Fatal("resend approval result omitted result version")
+		t.Fatalf("resend approval result omitted result version: %#v", resendResult)
 	}
 	assertRealApprovalEffectAndAudits(t, db, resendResult, "saas.admin.dashboard_activation.resend", "saas.admin.dashboard_activation.resend")
 
@@ -90,6 +82,7 @@ func TestDashboardAdminApprovalExecutionRealMariaDB(t *testing.T) {
 		t.Fatalf("seed status target: %v", err)
 	}
 	activateProvisionedSubjectForGovernance(t, db, statusSeedResult.DashboardUserID)
+	insertActivatedDashboardUser(t, db, statusSeedResult.TenantID, "13800000107", "Approval status backup", true)
 	statusRaw, err := json.Marshal(map[string]any{
 		"tenantId":        statusSeedResult.TenantID,
 		"targetUserId":    statusSeedResult.DashboardUserID,
@@ -107,7 +100,7 @@ func TestDashboardAdminApprovalExecutionRealMariaDB(t *testing.T) {
 }
 
 func TestDashboardAdminApprovalEffectUpdateFailureRollsBackBusinessTransactionRealMariaDB(t *testing.T) {
-	db := newDashboardAdminProvisioningDB(t)
+	db := newCurrentStoreIntegrationDB(t)
 	createDashboardAdminProvisioningFixture(t, db)
 	rootUserID := seedDashboardAdminProvisioningPackageAndActor(t, db)
 
@@ -129,7 +122,7 @@ func TestDashboardAdminApprovalEffectUpdateFailureRollsBackBusinessTransactionRe
 	if err != nil {
 		t.Fatal(err)
 	}
-	started := createAndBeginRealDashboardAdminApproval(t, ctx, store, dashboardadmin.ApprovalActionSuperAdminStatus, raw, "dashboard_superadmin", fmt.Sprintf("%d", seed.DashboardUserID))
+	started := createAndBeginRealDashboardAdminApproval(t, ctx, store, actor.UserID, dashboardadmin.ApprovalActionSuperAdminStatus, raw, "dashboard_superadmin", fmt.Sprintf("%d", seed.DashboardUserID))
 
 	beforeCounts := dashboardAdminCounts(t, db)
 	var beforeVersion uint64
@@ -197,7 +190,7 @@ func TestDashboardAdminApprovalEffectUpdateFailureRollsBackBusinessTransactionRe
 	}
 }
 
-func createAndBeginRealDashboardAdminApproval(t *testing.T, ctx context.Context, store *MySQLStore, action string, raw []byte, targetType, targetID string) dashboard.SaaSAdminApproval {
+func createAndBeginRealDashboardAdminApproval(t *testing.T, ctx context.Context, store *MySQLStore, executionUserID int, action string, raw []byte, targetType, targetID string) dashboard.SaaSAdminApproval {
 	t.Helper()
 	digest := sha256.Sum256(raw)
 	requestKey := fmt.Sprintf("task7-real-%d", time.Now().UnixNano())
@@ -240,13 +233,13 @@ func createAndBeginRealDashboardAdminApproval(t *testing.T, ctx context.Context,
 	started, err := store.BeginSaaSAdminApprovalExecution(ctx, dashboard.SaaSAdminApprovalExecutionStart{
 		ApprovalID:      decided.ID,
 		ExpectedVersion: decided.Version,
-		ActorUserID:     700,
+		ActorUserID:     executionUserID,
 		ActorTenantID:   1,
 	})
 	if err != nil {
 		t.Fatalf("begin real approval action=%s: %v", action, err)
 	}
-	if started.Status != dashboard.SaaSAdminApprovalStatusExecuting || started.ExecutionUserID != 700 {
+	if started.Status != dashboard.SaaSAdminApprovalStatusExecuting || started.ExecutionUserID != executionUserID {
 		t.Fatalf("started approval action=%s status=%s executor=%d", action, started.Status, started.ExecutionUserID)
 	}
 	return started
@@ -254,7 +247,7 @@ func createAndBeginRealDashboardAdminApproval(t *testing.T, ctx context.Context,
 
 func executeRealDashboardAdminApproval(t *testing.T, ctx context.Context, db *sql.DB, store *MySQLStore, actor dashboardadmin.Actor, action string, raw []byte, targetType, targetID string) map[string]any {
 	t.Helper()
-	started := createAndBeginRealDashboardAdminApproval(t, ctx, store, action, raw, targetType, targetID)
+	started := createAndBeginRealDashboardAdminApproval(t, ctx, store, actor.UserID, action, raw, targetType, targetID)
 	result, err := dashboardadmin.NewService(store).ExecuteApproval(ctx, actor, action, raw, started.ID, started.Version)
 	if err != nil {
 		t.Fatalf("execute real approval action=%s: %v", action, err)
@@ -325,6 +318,10 @@ func realApprovalResultHasPositiveVersion(result map[string]any, expected int) b
 		return number == expected
 	case int64:
 		return number == int64(expected)
+	case uint:
+		return number == uint(expected)
+	case uint64:
+		return number == uint64(expected)
 	case float64:
 		return int(number) == expected
 	default:
@@ -392,7 +389,7 @@ func realApprovalResultInt(result map[string]any, key string) (int, bool) {
 }
 
 func TestDashboardAdminProvisioningRealMariaDB(t *testing.T) {
-	db := newDashboardAdminProvisioningDB(t)
+	db := newCurrentStoreIntegrationDB(t)
 	createDashboardAdminProvisioningFixture(t, db)
 	rootUserID := seedDashboardAdminProvisioningPackageAndActor(t, db)
 
@@ -696,6 +693,7 @@ func TestDashboardAdminProvisioningRealMariaDB(t *testing.T) {
 func dashboardAdminProvisioningInput(key, phone, tenantName string) dashboardadmin.ProvisionDashboardTenant {
 	return dashboardadmin.ProvisionDashboardTenant{
 		TenantName:           tenantName,
+		WeComIntegrationMode: dashboardadmin.WeComIntegrationModeSelfBuilt,
 		PackageID:            11,
 		Limits:               dashboardAdminIntegrationLimits(),
 		Subscription:         dashboardadmin.SubscriptionInput{PackageCode: "pro", Status: "trialing", BillingCycle: "custom", StartsAt: "2026-08-11T00:00:00Z", ExpiresAt: "2026-09-11T00:00:00Z"},
@@ -812,143 +810,16 @@ func sameDashboardAdminCounts(left, right map[string]int) bool {
 	return true
 }
 
-func newDashboardAdminProvisioningDB(t *testing.T) *sql.DB {
-	t.Helper()
-	dsn := os.Getenv("MOCHAT_GO_MYSQL_INTEGRATION_DSN")
-	if strings.TrimSpace(dsn) == "" {
-		t.Skip("SKIP: MOCHAT_GO_MYSQL_INTEGRATION_DSN is not set; isolated MariaDB DSN is required")
-	}
-	cfg, err := mysqldriver.ParseDSN(dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	adminCfg := *cfg
-	adminCfg.DBName = ""
-	admin, err := sql.Open("mysql", adminCfg.FormatDSN())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := admin.PingContext(context.Background()); err != nil {
-		_ = admin.Close()
-		t.Fatal(err)
-	}
-	schema := fmt.Sprintf("mochat_identity_single_corp_task7_%d_%d", os.Getpid(), dashboardAdminSchemaSequence.Add(1))
-	var schemaExists int
-	if err := admin.QueryRow(`SELECT COUNT(*) FROM information_schema.schemata WHERE schema_name=?`, schema).Scan(&schemaExists); err != nil {
-		_ = admin.Close()
-		t.Fatalf("check isolated schema collision: %v", err)
-	}
-	if schemaExists != 0 {
-		_ = admin.Close()
-		t.Fatalf("isolated schema already exists: %s", schema)
-	}
-	if _, err := admin.Exec("CREATE DATABASE `" + schema + "` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"); err != nil {
-		_ = admin.Close()
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		_, _ = admin.Exec("DROP DATABASE IF EXISTS `" + schema + "`")
-		var leftovers int
-		if err := admin.QueryRow(`SELECT COUNT(*) FROM information_schema.schemata WHERE schema_name=?`, schema).Scan(&leftovers); err != nil {
-			t.Errorf("check isolated schema cleanup: %v", err)
-		} else if leftovers != 0 {
-			t.Errorf("isolated schema %s still exists after cleanup", schema)
-		}
-		t.Logf("isolated schema cleanup=0 (%s)", schema)
-		_ = admin.Close()
-	})
-	testCfg := *cfg
-	testCfg.DBName = schema
-	db, err := sql.Open("mysql", testCfg.FormatDSN())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := db.PingContext(context.Background()); err != nil {
-		_ = db.Close()
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
-	return db
-}
-
-func dashboardAdminSchemaLeftovers(t *testing.T) int {
-	t.Helper()
-	dsn := os.Getenv("MOCHAT_GO_MYSQL_INTEGRATION_DSN")
-	cfg, err := mysqldriver.ParseDSN(dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	adminCfg := *cfg
-	adminCfg.DBName = ""
-	admin, err := sql.Open("mysql", adminCfg.FormatDSN())
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer admin.Close()
-	return dashboardAdminSchemaLeftoversWithDB(t, admin)
-}
-
-func dashboardAdminSchemaLeftoversWithDB(t *testing.T, admin *sql.DB) int {
-	t.Helper()
-	var count int
-	if err := admin.QueryRow(`SELECT COUNT(*) FROM information_schema.schemata WHERE schema_name LIKE 'mochat_identity_single_corp_task7_%'`).Scan(&count); err != nil {
-		t.Fatal(err)
-	}
-	return count
-}
-
 func createDashboardAdminProvisioningFixture(t *testing.T, db *sql.DB) {
 	t.Helper()
 	for _, statement := range []string{
-		`CREATE TABLE mc_tenant (id int(10) unsigned NOT NULL AUTO_INCREMENT, name varchar(255) NOT NULL DEFAULT '', status tinyint NOT NULL DEFAULT 1, created_at timestamp NULL, updated_at timestamp NULL, deleted_at timestamp NULL, PRIMARY KEY (id)) ENGINE=InnoDB`,
-		`CREATE TABLE mc_corp (id int(10) unsigned NOT NULL AUTO_INCREMENT, tenant_id int(11) DEFAULT 0, name varchar(255) NOT NULL DEFAULT '', wx_corpid varchar(255) NOT NULL DEFAULT '', employee_secret varchar(255) NOT NULL DEFAULT '', contact_secret varchar(255) NOT NULL DEFAULT '', token varchar(255) NOT NULL DEFAULT '', encoding_aes_key varchar(255) NOT NULL DEFAULT '', created_at timestamp NULL, updated_at timestamp NULL, deleted_at timestamp NULL, PRIMARY KEY (id)) ENGINE=InnoDB`,
-		`CREATE TABLE mc_user (id int(10) unsigned NOT NULL AUTO_INCREMENT, tenant_id int(11) NOT NULL DEFAULT 1, phone char(11) NOT NULL DEFAULT '', password varchar(255) NOT NULL DEFAULT '', name varchar(255) NOT NULL DEFAULT '', status tinyint unsigned NOT NULL DEFAULT 1, created_at timestamp NULL, updated_at timestamp NULL, deleted_at timestamp NULL, isSuperAdmin tinyint NOT NULL DEFAULT 0, PRIMARY KEY (id)) ENGINE=InnoDB`,
-		`CREATE TABLE mc_rbac_role (id int(11) NOT NULL AUTO_INCREMENT, tenant_id int(11) NOT NULL, data_permission json DEFAULT NULL, deleted_at timestamp NULL, PRIMARY KEY (id)) ENGINE=InnoDB`,
-		`CREATE TABLE mc_rbac_user_role (id int(11) NOT NULL AUTO_INCREMENT, user_id int(11) NOT NULL, role_id int(11) NOT NULL, deleted_at timestamp NULL, PRIMARY KEY (id)) ENGINE=InnoDB`,
 		`INSERT INTO mc_tenant (id, name, status) VALUES (1, 'Fixture tenant 1', 1), (2, 'Fixture tenant 2', 1)`,
 		`INSERT INTO mc_corp (id, tenant_id, name) VALUES (100, 1, 'Fixture corp 1'), (200, 2, 'Fixture corp 2')`,
 		`INSERT INTO mc_user (id, tenant_id, phone, status, deleted_at) VALUES (10, 1, '13800000001', 1, NULL)`,
-		`INSERT INTO mc_rbac_role (id, tenant_id) VALUES (20, 1)`,
+		`INSERT INTO mc_rbac_role (id, tenant_id, operate_id, operate_name) VALUES (20, 1, 10, 'Fixture actor')`,
 	} {
 		if _, err := db.Exec(statement); err != nil {
 			t.Fatalf("base fixture: %v", err)
-		}
-	}
-	root := filepath.Join("..", "..")
-	pageRBAC, err := os.ReadFile(filepath.Join(root, "deploy", "standalone", "migrations", "0127_dashboard_page_rbac.up.sql"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	pageScript := string(pageRBAC)
-	start := strings.Index(pageScript, "ALTER TABLE `mc_user`")
-	end := strings.Index(pageScript, "INSERT INTO `mochat_go_dashboard_permissions`")
-	if start < 0 || end <= start {
-		t.Fatal("0127 DDL boundaries not found")
-	}
-	applyDashboardAdminSQL(t, db, pageScript[start:end])
-	for _, migrationName := range []string{"0003_saas_provisioning.up.sql", "0024_saas_package_extended_limits.up.sql", "0025_saas_radar_limit.up.sql", "0026_saas_lottery_limit.up.sql", "0027_saas_room_infinite_pull_limit.up.sql", "0028_saas_room_fission_limit.up.sql", "0029_saas_room_clock_in_limit.up.sql", "0030_saas_room_operation_limits.up.sql", "0031_saas_sop_limits.up.sql", "0032_saas_sensitive_word_limit.up.sql", "0033_saas_admin_operation_logs.up.sql", "0039_saas_subscription_lifecycle.up.sql", "0045_saas_admin_rbac.up.sql", "0046_saas_admin_approvals.up.sql", "0047_saas_admin_approval_governance.up.sql", "0084_saas_package_definition_guard.up.sql", "0085_saas_tenant_package_assignment_guard.up.sql"} {
-		body, err := os.ReadFile(filepath.Join(root, "deploy", "standalone", "migrations", migrationName))
-		if err != nil {
-			t.Fatal(err)
-		}
-		applyDashboardAdminSQL(t, db, string(body))
-	}
-	body, err := os.ReadFile(filepath.Join(root, "deploy", "standalone", "migrations", "0129_identity_realms_single_corp_schema.up.sql"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	applyDashboardAdminSQL(t, db, string(body))
-}
-
-func applyDashboardAdminSQL(t *testing.T, db *sql.DB, script string) {
-	t.Helper()
-	statements, err := migration.SplitSQLStatements(script)
-	if err != nil {
-		t.Fatalf("split migration SQL: %v", err)
-	}
-	for _, statement := range statements {
-		if _, err := db.Exec(statement); err != nil {
-			t.Fatalf("migration fixture statement: %v", err)
 		}
 	}
 }

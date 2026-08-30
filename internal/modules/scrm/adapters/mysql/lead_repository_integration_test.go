@@ -8,11 +8,15 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"jiyi/mochat-go/internal/integrationtestdb"
+	"jiyi/mochat-go/internal/migration/testharness"
 	"jiyi/mochat-go/internal/modules/scrm/domain"
 	"jiyi/mochat-go/internal/modules/scrm/ports"
 	"jiyi/mochat-go/internal/mysqlconn"
@@ -260,11 +264,7 @@ func TestLeadRepositoryConcurrentCreateProducesOneRow(t *testing.T) {
 }
 
 func TestIntegrationRepositoryPreservesOtherRowsAndCleansOwnTenant(t *testing.T) {
-	dsn := mysqlIntegrationDSN(t)
-	db, err := mysqlconn.Open(dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
+	db := mysqlIntegrationDB(t)
 	sentinelNamespace := newIntegrationNamespace()
 	t.Cleanup(func() {
 		_, _ = db.ExecContext(
@@ -273,7 +273,6 @@ func TestIntegrationRepositoryPreservesOtherRowsAndCleansOwnTenant(t *testing.T)
 			sentinelNamespace.tenantID,
 			sentinelNamespace.otherTenantID,
 		)
-		_ = db.Close()
 	})
 	repository, err := NewLeadRepository(db)
 	if err != nil {
@@ -290,7 +289,7 @@ func TestIntegrationRepositoryPreservesOtherRowsAndCleansOwnTenant(t *testing.T)
 	var ownedTenant int64
 	var ownedKey string
 	t.Run("scoped fixture", func(t *testing.T) {
-		scopedRepository, _, namespace := integrationRepository(t)
+		scopedRepository, _, namespace := integrationRepositoryOnDB(t, db)
 		ownedTenant = namespace.tenantID
 		ownedKey = namespace.key("owned")
 		mustCreateLead(
@@ -309,11 +308,11 @@ func TestIntegrationRepositoryPreservesOtherRowsAndCleansOwnTenant(t *testing.T)
 
 func integrationRepository(t *testing.T) (*LeadRepository, *sql.DB, integrationNamespace) {
 	t.Helper()
-	dsn := mysqlIntegrationDSN(t)
-	db, err := mysqlconn.Open(dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
+	return integrationRepositoryOnDB(t, mysqlIntegrationDB(t))
+}
+
+func integrationRepositoryOnDB(t *testing.T, db *sql.DB) (*LeadRepository, *sql.DB, integrationNamespace) {
+	t.Helper()
 	namespace := newIntegrationNamespace()
 	t.Cleanup(func() {
 		if _, err := db.ExecContext(
@@ -324,7 +323,6 @@ func integrationRepository(t *testing.T) (*LeadRepository, *sql.DB, integrationN
 		); err != nil {
 			t.Errorf("clean integration tenant namespace: %v", err)
 		}
-		_ = db.Close()
 	})
 	if err := db.PingContext(context.Background()); err != nil {
 		t.Fatal(err)
@@ -334,6 +332,30 @@ func integrationRepository(t *testing.T) (*LeadRepository, *sql.DB, integrationN
 		t.Fatal(err)
 	}
 	return repository, db, namespace
+}
+
+func mysqlIntegrationDB(t *testing.T) *sql.DB {
+	t.Helper()
+	if adminDSN := strings.TrimSpace(os.Getenv("MOCHAT_GO_MYSQL_INTEGRATION_DSN")); adminDSN != "" {
+		database := integrationtestdb.NewIsolated(t, adminDSN)
+		evidence, err := testharness.NewControlledEvidence(fmt.Sprintf("scrm-lead-%d-%d", os.Getpid(), integrationNamespaceSequence.Add(1)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := testharness.ApplyLatest(context.Background(), database.DB, filepath.Join("..", "..", "..", "..", ".."), evidence); err != nil {
+			t.Fatalf("apply production migration registry: %v", err)
+		}
+		return database.DB
+	}
+	dsn := mysqlIntegrationDSN(t)
+	db, err := mysqlconn.Open(dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = db.Close()
+	})
+	return db
 }
 
 func newTestLead(t *testing.T, id string, tenantID int64, businessKey, name string, createdAt time.Time) domain.Lead {

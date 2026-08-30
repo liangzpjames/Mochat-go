@@ -25,6 +25,14 @@ type Service struct {
 	verifier             WeComVerifier
 	syncScheduler        EmployeeSyncScheduler
 	archiveSyncScheduler ArchiveSyncScheduler
+	callbackWakeup       WeWorkCallbackWakeup
+}
+
+func (s *Service) WithWeWorkCallbackWakeup(wakeup WeWorkCallbackWakeup) *Service {
+	if s != nil {
+		s.callbackWakeup = wakeup
+	}
+	return s
 }
 
 func (s *Service) WithArchiveSyncScheduler(scheduler ArchiveSyncScheduler) *Service {

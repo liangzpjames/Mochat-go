@@ -1,5 +1,5 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useOptionalDashboardAccess } from '../../app/access-context';
 import { DashboardDialog } from '../../components/dashboard-dialog';
 import { DashboardPagination } from '../../components/dashboard-pagination';
@@ -13,6 +13,12 @@ const statusLabel: Record<string, string> = { pending: '待支付', paid: '已�
 const nextStatuses: Record<string, string[]> = { pending: ['paid', 'cancelled'], paid: ['fulfilled', 'cancelled'] };
 const auditActionLabel: Record<string, string> = { created: '创建订单', transition: '变更订单状态' };
 const unwrap = (value: unknown): Row => value && typeof value === 'object' && 'data' in value ? ((value as { data?: Row }).data ?? {}) : (value as Row ?? {});
+let orderIntentSequence = 0;
+const newOrderIntentKey = () => {
+  if (typeof globalThis.crypto?.randomUUID === 'function') return globalThis.crypto.randomUUID();
+  orderIntentSequence += 1;
+  return `order-create-${Date.now().toString(36)}-${orderIntentSequence.toString(36)}`;
+};
 
 export function OrderPage({ api }: { api: Phase35Api }) {
   const corpId = useOptionalDashboardAccess()?.corp.id;
@@ -28,6 +34,7 @@ export function OrderPage({ api }: { api: Phase35Api }) {
   const [note, setNote] = useState('');
   const [selectedId, setSelectedId] = useState('');
   const [page, setPage] = useState(1);
+  const createIntentKey = useRef('');
   const orders = useQuery({
     queryKey: ['p35-orders', corpId, page],
     queryFn: () => api.read('/scrm/orders', { corpId: Number(corpId), page, pageSize: 20 }),
@@ -49,17 +56,36 @@ export function OrderPage({ api }: { api: Phase35Api }) {
     enabled: Boolean(selectedId && corpId),
   });
   const create = useMutation({
-    mutationFn: () => api.write('/scrm/orders', {
-      corpId: Number(corpId), contactId, opportunityId,
-      amountCents: Math.round(Number(amount) * 100), currency: 'CNY', status: 'pending',
-      title: title.trim(), note: note.trim(),
-    }, 'POST'),
-    onSuccess: () => { setAmount(''); setTitle(''); setNote(''); setOpportunityId(''); void orders.refetch(); },
+    mutationFn: () => {
+      if (!createIntentKey.current) createIntentKey.current = newOrderIntentKey();
+      return api.write('/scrm/orders', {
+        corpId: Number(corpId), contactId, opportunityId,
+        amountCents: Math.round(Number(amount) * 100), currency: 'CNY', status: 'pending',
+        title: title.trim(), note: note.trim(),
+      }, 'POST', { 'Idempotency-Key': createIntentKey.current });
+    },
+    onSuccess: () => { createIntentKey.current = ''; setAmount(''); setTitle(''); setNote(''); setOpportunityId(''); void orders.refetch(); },
   });
+  const resetCreateIntent = () => {
+    createIntentKey.current = '';
+    setContactId('');
+    setOpportunityId('');
+    setAmount('');
+    setTitle('');
+    setNote('');
+    create.reset();
+  };
+  const editCreateIntent = () => {
+    createIntentKey.current = '';
+    if (!create.isPending && (create.isError || create.isSuccess)) {
+      create.reset();
+    }
+  };
   const quickCreate = useMutation({
     mutationFn: () => api.write('/scrm/contacts', { corpId: Number(corpId), name: quickName.trim(), phone: quickPhone.trim() }, 'POST'),
     onSuccess: (payload) => {
       const contact = unwrap(payload);
+      editCreateIntent();
       setQuickContact(contact);
       setContactId(text(contact.id));
       setQuickName('');
@@ -89,30 +115,31 @@ export function OrderPage({ api }: { api: Phase35Api }) {
               <h2>1. 联系人选择</h2>
               <label>搜索联系人<input aria-label="搜索联系人" value={contactKeyword} onChange={(event) => setContactKeyword(event.target.value)} /></label>
               <label>联系人
-                <select aria-label="联系人" value={contactId} onChange={(event) => setContactId(event.target.value)}>
+                <select aria-label="联系人" disabled={create.isPending} value={contactId} onChange={(event) => { editCreateIntent(); setContactId(event.target.value); }}>
                   <option value="">请选择联系人</option>
                   {options.map((row) => <option key={String(row.id ?? row.contactId)} value={String(row.id ?? row.contactId)}>{text(row.name ?? row.contactName)}</option>)}
                 </select>
               </label>
-              <button type="button" onClick={() => setQuickOpen(true)}>快速创建联系人</button>
+              <button type="button" disabled={create.isPending} onClick={() => setQuickOpen(true)}>快速创建联系人</button>
               {!contacts.isLoading && options.length === 0 && <p>当前没有可用联系人，可先快速创建并自动选中。</p>}
             </section>
             <section aria-label="2. 订单信息" role="region">
               <h2>2. 订单信息</h2>
               <label>关联商机
-                <select aria-label="关联商机" value={opportunityId} onChange={(event) => setOpportunityId(event.target.value)}>
+                <select aria-label="关联商机" disabled={create.isPending} value={opportunityId} onChange={(event) => { editCreateIntent(); setOpportunityId(event.target.value); }}>
                   <option value="">不关联商机</option>
                   {records(opportunities.data).map((row) => <option key={String(row.id)} value={String(row.id)}>{text(row.title ?? row.name ?? row.id)}</option>)}
                 </select>
               </label>
-              <label>订单标题<input aria-label="订单标题" value={title} onChange={(event) => setTitle(event.target.value)} /></label>
-              <label>金额（元）<input aria-label="金额（元）" inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} /></label>
-              <label>备注<input aria-label="备注" value={note} onChange={(event) => setNote(event.target.value)} /></label>
+              <label>订单标题<input aria-label="订单标题" disabled={create.isPending} value={title} onChange={(event) => { editCreateIntent(); setTitle(event.target.value); }} /></label>
+              <label>金额（元）<input aria-label="金额（元）" disabled={create.isPending} inputMode="decimal" value={amount} onChange={(event) => { editCreateIntent(); setAmount(event.target.value); }} /></label>
+              <label>备注<input aria-label="备注" disabled={create.isPending} value={note} onChange={(event) => { editCreateIntent(); setNote(event.target.value); }} /></label>
             </section>
             <section aria-label="3. 提交订单" role="region">
               <h2>3. 提交订单</h2>
               <p>提交后将创建待支付订单，并保留创建审计记录。</p>
               <button type="submit" disabled={!valid || create.isPending}>{create.isPending ? '创建中…' : '创建订单'}</button>
+              <button type="button" disabled={create.isPending} onClick={resetCreateIntent}>取消填写</button>
             </section>
           </form>
         </section>

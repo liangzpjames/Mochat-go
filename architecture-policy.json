@@ -1,11 +1,78 @@
 {
-  "productionModules": ["scrm"],
+  "productionModules": ["ai-insight", "ai-settings", "chat-media", "providers", "reporting", "scrm"],
   "exampleModules": ["example"],
+  "modulePackages": [
+    {"module": "providers", "path": "ai/openai", "layer": "adapters"},
+    {"module": "providers", "path": "archive", "layer": "adapters"},
+    {"module": "providers", "path": "archive/wecom", "layer": "adapters"},
+    {"module": "providers", "path": "audio/local", "layer": "adapters"},
+    {"module": "providers", "path": "catalog", "layer": "module"}
+  ],
+  "publicModuleImports": [
+    {"module": "ai-insight", "package": ".", "layer": "module", "import": "jiyi/mochat-go/internal/modules/ai-settings/ports"},
+    {"module": "ai-insight", "package": ".", "layer": "module", "import": "jiyi/mochat-go/internal/modules/providers"},
+    {"module": "chat-media", "package": ".", "layer": "module", "import": "jiyi/mochat-go/internal/modules/providers"},
+    {"module": "chat-media", "package": "transport/http", "layer": "transport", "import": "jiyi/mochat-go/internal/modules/providers"}
+  ],
+  "packageImports": [
+    {"module": "providers", "package": "ai/openai", "import": "jiyi/mochat-go/internal/modules/providers"},
+    {"module": "providers", "package": "ai/openai", "import": "jiyi/mochat-go/internal/observability"},
+    {"module": "providers", "package": "archive", "import": "jiyi/mochat-go/internal/modules/providers"},
+    {"module": "providers", "package": "archive/wecom", "import": "jiyi/mochat-go/internal/modules/providers"},
+    {"module": "providers", "package": "archive/wecom", "import": "jiyi/mochat-go/internal/modules/providers/archive"},
+    {"module": "providers", "package": "audio/local", "import": "jiyi/mochat-go/internal/modules/providers"},
+    {"module": "providers", "package": "catalog", "import": "jiyi/mochat-go/internal/modules/providers"},
+    {"module": "providers", "package": "catalog", "import": "jiyi/mochat-go/internal/wecomcapability"},
+    {"module": "chat-media", "package": ".", "import": "jiyi/mochat-go/internal/moduleprincipal"},
+    {"module": "chat-media", "package": "transport/http", "import": "jiyi/mochat-go/internal/moduleprincipal"},
+    {"module": "reporting", "package": "transport/http", "import": "jiyi/mochat-go/internal/modules/reporting"}
+  ],
+  "testImports": [
+    {"module": "ai-insight", "package": ".", "import": "github.com/DATA-DOG/go-sqlmock"},
+    {"module": "ai-insight", "package": ".", "import": "github.com/go-sql-driver/mysql"},
+    {"module": "ai-insight", "package": "adapters/mysqlerror", "import": "github.com/go-sql-driver/mysql"},
+    {"module": "ai-settings", "package": "adapters/mysql", "import": "github.com/DATA-DOG/go-sqlmock"},
+    {"module": "chat-media", "package": "adapters/mysql", "import": "github.com/DATA-DOG/go-sqlmock"},
+    {"module": "chat-media", "package": "transport/http", "import": "jiyi/mochat-go/internal/modules/providers/audio/local"},
+    {"module": "providers", "package": "archive", "import": "jiyi/mochat-go/internal/testfixtures/archivesource"},
+    {"module": "providers", "package": "archive", "import": "jiyi/mochat-go/internal/wecomarchivedemo"},
+    {"module": "reporting", "package": ".", "import": "github.com/DATA-DOG/go-sqlmock"},
+    {"module": "reporting", "package": ".", "import": "github.com/go-sql-driver/mysql"},
+    {"module": "scrm", "package": "adapters/mysql", "import": "jiyi/mochat-go/internal/integrationtestdb"},
+    {"module": "scrm", "package": "adapters/mysql", "import": "jiyi/mochat-go/internal/migration"},
+    {"module": "scrm", "package": "adapters/mysql", "import": "jiyi/mochat-go/internal/migration/testharness"},
+    {"module": "scrm", "package": "adapters/mysql", "import": "jiyi/mochat-go/internal/modules/scrm/application"},
+    {"module": "scrm", "package": "transport/http", "import": "jiyi/mochat-go/internal/modules/scrm/adapters/mysql"}
+  ],
   "protectedFiles": [
     {"path": "internal/dashboard/saas_admin_page.go", "maxBytes": 860906},
     {"path": "internal/dashboard/saas_admin.go", "maxBytes": 696324},
-    {"path": "internal/store/mysql.go", "maxBytes": 840395},
-    {"path": "cmd/mochat-go/main.go", "maxBytes": 206017}
+    {
+      "path": "internal/store/mysql.go",
+      "targetBytes": 840395,
+      "maxBytes": 913526,
+      "debt": {
+        "owner": "backend-platform",
+        "reason": "历史业务存储在模块化门禁启用后继续集中增长",
+        "action": "按触碰业务切片迁移到模块 adapters 并逐次降低 ceiling",
+        "baseline": "f2b57f31f2baa93dc871b9157a04b0a8f7e2ae36",
+        "createdOn": "2026-08-30",
+        "expiresOn": "2026-11-28"
+      }
+    },
+    {
+      "path": "cmd/mochat-go/main.go",
+      "targetBytes": 206017,
+      "maxBytes": 232325,
+      "debt": {
+        "owner": "backend-platform",
+        "reason": "历史 composition root 在模块化门禁启用后继续集中增长",
+        "action": "把运行角色、服务生命周期和模块装配迁入聚焦 composition 文件",
+        "baseline": "f2b57f31f2baa93dc871b9157a04b0a8f7e2ae36",
+        "createdOn": "2026-08-30",
+        "expiresOn": "2026-11-28"
+      }
+    }
   ],
   "forbiddenNewFiles": [
     "internal/dashboard/scrm*.go",

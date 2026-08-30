@@ -171,7 +171,7 @@ func (store *SaaSIdentityStore) CompleteMFAChallenge(ctx context.Context, tokenD
 	}
 	defer func() { _ = tx.Rollback() }()
 	var challenge saasauth.SaaSMFAChallenge
-	if err := tx.QueryRowContext(ctx, `
+	err = tx.QueryRowContext(ctx, `
 		SELECT user_id, auth_version, challenge_type, status, attempts, max_attempts, expires_at
 		FROM mochat_go_saas_admin_mfa_challenges
 		WHERE token_digest = ? AND user_id = ? AND auth_version = ?
@@ -180,18 +180,26 @@ func (store *SaaSIdentityStore) CompleteMFAChallenge(ctx context.Context, tokenD
 	`, tokenDigest[:], userID, authVersion, challengeType).Scan(
 		&challenge.UserID, &challenge.AuthVersion, &challenge.ChallengeType, &challenge.Status,
 		&challenge.Attempts, &challenge.MaxAttempts, &challenge.ExpiresAt,
-	); err != nil {
+	)
+	if errors.Is(err, sql.ErrNoRows) {
 		return saasauth.SaaSIdentity{}, saasauth.ErrMFAChallengeInvalid
+	}
+	if err != nil {
+		return saasauth.SaaSIdentity{}, err
 	}
 	var credentialStatus int
 	var lastTOTPStep int64
-	if err := tx.QueryRowContext(ctx, `
+	err = tx.QueryRowContext(ctx, `
 		SELECT status, last_totp_step
 		FROM mochat_go_saas_admin_mfa_credentials
 		WHERE user_id = ?
 		FOR UPDATE
-	`, userID).Scan(&credentialStatus, &lastTOTPStep); err != nil {
+	`, userID).Scan(&credentialStatus, &lastTOTPStep)
+	if errors.Is(err, sql.ErrNoRows) {
 		return saasauth.SaaSIdentity{}, saasauth.ErrMFAChallengeInvalid
+	}
+	if err != nil {
+		return saasauth.SaaSIdentity{}, err
 	}
 	nextCredentialStatus, allowed := saasMFAStatusTransition(credentialStatus, challengeType)
 	if !allowed || lastTOTPStep >= totpStep {
@@ -205,7 +213,11 @@ func (store *SaaSIdentityStore) CompleteMFAChallenge(ctx context.Context, tokenD
 	if err != nil {
 		return saasauth.SaaSIdentity{}, err
 	}
-	if affected, err := credentialUpdate.RowsAffected(); err != nil || affected != 1 {
+	affected, err := credentialUpdate.RowsAffected()
+	if err != nil {
+		return saasauth.SaaSIdentity{}, err
+	}
+	if affected != 1 {
 		return saasauth.SaaSIdentity{}, saasauth.ErrMFAChallengeInvalid
 	}
 	result, err := tx.ExecContext(ctx, `
@@ -216,8 +228,11 @@ func (store *SaaSIdentityStore) CompleteMFAChallenge(ctx context.Context, tokenD
 	if err != nil {
 		return saasauth.SaaSIdentity{}, err
 	}
-	affected, err := result.RowsAffected()
-	if err != nil || affected != 1 {
+	affected, err = result.RowsAffected()
+	if err != nil {
+		return saasauth.SaaSIdentity{}, err
+	}
+	if affected != 1 {
 		return saasauth.SaaSIdentity{}, saasauth.ErrMFAChallengeInvalid
 	}
 	identity, err := scanSaaSIdentity(tx.QueryRowContext(ctx, `

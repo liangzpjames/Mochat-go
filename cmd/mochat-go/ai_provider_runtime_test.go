@@ -54,7 +54,7 @@ func TestProductionAICompositionUsesOneTenantResolverForWorkspaceAndDaily(t *tes
 			}
 		case *ast.CallExpr:
 			identifier, ok := value.Fun.(*ast.Ident)
-			if ok && identifier.Name == "startAIInsightDailyAnalysis" && len(value.Args) == 3 {
+			if ok && identifier.Name == "startAIInsightDailyAnalysis" && len(value.Args) == 4 {
 				argument, argOK := value.Args[2].(*ast.Ident)
 				dailyReceivesResolver = argOK && argument.Name == "aiResolver"
 			}

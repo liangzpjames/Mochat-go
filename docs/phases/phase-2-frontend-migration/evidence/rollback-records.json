@@ -5,7 +5,8 @@
     "productionRestoreDrillExecuted": false,
     "sourceBaselineCommit": "09a010ae27ade37b0e8f2c598ee60ec01b4ebbd9",
     "procedure": "restore dashboard:/autoTag/dayPartCreate and its required legacy artifact from the source baseline in an isolated recovery branch, then rebuild and rerun all gates",
-    "verification": "manifest route isolation and static mount regression tests"
+    "verification": "manifest route isolation and static mount regression tests",
+    "currentReachable": false
   },
   "dashboard:/autoTag/dayPartIndex": {
     "procedureRecorded": true,
@@ -13,7 +14,8 @@
     "productionRestoreDrillExecuted": false,
     "sourceBaselineCommit": "09a010ae27ade37b0e8f2c598ee60ec01b4ebbd9",
     "procedure": "restore dashboard:/autoTag/dayPartIndex and its required legacy artifact from the source baseline in an isolated recovery branch, then rebuild and rerun all gates",
-    "verification": "manifest route isolation and static mount regression tests"
+    "verification": "manifest route isolation and static mount regression tests",
+    "currentReachable": false
   },
   "dashboard:/autoTag/dayPartShow": {
     "procedureRecorded": true,
@@ -21,7 +23,8 @@
     "productionRestoreDrillExecuted": false,
     "sourceBaselineCommit": "09a010ae27ade37b0e8f2c598ee60ec01b4ebbd9",
     "procedure": "restore dashboard:/autoTag/dayPartShow and its required legacy artifact from the source baseline in an isolated recovery branch, then rebuild and rerun all gates",
-    "verification": "manifest route isolation and static mount regression tests"
+    "verification": "manifest route isolation and static mount regression tests",
+    "currentReachable": false
   },
   "dashboard:/autoTag/joinRoomCreate": {
     "procedureRecorded": true,
@@ -29,7 +32,8 @@
     "productionRestoreDrillExecuted": false,
     "sourceBaselineCommit": "09a010ae27ade37b0e8f2c598ee60ec01b4ebbd9",
     "procedure": "restore dashboard:/autoTag/joinRoomCreate and its required legacy artifact from the source baseline in an isolated recovery branch, then rebuild and rerun all gates",
-    "verification": "manifest route isolation and static mount regression tests"
+    "verification": "manifest route isolation and static mount regression tests",
+    "currentReachable": false
   },
   "dashboard:/autoTag/joinRoomIndex": {
     "procedureRecorded": true,
@@ -37,7 +41,8 @@
     "productionRestoreDrillExecuted": false,
     "sourceBaselineCommit": "09a010ae27ade37b0e8f2c598ee60ec01b4ebbd9",
     "procedure": "restore dashboard:/autoTag/joinRoomIndex and its required legacy artifact from the source baseline in an isolated recovery branch, then rebuild and rerun all gates",
-    "verification": "manifest route isolation and static mount regression tests"
+    "verification": "manifest route isolation and static mount regression tests",
+    "currentReachable": false
   },
   "dashboard:/autoTag/joinRoomShow": {
     "procedureRecorded": true,
@@ -45,7 +50,8 @@
     "productionRestoreDrillExecuted": false,
     "sourceBaselineCommit": "09a010ae27ade37b0e8f2c598ee60ec01b4ebbd9",
     "procedure": "restore dashboard:/autoTag/joinRoomShow and its required legacy artifact from the source baseline in an isolated recovery branch, then rebuild and rerun all gates",
-    "verification": "manifest route isolation and static mount regression tests"
+    "verification": "manifest route isolation and static mount regression tests",
+    "currentReachable": false
   },
   "dashboard:/autoTag/keywordCreate": {
     "procedureRecorded": true,
@@ -53,7 +59,8 @@
     "productionRestoreDrillExecuted": false,
     "sourceBaselineCommit": "09a010ae27ade37b0e8f2c598ee60ec01b4ebbd9",
     "procedure": "restore dashboard:/autoTag/keywordCreate and its required legacy artifact from the source baseline in an isolated recovery branch, then rebuild and rerun all gates",
-    "verification": "manifest route isolation and static mount regression tests"
+    "verification": "manifest route isolation and static mount regression tests",
+    "currentReachable": false
   },
   "dashboard:/autoTag/keywordIndex": {
     "procedureRecorded": true,
@@ -61,7 +68,8 @@
     "productionRestoreDrillExecuted": false,
     "sourceBaselineCommit": "09a010ae27ade37b0e8f2c598ee60ec01b4ebbd9",
     "procedure": "restore dashboard:/autoTag/keywordIndex and its required legacy artifact from the source baseline in an isolated recovery branch, then rebuild and rerun all gates",
-    "verification": "manifest route isolation and static mount regression tests"
+    "verification": "manifest route isolation and static mount regression tests",
+    "currentReachable": false
   },
   "dashboard:/autoTag/keywordShow": {
     "procedureRecorded": true,
@@ -69,7 +77,8 @@
     "productionRestoreDrillExecuted": false,
     "sourceBaselineCommit": "09a010ae27ade37b0e8f2c598ee60ec01b4ebbd9",
     "procedure": "restore dashboard:/autoTag/keywordShow and its required legacy artifact from the source baseline in an isolated recovery branch, then rebuild and rerun all gates",
-    "verification": "manifest route isolation and static mount regression tests"
+    "verification": "manifest route isolation and static mount regression tests",
+    "currentReachable": false
   },
   "dashboard:/channelCode/index": {
     "procedureRecorded": true,
@@ -77,7 +86,8 @@
     "productionRestoreDrillExecuted": false,
     "sourceBaselineCommit": "09a010ae27ade37b0e8f2c598ee60ec01b4ebbd9",
     "procedure": "restore dashboard:/channelCode/index and its required legacy artifact from the source baseline in an isolated recovery branch, then rebuild and rerun all gates",
-    "verification": "manifest route isolation and static mount regression tests"
+    "verification": "manifest route isolation and static mount regression tests",
+    "currentReachable": false
   },
   "dashboard:/channelCode/statistics": {
     "procedureRecorded": true,
@@ -85,7 +95,8 @@
     "productionRestoreDrillExecuted": false,
     "sourceBaselineCommit": "09a010ae27ade37b0e8f2c598ee60ec01b4ebbd9",
     "procedure": "restore dashboard:/channelCode/statistics and its required legacy artifact from the source baseline in an isolated recovery branch, then rebuild and rerun all gates",
-    "verification": "manifest route isolation and static mount regression tests"
+    "verification": "manifest route isolation and static mount regression tests",
+    "currentReachable": false
   },
   "dashboard:/channelCode/store": {
     "procedureRecorded": true,
@@ -93,7 +104,8 @@
     "productionRestoreDrillExecuted": false,
     "sourceBaselineCommit": "09a010ae27ade37b0e8f2c598ee60ec01b4ebbd9",
     "procedure": "restore dashboard:/channelCode/store and its required legacy artifact from the source baseline in an isolated recovery branch, then rebuild and rerun all gates",
-    "verification": "manifest route isolation and static mount regression tests"
+    "verification": "manifest route isolation and static mount regression tests",
+    "currentReachable": false
   },
   "dashboard:/chatTool/customer": {
     "procedureRecorded": true,
@@ -101,7 +113,8 @@
     "productionRestoreDrillExecuted": false,
     "sourceBaselineCommit": "09a010ae27ade37b0e8f2c598ee60ec01b4ebbd9",
     "procedure": "restore dashboard:/chatTool/customer and its required legacy artifact from the source baseline in an isolated recovery branch, then rebuild and rerun all gates",
-    "verification": "manifest route isolation and static mount regression tests"
+    "verification": "manifest route isolation and static mount regression tests",
+    "currentReachable": false
   },
   "dashboard:/chatTool/enhance": {
     "procedureRecorded": true,
@@ -109,7 +122,8 @@
     "productionRestoreDrillExecuted": false,
     "sourceBaselineCommit": "09a010ae27ade37b0e8f2c598ee60ec01b4ebbd9",
     "procedure": "restore dashboard:/chatTool/enhance and its required legacy artifact from the source baseline in an isolated recovery branch, then rebuild and rerun all gates",
-    "verification": "manifest route isolation and static mount regression tests"
+    "verification": "manifest route isolation and static mount regression tests",
+    "currentReachable": false
   },
   "dashboard:/contactField/index": {
     "procedureRecorded": true,
@@ -117,7 +131,8 @@
     "productionRestoreDrillExecuted": false,
     "sourceBaselineCommit": "09a010ae27ade37b0e8f2c598ee60ec01b4ebbd9",
     "procedure": "restore dashboard:/contactField/index and its required legacy artifact from the source baseline in an isolated recovery branch, then rebuild and rerun all gates",
-    "verification": "manifest route isolation and static mount regression tests"
+    "verification": "manifest route isolation and static mount regression tests",
+    "currentReachable": false
   },
   "dashboard:/contactMessageBatchSend/index": {
     "procedureRecorded": true,
@@ -125,7 +140,8 @@
     "productionRestoreDrillExecuted": false,
     "sourceBaselineCommit": "09a010ae27ade37b0e8f2c598ee60ec01b4ebbd9",
     "procedure": "restore dashboard:/contactMessageBatchSend/index and its required legacy artifact from the source baseline in an isolated recovery branch, then rebuild and rerun all gates",
-    "verification": "manifest route isolation and static mount regression tests"
+    "verification": "manifest route isolation and static mount regression tests",
+    "currentReachable": false
   },
   "dashboard:/contactMessageBatchSend/show": {
     "procedureRecorded": true,
@@ -133,7 +149,8 @@
     "productionRestoreDrillExecuted": false,
     "sourceBaselineCommit": "09a010ae27ade37b0e8f2c598ee60ec01b4ebbd9",
     "procedure": "restore dashboard:/contactMessageBatchSend/show and its required legacy artifact from the source baseline in an isolated recovery branch, then rebuild and rerun all gates",
-    "verification": "manifest route isolation and static mount regression tests"
+    "verification": "manifest route isolation and static mount regression tests",
+    "currentReachable": false
   },
   "dashboard:/contactMessageBatchSend/store": {
     "procedureRecorded": true,
@@ -141,7 +158,8 @@
     "productionRestoreDrillExecuted": false,
     "sourceBaselineCommit": "09a010ae27ade37b0e8f2c598ee60ec01b4ebbd9",
     "procedure": "restore dashboard:/contactMessageBatchSend/store and its required legacy artifact from the source baseline in an isolated recovery branch, then rebuild and rerun all gates",
-    "verification": "manifest route isolation and static mount regression tests"
+    "verification": "manifest route isolation and static mount regression tests",
+    "currentReachable": false
   },
   "dashboard:/contactTransfer/resignAllotRecord": {
     "procedureRecorded": true,
@@ -149,7 +167,8 @@
     "productionRestoreDrillExecuted": false,
     "sourceBaselineCommit": "09a010ae27ade37b0e8f2c598ee60ec01b4ebbd9",
     "procedure": "restore dashboard:/contactTransfer/resignAllotRecord and its required legacy artifact from the source baseline in an isolated recovery branch, then rebuild and rerun all gates",
-    "verification": "manifest route isolation and static mount regression tests"
+    "verification": "manifest route isolation and static mount regression tests",
+    "currentReachable": false
   },
   "dashboard:/contactTransfer/resignIndex": {
     "procedureRecorded": true,
@@ -157,7 +176,8 @@
     "productionRestoreDrillExecuted": false,
     "sourceBaselineCommit": "09a010ae27ade37b0e8f2c598ee60ec01b4ebbd9",
     "procedure": "restore dashboard:/contactTransfer/resignIndex and its required legacy artifact from the source baseline in an isolated recovery branch, then rebuild and rerun all gates",
-    "verification": "manifest route isolation and static mount regression tests"
+    "verification": "manifest route isolation and static mount regression tests",
+    "currentReachable": false
   },
   "dashboard:/contactTransfer/workAllotRecord": {
     "procedureRecorded": true,
@@ -165,7 +185,8 @@
     "productionRestoreDrillExecuted": false,
     "sourceBaselineCommit": "09a010ae27ade37b0e8f2c598ee60ec01b4ebbd9",
     "procedure": "restore dashboard:/contactTransfer/workAllotRecord and its required legacy artifact from the source baseline in an isolated recovery branch, then rebuild and rerun all gates",
-    "verification": "manifest route isolation and static mount regression tests"
+    "verification": "manifest route isolation and static mount regression tests",
+    "currentReachable": false
   },
   "dashboard:/contactTransfer/workIndex": {
     "procedureRecorded": true,
@@ -173,7 +194,8 @@
     "productionRestoreDrillExecuted": false,
     "sourceBaselineCommit": "09a010ae27ade37b0e8f2c598ee60ec01b4ebbd9",
     "procedure": "restore dashboard:/contactTransfer/workIndex and its required legacy artifact from the source baseline in an isolated recovery branch, then rebuild and rerun all gates",
-    "verification": "manifest route isolation and static mount regression tests"
+    "verification": "manifest route isolation and static mount regression tests",
+    "currentReachable": false
   },
   "dashboard:/corp/index": {
     "procedureRecorded": true,
@@ -181,7 +203,8 @@
     "productionRestoreDrillExecuted": false,
     "sourceBaselineCommit": "09a010ae27ade37b0e8f2c598ee60ec01b4ebbd9",
     "procedure": "restore dashboard:/corp/index and its required legacy artifact from the source baseline in an isolated recovery branch, then rebuild and rerun all gates",
-    "verification": "manifest route isolation and static mount regression tests"
+    "verification": "manifest route isolation and static mount regression tests",
+    "currentReachable": false
   },
   "dashboard:/corpData/index": {
     "procedureRecorded": true,
@@ -189,7 +212,8 @@
     "productionRestoreDrillExecuted": false,
     "sourceBaselineCommit": "09a010ae27ade37b0e8f2c598ee60ec01b4ebbd9",
     "procedure": "restore dashboard:/corpData/index and its required legacy artifact from the source baseline in an isolated recovery branch, then rebuild and rerun all gates",
-    "verification": "manifest route isolation and static mount regression tests"
+    "verification": "manifest route isolation and static mount regression tests",
+    "currentReachable": false
   },
   "dashboard:/department/index": {
     "procedureRecorded": true,
@@ -197,7 +221,8 @@
     "productionRestoreDrillExecuted": false,
     "sourceBaselineCommit": "09a010ae27ade37b0e8f2c598ee60ec01b4ebbd9",
     "procedure": "restore dashboard:/department/index and its required legacy artifact from the source baseline in an isolated recovery branch, then rebuild and rerun all gates",
-    "verification": "manifest route isolation and static mount regression tests"
+    "verification": "manifest route isolation and static mount regression tests",
+    "currentReachable": false
   },
   "dashboard:/greeting/index": {
     "procedureRecorded": true,
@@ -205,7 +230,8 @@
     "productionRestoreDrillExecuted": false,
     "sourceBaselineCommit": "09a010ae27ade37b0e8f2c598ee60ec01b4ebbd9",
     "procedure": "restore dashboard:/greeting/index and its required legacy artifact from the source baseline in an isolated recovery branch, then rebuild and rerun all gates",
-    "verification": "manifest route isolation and static mount regression tests"
+    "verification": "manifest route isolation and static mount regression tests",
+    "currentReachable": false
   },
   "dashboard:/greeting/store": {
     "procedureRecorded": true,
@@ -213,7 +239,8 @@
     "productionRestoreDrillExecuted": false,
     "sourceBaselineCommit": "09a010ae27ade37b0e8f2c598ee60ec01b4ebbd9",
     "procedure": "restore dashboard:/greeting/store and its required legacy artifact from the source baseline in an isolated recovery branch, then rebuild and rerun all gates",
-    "verification": "manifest route isolation and static mount regression tests"
+    "verification": "manifest route isolation and static mount regression tests",
+    "currentReachable": false
   },
   "dashboard:/lossContact/index": {
     "procedureRecorded": true,
@@ -221,7 +248,8 @@
     "productionRestoreDrillExecuted": false,
     "sourceBaselineCommit": "09a010ae27ade37b0e8f2c598ee60ec01b4ebbd9",
     "procedure": "restore dashboard:/lossContact/index and its required legacy artifact from the source baseline in an isolated recovery branch, then rebuild and rerun all gates",
-    "verification": "manifest route isolation and static mount regression tests"
+    "verification": "manifest route isolation and static mount regression tests",
+    "currentReachable": false
   },
   "dashboard:/mediumGroup/index": {
     "procedureRecorded": true,
@@ -229,7 +257,8 @@
     "productionRestoreDrillExecuted": false,
     "sourceBaselineCommit": "09a010ae27ade37b0e8f2c598ee60ec01b4ebbd9",
     "procedure": "restore dashboard:/mediumGroup/index and its required legacy artifact from the source baseline in an isolated recovery branch, then rebuild and rerun all gates",
-    "verification": "manifest route isolation and static mount regression tests"
+    "verification": "manifest route isolation and static mount regression tests",
+    "currentReachable": false
   },
   "dashboard:/menu/index": {
     "procedureRecorded": true,
@@ -237,7 +266,8 @@
     "productionRestoreDrillExecuted": false,
     "sourceBaselineCommit": "09a010ae27ade37b0e8f2c598ee60ec01b4ebbd9",
     "procedure": "restore dashboard:/menu/index and its required legacy artifact from the source baseline in an isolated recovery branch, then rebuild and rerun all gates",
-    "verification": "manifest route isolation and static mount regression tests"
+    "verification": "manifest route isolation and static mount regression tests",
+    "currentReachable": false
   },
   "dashboard:/officialAccount/create": {
     "procedureRecorded": true,
@@ -245,7 +275,8 @@
     "productionRestoreDrillExecuted": false,
     "sourceBaselineCommit": "09a010ae27ade37b0e8f2c598ee60ec01b4ebbd9",
     "procedure": "restore dashboard:/officialAccount/create and its required legacy artifact from the source baseline in an isolated recovery branch, then rebuild and rerun all gates",
-    "verification": "manifest route isolation and static mount regression tests"
+    "verification": "manifest route isolation and static mount regression tests",
+    "currentReachable": false
   },
   "dashboard:/officialAccount/index": {
     "procedureRecorded": true,
@@ -253,7 +284,8 @@
     "productionRestoreDrillExecuted": false,
     "sourceBaselineCommit": "09a010ae27ade37b0e8f2c598ee60ec01b4ebbd9",
     "procedure": "restore dashboard:/officialAccount/index and its required legacy artifact from the source baseline in an isolated recovery branch, then rebuild and rerun all gates",
-    "verification": "manifest route isolation and static mount regression tests"
+    "verification": "manifest route isolation and static mount regression tests",
+    "currentReachable": false
   },
   "dashboard:/passwordUpdate/index": {
     "procedureRecorded": true,
@@ -261,7 +293,8 @@
     "productionRestoreDrillExecuted": false,
     "sourceBaselineCommit": "09a010ae27ade37b0e8f2c598ee60ec01b4ebbd9",
     "procedure": "restore dashboard:/passwordUpdate/index and its required legacy artifact from the source baseline in an isolated recovery branch, then rebuild and rerun all gates",
-    "verification": "manifest route isolation and static mount regression tests"
+    "verification": "manifest route isolation and static mount regression tests",
+    "currentReachable": false
   },
   "dashboard:/role/index": {
     "procedureRecorded": true,
@@ -269,7 +302,8 @@
     "productionRestoreDrillExecuted": false,
     "sourceBaselineCommit": "09a010ae27ade37b0e8f2c598ee60ec01b4ebbd9",
     "procedure": "restore dashboard:/role/index and its required legacy artifact from the source baseline in an isolated recovery branch, then rebuild and rerun all gates",
-    "verification": "manifest route isolation and static mount regression tests"
+    "verification": "manifest route isolation and static mount regression tests",
+    "currentReachable": false
   },
   "dashboard:/role/permissionShow": {
     "procedureRecorded": true,
@@ -277,7 +311,8 @@
     "productionRestoreDrillExecuted": false,
     "sourceBaselineCommit": "09a010ae27ade37b0e8f2c598ee60ec01b4ebbd9",
     "procedure": "restore dashboard:/role/permissionShow and its required legacy artifact from the source baseline in an isolated recovery branch, then rebuild and rerun all gates",
-    "verification": "manifest route isolation and static mount regression tests"
+    "verification": "manifest route isolation and static mount regression tests",
+    "currentReachable": false
   },
   "dashboard:/roomMessageBatchSend/index": {
     "procedureRecorded": true,
@@ -285,7 +320,8 @@
     "productionRestoreDrillExecuted": false,
     "sourceBaselineCommit": "09a010ae27ade37b0e8f2c598ee60ec01b4ebbd9",
     "procedure": "restore dashboard:/roomMessageBatchSend/index and its required legacy artifact from the source baseline in an isolated recovery branch, then rebuild and rerun all gates",
-    "verification": "manifest route isolation and static mount regression tests"
+    "verification": "manifest route isolation and static mount regression tests",
+    "currentReachable": false
   },
   "dashboard:/roomMessageBatchSend/show": {
     "procedureRecorded": true,
@@ -293,7 +329,8 @@
     "productionRestoreDrillExecuted": false,
     "sourceBaselineCommit": "09a010ae27ade37b0e8f2c598ee60ec01b4ebbd9",
     "procedure": "restore dashboard:/roomMessageBatchSend/show and its required legacy artifact from the source baseline in an isolated recovery branch, then rebuild and rerun all gates",
-    "verification": "manifest route isolation and static mount regression tests"
+    "verification": "manifest route isolation and static mount regression tests",
+    "currentReachable": false
   },
   "dashboard:/roomMessageBatchSend/store": {
     "procedureRecorded": true,
@@ -301,7 +338,8 @@
     "productionRestoreDrillExecuted": false,
     "sourceBaselineCommit": "09a010ae27ade37b0e8f2c598ee60ec01b4ebbd9",
     "procedure": "restore dashboard:/roomMessageBatchSend/store and its required legacy artifact from the source baseline in an isolated recovery branch, then rebuild and rerun all gates",
-    "verification": "manifest route isolation and static mount regression tests"
+    "verification": "manifest route isolation and static mount regression tests",
+    "currentReachable": false
   },
   "dashboard:/roomTagPull/contactDetail": {
     "procedureRecorded": true,
@@ -309,7 +347,8 @@
     "productionRestoreDrillExecuted": false,
     "sourceBaselineCommit": "09a010ae27ade37b0e8f2c598ee60ec01b4ebbd9",
     "procedure": "restore dashboard:/roomTagPull/contactDetail and its required legacy artifact from the source baseline in an isolated recovery branch, then rebuild and rerun all gates",
-    "verification": "manifest route isolation and static mount regression tests"
+    "verification": "manifest route isolation and static mount regression tests",
+    "currentReachable": false
   },
   "dashboard:/roomTagPull/create": {
     "procedureRecorded": true,
@@ -317,7 +356,8 @@
     "productionRestoreDrillExecuted": false,
     "sourceBaselineCommit": "09a010ae27ade37b0e8f2c598ee60ec01b4ebbd9",
     "procedure": "restore dashboard:/roomTagPull/create and its required legacy artifact from the source baseline in an isolated recovery branch, then rebuild and rerun all gates",
-    "verification": "manifest route isolation and static mount regression tests"
+    "verification": "manifest route isolation and static mount regression tests",
+    "currentReachable": false
   },
   "dashboard:/roomTagPull/detail": {
     "procedureRecorded": true,
@@ -325,7 +365,8 @@
     "productionRestoreDrillExecuted": false,
     "sourceBaselineCommit": "09a010ae27ade37b0e8f2c598ee60ec01b4ebbd9",
     "procedure": "restore dashboard:/roomTagPull/detail and its required legacy artifact from the source baseline in an isolated recovery branch, then rebuild and rerun all gates",
-    "verification": "manifest route isolation and static mount regression tests"
+    "verification": "manifest route isolation and static mount regression tests",
+    "currentReachable": false
   },
   "dashboard:/roomTagPull/index": {
     "procedureRecorded": true,
@@ -333,7 +374,8 @@
     "productionRestoreDrillExecuted": false,
     "sourceBaselineCommit": "09a010ae27ade37b0e8f2c598ee60ec01b4ebbd9",
     "procedure": "restore dashboard:/roomTagPull/index and its required legacy artifact from the source baseline in an isolated recovery branch, then rebuild and rerun all gates",
-    "verification": "manifest route isolation and static mount regression tests"
+    "verification": "manifest route isolation and static mount regression tests",
+    "currentReachable": false
   },
   "dashboard:/roomWelcome/create": {
     "procedureRecorded": true,
@@ -341,7 +383,8 @@
     "productionRestoreDrillExecuted": false,
     "sourceBaselineCommit": "09a010ae27ade37b0e8f2c598ee60ec01b4ebbd9",
     "procedure": "restore dashboard:/roomWelcome/create and its required legacy artifact from the source baseline in an isolated recovery branch, then rebuild and rerun all gates",
-    "verification": "manifest route isolation and static mount regression tests"
+    "verification": "manifest route isolation and static mount regression tests",
+    "currentReachable": false
   },
   "dashboard:/roomWelcome/index": {
     "procedureRecorded": true,
@@ -349,7 +392,8 @@
     "productionRestoreDrillExecuted": false,
     "sourceBaselineCommit": "09a010ae27ade37b0e8f2c598ee60ec01b4ebbd9",
     "procedure": "restore dashboard:/roomWelcome/index and its required legacy artifact from the source baseline in an isolated recovery branch, then rebuild and rerun all gates",
-    "verification": "manifest route isolation and static mount regression tests"
+    "verification": "manifest route isolation and static mount regression tests",
+    "currentReachable": false
   },
   "dashboard:/statistics/contact": {
     "procedureRecorded": true,
@@ -357,7 +401,8 @@
     "productionRestoreDrillExecuted": false,
     "sourceBaselineCommit": "09a010ae27ade37b0e8f2c598ee60ec01b4ebbd9",
     "procedure": "restore dashboard:/statistics/contact and its required legacy artifact from the source baseline in an isolated recovery branch, then rebuild and rerun all gates",
-    "verification": "manifest route isolation and static mount regression tests"
+    "verification": "manifest route isolation and static mount regression tests",
+    "currentReachable": false
   },
   "dashboard:/statistics/employee": {
     "procedureRecorded": true,
@@ -365,7 +410,8 @@
     "productionRestoreDrillExecuted": false,
     "sourceBaselineCommit": "09a010ae27ade37b0e8f2c598ee60ec01b4ebbd9",
     "procedure": "restore dashboard:/statistics/employee and its required legacy artifact from the source baseline in an isolated recovery branch, then rebuild and rerun all gates",
-    "verification": "manifest route isolation and static mount regression tests"
+    "verification": "manifest route isolation and static mount regression tests",
+    "currentReachable": false
   },
   "dashboard:/user/index": {
     "procedureRecorded": true,
@@ -373,7 +419,8 @@
     "productionRestoreDrillExecuted": false,
     "sourceBaselineCommit": "09a010ae27ade37b0e8f2c598ee60ec01b4ebbd9",
     "procedure": "restore dashboard:/user/index and its required legacy artifact from the source baseline in an isolated recovery branch, then rebuild and rerun all gates",
-    "verification": "manifest route isolation and static mount regression tests"
+    "verification": "manifest route isolation and static mount regression tests",
+    "currentReachable": false
   },
   "dashboard:/workContact/contactFieldPivot": {
     "procedureRecorded": true,
@@ -381,7 +428,8 @@
     "productionRestoreDrillExecuted": false,
     "sourceBaselineCommit": "09a010ae27ade37b0e8f2c598ee60ec01b4ebbd9",
     "procedure": "restore dashboard:/workContact/contactFieldPivot and its required legacy artifact from the source baseline in an isolated recovery branch, then rebuild and rerun all gates",
-    "verification": "manifest route isolation and static mount regression tests"
+    "verification": "manifest route isolation and static mount regression tests",
+    "currentReachable": false
   },
   "dashboard:/workContact/index": {
     "procedureRecorded": true,
@@ -389,7 +437,8 @@
     "productionRestoreDrillExecuted": false,
     "sourceBaselineCommit": "09a010ae27ade37b0e8f2c598ee60ec01b4ebbd9",
     "procedure": "restore dashboard:/workContact/index and its required legacy artifact from the source baseline in an isolated recovery branch, then rebuild and rerun all gates",
-    "verification": "manifest route isolation and static mount regression tests"
+    "verification": "manifest route isolation and static mount regression tests",
+    "currentReachable": false
   },
   "dashboard:/workContactTag/index": {
     "procedureRecorded": true,
@@ -397,7 +446,8 @@
     "productionRestoreDrillExecuted": false,
     "sourceBaselineCommit": "09a010ae27ade37b0e8f2c598ee60ec01b4ebbd9",
     "procedure": "restore dashboard:/workContactTag/index and its required legacy artifact from the source baseline in an isolated recovery branch, then rebuild and rerun all gates",
-    "verification": "manifest route isolation and static mount regression tests"
+    "verification": "manifest route isolation and static mount regression tests",
+    "currentReachable": false
   },
   "dashboard:/workEmployee/index": {
     "procedureRecorded": true,
@@ -405,7 +455,8 @@
     "productionRestoreDrillExecuted": false,
     "sourceBaselineCommit": "09a010ae27ade37b0e8f2c598ee60ec01b4ebbd9",
     "procedure": "restore dashboard:/workEmployee/index and its required legacy artifact from the source baseline in an isolated recovery branch, then rebuild and rerun all gates",
-    "verification": "manifest route isolation and static mount regression tests"
+    "verification": "manifest route isolation and static mount regression tests",
+    "currentReachable": false
   },
   "dashboard:/workFission/create": {
     "procedureRecorded": true,
@@ -413,7 +464,8 @@
     "productionRestoreDrillExecuted": false,
     "sourceBaselineCommit": "09a010ae27ade37b0e8f2c598ee60ec01b4ebbd9",
     "procedure": "restore dashboard:/workFission/create and its required legacy artifact from the source baseline in an isolated recovery branch, then rebuild and rerun all gates",
-    "verification": "manifest route isolation and static mount regression tests"
+    "verification": "manifest route isolation and static mount regression tests",
+    "currentReachable": false
   },
   "dashboard:/workFission/dataShow": {
     "procedureRecorded": true,
@@ -421,7 +473,8 @@
     "productionRestoreDrillExecuted": false,
     "sourceBaselineCommit": "09a010ae27ade37b0e8f2c598ee60ec01b4ebbd9",
     "procedure": "restore dashboard:/workFission/dataShow and its required legacy artifact from the source baseline in an isolated recovery branch, then rebuild and rerun all gates",
-    "verification": "manifest route isolation and static mount regression tests"
+    "verification": "manifest route isolation and static mount regression tests",
+    "currentReachable": false
   },
   "dashboard:/workFission/edit": {
     "procedureRecorded": true,
@@ -429,7 +482,8 @@
     "productionRestoreDrillExecuted": false,
     "sourceBaselineCommit": "09a010ae27ade37b0e8f2c598ee60ec01b4ebbd9",
     "procedure": "restore dashboard:/workFission/edit and its required legacy artifact from the source baseline in an isolated recovery branch, then rebuild and rerun all gates",
-    "verification": "manifest route isolation and static mount regression tests"
+    "verification": "manifest route isolation and static mount regression tests",
+    "currentReachable": false
   },
   "dashboard:/workFission/invite": {
     "procedureRecorded": true,
@@ -437,7 +491,8 @@
     "productionRestoreDrillExecuted": false,
     "sourceBaselineCommit": "09a010ae27ade37b0e8f2c598ee60ec01b4ebbd9",
     "procedure": "restore dashboard:/workFission/invite and its required legacy artifact from the source baseline in an isolated recovery branch, then rebuild and rerun all gates",
-    "verification": "manifest route isolation and static mount regression tests"
+    "verification": "manifest route isolation and static mount regression tests",
+    "currentReachable": false
   },
   "dashboard:/workFission/taskpage": {
     "procedureRecorded": true,
@@ -445,7 +500,8 @@
     "productionRestoreDrillExecuted": false,
     "sourceBaselineCommit": "09a010ae27ade37b0e8f2c598ee60ec01b4ebbd9",
     "procedure": "restore dashboard:/workFission/taskpage and its required legacy artifact from the source baseline in an isolated recovery branch, then rebuild and rerun all gates",
-    "verification": "manifest route isolation and static mount regression tests"
+    "verification": "manifest route isolation and static mount regression tests",
+    "currentReachable": false
   },
   "dashboard:/workRoom/detail": {
     "procedureRecorded": true,
@@ -453,7 +509,8 @@
     "productionRestoreDrillExecuted": false,
     "sourceBaselineCommit": "09a010ae27ade37b0e8f2c598ee60ec01b4ebbd9",
     "procedure": "restore dashboard:/workRoom/detail and its required legacy artifact from the source baseline in an isolated recovery branch, then rebuild and rerun all gates",
-    "verification": "manifest route isolation and static mount regression tests"
+    "verification": "manifest route isolation and static mount regression tests",
+    "currentReachable": false
   },
   "dashboard:/workRoom/index": {
     "procedureRecorded": true,
@@ -461,7 +518,8 @@
     "productionRestoreDrillExecuted": false,
     "sourceBaselineCommit": "09a010ae27ade37b0e8f2c598ee60ec01b4ebbd9",
     "procedure": "restore dashboard:/workRoom/index and its required legacy artifact from the source baseline in an isolated recovery branch, then rebuild and rerun all gates",
-    "verification": "manifest route isolation and static mount regression tests"
+    "verification": "manifest route isolation and static mount regression tests",
+    "currentReachable": false
   },
   "dashboard:/workRoom/statistics": {
     "procedureRecorded": true,
@@ -469,7 +527,8 @@
     "productionRestoreDrillExecuted": false,
     "sourceBaselineCommit": "09a010ae27ade37b0e8f2c598ee60ec01b4ebbd9",
     "procedure": "restore dashboard:/workRoom/statistics and its required legacy artifact from the source baseline in an isolated recovery branch, then rebuild and rerun all gates",
-    "verification": "manifest route isolation and static mount regression tests"
+    "verification": "manifest route isolation and static mount regression tests",
+    "currentReachable": false
   },
   "dashboard:/workRoomAutoPull/index": {
     "procedureRecorded": true,
@@ -477,7 +536,8 @@
     "productionRestoreDrillExecuted": false,
     "sourceBaselineCommit": "09a010ae27ade37b0e8f2c598ee60ec01b4ebbd9",
     "procedure": "restore dashboard:/workRoomAutoPull/index and its required legacy artifact from the source baseline in an isolated recovery branch, then rebuild and rerun all gates",
-    "verification": "manifest route isolation and static mount regression tests"
+    "verification": "manifest route isolation and static mount regression tests",
+    "currentReachable": false
   },
   "dashboard:/workRoomAutoPull/store": {
     "procedureRecorded": true,
@@ -485,9 +545,11 @@
     "productionRestoreDrillExecuted": false,
     "sourceBaselineCommit": "09a010ae27ade37b0e8f2c598ee60ec01b4ebbd9",
     "procedure": "restore dashboard:/workRoomAutoPull/store and its required legacy artifact from the source baseline in an isolated recovery branch, then rebuild and rerun all gates",
-    "verification": "manifest route isolation and static mount regression tests"
+    "verification": "manifest route isolation and static mount regression tests",
+    "currentReachable": false
   },
   "sidebar:/": {
+    "currentReachable": true,
     "procedureRecorded": true,
     "mechanismVerified": true,
     "productionRestoreDrillExecuted": false,
@@ -496,6 +558,7 @@
     "verification": "manifest route isolation and static mount regression tests"
   },
   "sidebar:/auth": {
+    "currentReachable": true,
     "procedureRecorded": true,
     "mechanismVerified": true,
     "productionRestoreDrillExecuted": false,
@@ -504,6 +567,7 @@
     "verification": "manifest route isolation and static mount regression tests"
   },
   "sidebar:/codeAuth": {
+    "currentReachable": true,
     "procedureRecorded": true,
     "mechanismVerified": true,
     "productionRestoreDrillExecuted": false,
@@ -512,6 +576,7 @@
     "verification": "manifest route isolation and static mount regression tests"
   },
   "sidebar:/contact": {
+    "currentReachable": true,
     "procedureRecorded": true,
     "mechanismVerified": true,
     "productionRestoreDrillExecuted": false,
@@ -520,6 +585,7 @@
     "verification": "manifest route isolation and static mount regression tests"
   },
   "sidebar:/contact/editDetail": {
+    "currentReachable": true,
     "procedureRecorded": true,
     "mechanismVerified": true,
     "productionRestoreDrillExecuted": false,
@@ -528,6 +594,7 @@
     "verification": "manifest route isolation and static mount regression tests"
   },
   "sidebar:/contact/remark": {
+    "currentReachable": true,
     "procedureRecorded": true,
     "mechanismVerified": true,
     "productionRestoreDrillExecuted": false,
@@ -536,6 +603,7 @@
     "verification": "manifest route isolation and static mount regression tests"
   },
   "sidebar:/contact/settingTag": {
+    "currentReachable": true,
     "procedureRecorded": true,
     "mechanismVerified": true,
     "productionRestoreDrillExecuted": false,
@@ -544,6 +612,7 @@
     "verification": "manifest route isolation and static mount regression tests"
   },
   "sidebar:/contactBatchAdd": {
+    "currentReachable": true,
     "procedureRecorded": true,
     "mechanismVerified": true,
     "productionRestoreDrillExecuted": false,
@@ -552,6 +621,7 @@
     "verification": "manifest route isolation and static mount regression tests"
   },
   "sidebar:/contactSop": {
+    "currentReachable": true,
     "procedureRecorded": true,
     "mechanismVerified": true,
     "productionRestoreDrillExecuted": false,
@@ -560,6 +630,7 @@
     "verification": "manifest route isolation and static mount regression tests"
   },
   "sidebar:/login": {
+    "currentReachable": true,
     "procedureRecorded": true,
     "mechanismVerified": true,
     "productionRestoreDrillExecuted": false,
@@ -568,6 +639,7 @@
     "verification": "manifest route isolation and static mount regression tests"
   },
   "sidebar:/medium": {
+    "currentReachable": true,
     "procedureRecorded": true,
     "mechanismVerified": true,
     "productionRestoreDrillExecuted": false,
@@ -576,6 +648,7 @@
     "verification": "manifest route isolation and static mount regression tests"
   },
   "sidebar:/roomSop": {
+    "currentReachable": true,
     "procedureRecorded": true,
     "mechanismVerified": true,
     "productionRestoreDrillExecuted": false,
@@ -584,6 +657,7 @@
     "verification": "manifest route isolation and static mount regression tests"
   },
   "operation:/": {
+    "currentReachable": true,
     "procedureRecorded": true,
     "mechanismVerified": true,
     "productionRestoreDrillExecuted": false,
@@ -592,6 +666,7 @@
     "verification": "manifest route isolation and static mount regression tests"
   },
   "operation:/explain": {
+    "currentReachable": true,
     "procedureRecorded": true,
     "mechanismVerified": true,
     "productionRestoreDrillExecuted": false,
@@ -600,6 +675,7 @@
     "verification": "manifest route isolation and static mount regression tests"
   },
   "operation:/lottery": {
+    "currentReachable": true,
     "procedureRecorded": true,
     "mechanismVerified": true,
     "productionRestoreDrillExecuted": false,
@@ -608,6 +684,7 @@
     "verification": "manifest route isolation and static mount regression tests"
   },
   "operation:/roomClockIn": {
+    "currentReachable": true,
     "procedureRecorded": true,
     "mechanismVerified": true,
     "productionRestoreDrillExecuted": false,
@@ -616,6 +693,7 @@
     "verification": "manifest route isolation and static mount regression tests"
   },
   "operation:/roomFission": {
+    "currentReachable": true,
     "procedureRecorded": true,
     "mechanismVerified": true,
     "productionRestoreDrillExecuted": false,
@@ -624,6 +702,7 @@
     "verification": "manifest route isolation and static mount regression tests"
   },
   "operation:/fissionSpeed": {
+    "currentReachable": true,
     "procedureRecorded": true,
     "mechanismVerified": true,
     "productionRestoreDrillExecuted": false,
@@ -632,6 +711,7 @@
     "verification": "manifest route isolation and static mount regression tests"
   },
   "operation:/roomInfinitePull": {
+    "currentReachable": true,
     "procedureRecorded": true,
     "mechanismVerified": true,
     "productionRestoreDrillExecuted": false,
@@ -640,6 +720,7 @@
     "verification": "manifest route isolation and static mount regression tests"
   },
   "operation:/shopCode": {
+    "currentReachable": true,
     "procedureRecorded": true,
     "mechanismVerified": true,
     "productionRestoreDrillExecuted": false,
@@ -648,6 +729,7 @@
     "verification": "manifest route isolation and static mount regression tests"
   },
   "operation:/workFission": {
+    "currentReachable": true,
     "procedureRecorded": true,
     "mechanismVerified": true,
     "productionRestoreDrillExecuted": false,
@@ -656,11 +738,21 @@
     "verification": "manifest route isolation and static mount regression tests"
   },
   "operation:/speed": {
+    "currentReachable": true,
     "procedureRecorded": true,
     "mechanismVerified": true,
     "productionRestoreDrillExecuted": false,
     "sourceBaselineCommit": "09a010ae27ade37b0e8f2c598ee60ec01b4ebbd9",
     "procedure": "restore operation:/speed and its required legacy artifact from the source baseline in an isolated recovery branch, then rebuild and rerun all gates",
+    "verification": "manifest route isolation and static mount regression tests"
+  },
+  "dashboard:/company-setting/website": {
+    "currentReachable": true,
+    "procedureRecorded": true,
+    "mechanismVerified": true,
+    "productionRestoreDrillExecuted": false,
+    "sourceBaselineCommit": "09a010ae27ade37b0e8f2c598ee60ec01b4ebbd9",
+    "procedure": "restore dashboard:/company-setting/website and its required legacy artifact from the source baseline in an isolated recovery branch, then rebuild and rerun all gates",
     "verification": "manifest route isolation and static mount regression tests"
   }
 }

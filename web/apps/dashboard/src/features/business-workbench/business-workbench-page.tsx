@@ -24,7 +24,7 @@ type BusinessRecord = Record<string, unknown>;
 
 export type BusinessWorkbenchApi = {
   read(endpoint: string, query: QueryValues): Promise<unknown>;
-  write(endpoint: string, values: Record<string, unknown>, method?: 'POST' | 'PUT' | 'DELETE'): Promise<unknown>;
+  write(endpoint: string, values: Record<string, unknown>, method?: 'POST' | 'PUT' | 'DELETE', headers?: Record<string, string>): Promise<unknown>;
 };
 
 function normalizeRecords(payload: unknown): { rows: BusinessRecord[]; total: number } {

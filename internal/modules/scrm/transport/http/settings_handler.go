@@ -1,22 +1,17 @@
 package http
 
 import (
-	"context"
-	"jiyi/mochat-go/internal/modules/scrm/adapters/mysql"
+	"jiyi/mochat-go/internal/modules/scrm/ports"
 	nethttp "net/http"
 )
 
-type settingsRepository interface {
-	List(context.Context, int64, int64, string) ([]mysql.SCRMSetting, error)
-	Upsert(context.Context, mysql.SCRMSetting, int64) (mysql.SCRMSetting, error)
-}
 type SettingsHandler struct {
-	repo       settingsRepository
+	repo       ports.SettingsRepository
 	principal  PrincipalResolver
 	authorizer LeadAuthorizer
 }
 
-func NewSettingsHandler(repo settingsRepository, p PrincipalResolver, a LeadAuthorizer) *SettingsHandler {
+func NewSettingsHandler(repo ports.SettingsRepository, p PrincipalResolver, a LeadAuthorizer) *SettingsHandler {
 	return &SettingsHandler{repo: repo, principal: p, authorizer: a}
 }
 func (h *SettingsHandler) ServeHTTP(w nethttp.ResponseWriter, r *nethttp.Request) {
@@ -59,7 +54,7 @@ func (h *SettingsHandler) ServeHTTP(w nethttp.ResponseWriter, r *nethttp.Request
 		writeJSON(w, nethttp.StatusOK, map[string]any{"code": nethttp.StatusOK, "msg": "success", "data": v})
 		return
 	}
-	s := mysql.SCRMSetting{ID: payload.ID, Type: payload.Type, Key: payload.Key, Label: payload.Label, Value: payload.Value, Enabled: payload.Enabled}
+	s := ports.SCRMSetting{ID: payload.ID, Type: payload.Type, Key: payload.Key, Label: payload.Label, Value: payload.Value, Enabled: payload.Enabled}
 	s.TenantID = p.TenantID
 	s.CorpID = corp
 	v, e := h.repo.Upsert(r.Context(), s, p.UserID)

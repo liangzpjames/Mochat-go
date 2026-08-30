@@ -34,6 +34,15 @@ type ControlledMigration struct {
 	SuccessStatus   string
 }
 
+type ControlledMigrationPendingError struct {
+	Version     string
+	RequiredCLI string
+}
+
+func (e *ControlledMigrationPendingError) Error() string {
+	return fmt.Sprintf("controlled migration %s is pending; run %s before automatic migrations can continue", e.Version, e.RequiredCLI)
+}
+
 var controlledMigrationRegistry = map[string]ControlledMigration{
 	"0130_identity_realms_single_corp_backfill": {
 		Version:         "0130_identity_realms_single_corp_backfill",
@@ -52,6 +61,15 @@ var controlledMigrationRegistry = map[string]ControlledMigration{
 		CompletionTable: "mochat_go_identity_cutover_batches",
 		RequiredCLI:     "mochat-identity-migrate",
 		SuccessStatus:   "success",
+	},
+	AIInsight0165Version: {
+		Version:         AIInsight0165Version,
+		LedgerTable:     aiInsight0165ControlTable,
+		LedgerName:      AIInsight0165Version,
+		SuccessPhase:    "verify",
+		CompletionTable: aiInsight0165ControlTable,
+		RequiredCLI:     "preflight_0165_ai_daily_insight_unification",
+		SuccessStatus:   "verified",
 	},
 }
 
@@ -79,11 +97,65 @@ func ControlledMigrationRegistry() []ControlledMigration {
 }
 
 func ControlledMigrationBlocked(version string) error {
-	return fmt.Errorf("controlled migration %s is pending; run mochat-identity-migrate before automatic migrations can continue", version)
+	_, metadata := MigrationMetadata(version)
+	requiredCLI := "the dedicated controlled migration CLI"
+	if metadata != nil && strings.TrimSpace(metadata.RequiredCLI) != "" {
+		requiredCLI = metadata.RequiredCLI
+	}
+	return &ControlledMigrationPendingError{Version: version, RequiredCLI: requiredCLI}
 }
 
 func ControlledMigrationRollbackRequired(version string) error {
-	return fmt.Errorf("controlled migration %s must be rolled back with mochat-identity-migrate", version)
+	_, metadata := MigrationMetadata(version)
+	requiredCLI := "the dedicated controlled migration CLI"
+	if metadata != nil && strings.TrimSpace(metadata.RequiredCLI) != "" {
+		requiredCLI = metadata.RequiredCLI
+	}
+	return fmt.Errorf("controlled migration %s must be rolled back with %s", version, requiredCLI)
+}
+
+func controlledMigrationBaselineEvidence(ctx context.Context, db *sql.DB, migration Migration, checksum string) error {
+	metadata := migration.Controlled
+	if metadata == nil {
+		return fmt.Errorf("controlled migration %s metadata is missing", migration.Version)
+	}
+	var count int
+	if migration.Version == AIInsight0165Version {
+		if err := db.QueryRowContext(ctx, `
+			SELECT COUNT(*)
+			FROM `+aiInsight0165ControlTable+`
+			WHERE migration_checksum = ? AND status = ?
+		`, checksum, metadata.SuccessStatus).Scan(&count); err != nil {
+			return fmt.Errorf("inspect controlled migration %s baseline evidence: %w", migration.Version, err)
+		}
+	} else {
+		if err := db.QueryRowContext(ctx, `
+			SELECT COUNT(*)
+			FROM `+metadata.LedgerTable+` AS ledger
+			INNER JOIN `+metadata.CompletionTable+` AS completion
+				ON completion.request_id = ledger.request_id AND completion.status = 'completed'
+			WHERE ledger.migration_name = ? AND ledger.phase = ? AND ledger.status = ?
+				AND JSON_UNQUOTE(JSON_EXTRACT(ledger.result_json, '$.scriptChecksum')) = ?
+		`, metadata.LedgerName, metadata.SuccessPhase, metadata.SuccessStatus, checksum).Scan(&count); err != nil {
+			return fmt.Errorf("inspect controlled migration %s baseline evidence: %w", migration.Version, err)
+		}
+	}
+	if count != 1 {
+		return fmt.Errorf("controlled migration %s baseline requires exactly one verified completion for checksum %s; found %d", migration.Version, checksum, count)
+	}
+	if migration.Version == "0131_identity_realms_single_corp_cutover" {
+		var compatible int
+		if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM information_schema.columns
+			WHERE table_schema=DATABASE() AND table_name=? AND column_name=?
+			  AND data_type='int' AND numeric_precision=10 AND column_type LIKE '%unsigned%' AND is_nullable='NO'`,
+			"mc_corp", "tenant_id").Scan(&compatible); err != nil {
+			return fmt.Errorf("inspect controlled migration %s baseline postcondition: %w", migration.Version, err)
+		}
+		if compatible != 1 {
+			return fmt.Errorf("controlled migration %s baseline postcondition requires mc_corp.tenant_id to be unsigned INT NOT NULL; found %d compatible columns", migration.Version, compatible)
+		}
+	}
+	return nil
 }
 
 // RecordControlledMigration writes the normal migration-table fact only after

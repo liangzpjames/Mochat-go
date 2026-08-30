@@ -432,8 +432,10 @@ export function extractBackendRegisteredAPIs(sourceBodies) {
     for (const match of source.matchAll(/^\s*case\s+(.+):\s*$/gm)) {
       const methods = [...match[1].matchAll(/r\.Method\s*==\s*((?:[A-Za-z_][A-Za-z0-9_]*\.)?Method(?:Get|Post|Put|Patch|Delete)|['"][A-Z]+['"])/g)]
         .map((item) => goMethod(item[1])).filter(Boolean);
-      const paths = [...match[1].matchAll(/r\.URL\.Path\s*==\s*['"](\/dashboard\/[^'"]+)['"]/g)]
-        .map((item) => item[1]);
+      const paths = [
+        ...match[1].matchAll(/r\.URL\.Path\s*==\s*['"](\/dashboard\/[^'"]+)['"]/g),
+        ...match[1].matchAll(/dashboardRouteTemplateMatches\(\s*r\.URL\.Path\s*,\s*['"](\/dashboard\/[^'"]+)['"]\s*\)/g),
+      ].map((item) => item[1]);
       for (const method of methods) for (const routePath of paths) {
         addRoute(method, routePath, file, source, match.index);
       }
@@ -469,16 +471,24 @@ export function extractBackendRegisteredAPIs(sourceBodies) {
   return [...routes.values()].sort((left, right) => left.contract.localeCompare(right.contract));
 }
 
-export function extractGoDashboardRoutePolicy(source) {
+export function extractGoDashboardRoutePolicy(source, routeRegistrySource = '') {
   const body = stripGoComments(source);
-  const contracts = (name) => {
+  const contracts = (name, required = true) => {
     const block = body.match(new RegExp(`var\\s+${name}\\s*=\\s*\\[\\]string\\s*\\{([\\s\\S]*?)\\n\\}`));
-    if (!block) throw new Error(`missing Go dashboard route policy: ${name}`);
+    if (!block) {
+      if (required) throw new Error(`missing Go dashboard route policy: ${name}`);
+      return [];
+    }
     return [...block[1].matchAll(/['"]((?:GET|POST|PUT|PATCH|DELETE) \/dashboard\/[^'"]+)['"]/g)]
       .map((match) => match[1]);
   };
+  const exactExempt = routeRegistrySource === ''
+    ? contracts('exactExemptDashboardRouteContracts', false)
+    : [...stripGoComments(routeRegistrySource).matchAll(
+      /\{\s*Method:\s*"(GET|POST|PUT|PATCH|DELETE)"\s*,\s*Path:\s*"(\/dashboard\/[^"]+)"[^}]*AuthKind:\s*DashboardRouteAuth(?:Public|Identity|SaaS)\s*\}/g,
+    )].map((match) => `${match[1]} ${match[2]}`);
   return {
-    exactExempt: contracts('exactExemptDashboardRouteContracts'),
+    exactExempt,
     denyOnly: contracts('denyOnlyDashboardRouteContracts'),
   };
 }
@@ -814,6 +824,7 @@ async function main() {
   );
   const routePolicy = extractGoDashboardRoutePolicy(
     await readFile('internal/dashboard/dashboard_route_policy.go', 'utf8'),
+    await readFile('internal/dashboard/dashboard_route_registry.go', 'utf8'),
   );
   const legacySeededMappings = extractMigrationPermissionResourceMappings(
     await readFile('deploy/standalone/migrations/0127_dashboard_page_rbac.up.sql', 'utf8'),
@@ -898,6 +909,13 @@ async function main() {
       'utf8',
     ),
   });
+  const callbackRecoveryMappings = applyPermissionResourceReconciliation({
+    mappings: archiveSyncMappings,
+    overlaySource: await readFile(
+      'deploy/standalone/migrations/0176_wework_callback_side_effect_reconciliation.up.sql',
+      'utf8',
+    ),
+  });
   const apiUsages = await scanFrontendAPIUsages();
   const backendRoutes = (await scanBackendRegisteredAPIs())
     .filter((route) => isDashboardRBACRoute(route.contract));
@@ -914,7 +932,7 @@ async function main() {
     registeredSources,
     exemptions: routePolicy.exactExempt,
     denyOnly: routePolicy.denyOnly,
-    seededMappings: archiveSyncMappings,
+    seededMappings: callbackRecoveryMappings,
   });
   console.log(
     `${result.pageCount} pages, ${result.ordinaryPageCount} ordinary, `

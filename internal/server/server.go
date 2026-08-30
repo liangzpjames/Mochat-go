@@ -4,6 +4,7 @@ import (
 	"context"
 	_ "embed"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httputil"
@@ -12,6 +13,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"jiyi/mochat-go/internal/config"
@@ -703,6 +705,7 @@ type Server struct {
 	menuStatusUpdate                                http.Handler
 	menuDestroy                                     http.Handler
 	backgroundTasks                                 func() []taskrunner.Snapshot
+	readiness                                       *ReadinessChecker
 }
 
 type statusPayload struct {
@@ -722,6 +725,103 @@ type statusPayload struct {
 	MigratedRoutes        []string              `json:"migrated_routes"`
 	BackgroundTasks       []taskrunner.Snapshot `json:"background_tasks,omitempty"`
 	NextMigrationBoundary string                `json:"next_migration_boundary"`
+}
+
+type readinessPayload struct {
+	Ready           bool             `json:"ready"`
+	ReadinessChecks []ReadinessCheck `json:"readiness_checks"`
+}
+
+type ReadinessProbe struct {
+	Code  string
+	Check func(context.Context) error
+}
+
+type ReadinessCheck struct {
+	Code  string `json:"code"`
+	Ready bool   `json:"ready"`
+}
+
+type ReadinessFailure struct{ code string }
+
+func NewReadinessFailure(code string) error {
+	return &ReadinessFailure{code: stableReadinessCode(code)}
+}
+
+func (e *ReadinessFailure) Error() string { return "readiness check failed" }
+
+func (e *ReadinessFailure) ReadinessCode() string {
+	if e == nil {
+		return ""
+	}
+	return e.code
+}
+
+func stableReadinessCode(code string) string {
+	code = strings.TrimSpace(code)
+	if code == "" {
+		return ""
+	}
+	for _, character := range code {
+		if (character < 'a' || character > 'z') && (character < '0' || character > '9') && character != '_' {
+			return ""
+		}
+	}
+	return code
+}
+
+// ReadinessChecker runs bounded dependency probes and returns only stable
+// codes. Probe errors are intentionally not serialized because they may carry
+// credentials or internal addresses.
+type ReadinessChecker struct {
+	probes   []ReadinessProbe
+	draining atomic.Bool
+}
+
+func NewReadinessChecker(probes ...ReadinessProbe) *ReadinessChecker {
+	filtered := make([]ReadinessProbe, 0, len(probes))
+	for _, probe := range probes {
+		probe.Code = strings.TrimSpace(probe.Code)
+		if probe.Code == "" || probe.Check == nil {
+			continue
+		}
+		if stableReadinessCode(probe.Code) == "" {
+			probe.Code = "dependency_check"
+		}
+		filtered = append(filtered, probe)
+	}
+	return &ReadinessChecker{probes: filtered}
+}
+
+func (c *ReadinessChecker) BeginDrain() {
+	if c != nil {
+		c.draining.Store(true)
+	}
+}
+
+func (c *ReadinessChecker) Check(ctx context.Context) []ReadinessCheck {
+	if c == nil {
+		return nil
+	}
+	if c.draining.Load() {
+		return []ReadinessCheck{{Code: "runtime_draining", Ready: false}}
+	}
+	results := make([]ReadinessCheck, 0, len(c.probes))
+	for _, probe := range c.probes {
+		probeCtx, cancel := context.WithTimeout(ctx, 400*time.Millisecond)
+		err := probe.Check(probeCtx)
+		cancel()
+		code := probe.Code
+		var failure interface{ ReadinessCode() string }
+		if err != nil && errors.As(err, &failure) && stableReadinessCode(failure.ReadinessCode()) != "" {
+			code = failure.ReadinessCode()
+		}
+		results = append(results, ReadinessCheck{Code: code, Ready: err == nil})
+		if ctx.Err() != nil {
+			break
+		}
+	}
+	return results
 }
 
 var migratedRoutes = []string{
@@ -800,6 +900,12 @@ func WithDashboardAccessHandler(handler http.Handler) Option {
 func WithBackgroundTasks(snapshot func() []taskrunner.Snapshot) Option {
 	return func(server *Server) {
 		server.backgroundTasks = snapshot
+	}
+}
+
+func WithReadinessChecker(checker *ReadinessChecker) Option {
+	return func(server *Server) {
+		server.readiness = checker
 	}
 }
 
@@ -4593,21 +4699,42 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "name": "mochat-go"})
 	case r.URL.Path == "/readyz" && r.Method == http.MethodGet:
 		status := http.StatusOK
-		payload := s.status()
+		payload := readinessPayload{Ready: true, ReadinessChecks: make([]ReadinessCheck, 0, 5)}
+		checkCtx, cancelChecks := context.WithTimeout(r.Context(), 2*time.Second)
 		if s.cfg.Standalone {
-			payload.PHPUpstreamReady = false
-			payload.PHPUpstreamProbe = "standalone mode: PHP upstream disabled"
-			if len(embeddedCompatManifest) == 0 {
-				status = http.StatusServiceUnavailable
-			}
+			payload.ReadinessChecks = append(payload.ReadinessChecks, ReadinessCheck{
+				Code:  "compat_assets",
+				Ready: len(embeddedCompatManifest) > 0,
+			})
 		} else {
-			ready, probe := s.probePHPUpstream(r.Context())
-			payload.PHPUpstreamReady = ready
-			payload.PHPUpstreamProbe = probe
-			if !payload.SourceRootExists || !payload.ManifestExists || !payload.ProxyFallbackEnabled || !payload.PHPUpstreamReady {
+			sourceReady := false
+			if s.cfg.SourceRoot != "" {
+				_, err := os.Stat(s.cfg.SourceRoot)
+				sourceReady = err == nil
+			}
+			manifestReady := false
+			if s.cfg.ManifestPath != "" {
+				_, err := os.Stat(s.cfg.ManifestPath)
+				manifestReady = err == nil
+			}
+			upstreamReady, _ := s.probePHPUpstream(checkCtx)
+			payload.ReadinessChecks = append(payload.ReadinessChecks,
+				ReadinessCheck{Code: "compat_source", Ready: sourceReady},
+				ReadinessCheck{Code: "compat_manifest", Ready: manifestReady},
+				ReadinessCheck{Code: "compat_proxy", Ready: s.proxy != nil},
+				ReadinessCheck{Code: "compat_upstream", Ready: upstreamReady},
+			)
+		}
+		if s.readiness != nil {
+			payload.ReadinessChecks = append(payload.ReadinessChecks, s.readiness.Check(checkCtx)...)
+		}
+		for _, check := range payload.ReadinessChecks {
+			if !check.Ready {
 				status = http.StatusServiceUnavailable
+				payload.Ready = false
 			}
 		}
+		cancelChecks()
 		writeJSON(w, status, payload)
 	case strings.HasPrefix(r.URL.Path, "/static/") && (r.Method == http.MethodGet || r.Method == http.MethodHead):
 		s.serveStaticUpload(w, r)
@@ -4658,6 +4785,12 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case s.companyProfile != nil && r.URL.Path == "/dashboard/company/archive-sync-status" && r.Method == http.MethodGet:
 		s.companyProfile.ServeHTTP(w, r)
 	case s.companyProfile != nil && r.URL.Path == "/dashboard/company/audits" && r.Method == http.MethodGet:
+		s.companyProfile.ServeHTTP(w, r)
+	case s.companyProfile != nil && r.URL.Path == "/dashboard/company/callback-side-effects" && r.Method == http.MethodGet:
+		s.companyProfile.ServeHTTP(w, r)
+	case s.companyProfile != nil && dashboardRouteTemplateMatches(r.URL.Path, "/dashboard/company/callback-side-effects/{eventKey}/{actionKey}") && r.Method == http.MethodGet:
+		s.companyProfile.ServeHTTP(w, r)
+	case s.companyProfile != nil && dashboardRouteTemplateMatches(r.URL.Path, "/dashboard/company/callback-side-effects/{eventKey}/{actionKey}/reconcile") && r.Method == http.MethodPost:
 		s.companyProfile.ServeHTTP(w, r)
 	case s.providerStatus != nil && r.URL.Path == "/dashboard/providers/status" && r.Method == http.MethodGet:
 		s.providerStatus.ServeHTTP(w, r)
@@ -6230,6 +6363,9 @@ func (s *Server) migratedRoutes() []string {
 			"POST /dashboard/company/archive-sync",
 			"GET /dashboard/company/archive-sync-status",
 			"GET /dashboard/company/audits",
+			"GET /dashboard/company/callback-side-effects",
+			"GET /dashboard/company/callback-side-effects/{eventKey}/{actionKey}",
+			"POST /dashboard/company/callback-side-effects/{eventKey}/{actionKey}/reconcile",
 		)
 	}
 	if s.providerStatus != nil {
@@ -8121,6 +8257,26 @@ func (s *Server) migratedRoutes() []string {
 		routes = append(routes, "DELETE /dashboard/menu/destroy")
 	}
 	return routes
+}
+
+func dashboardRouteTemplateMatches(path string, template string) bool {
+	pathParts := strings.Split(strings.TrimPrefix(path, "/"), "/")
+	templateParts := strings.Split(strings.TrimPrefix(template, "/"), "/")
+	if len(pathParts) != len(templateParts) {
+		return false
+	}
+	for index, templatePart := range templateParts {
+		if strings.HasPrefix(templatePart, "{") && strings.HasSuffix(templatePart, "}") {
+			if pathParts[index] == "" {
+				return false
+			}
+			continue
+		}
+		if pathParts[index] != templatePart {
+			return false
+		}
+	}
+	return true
 }
 
 func (s *Server) handleAgentTxtVerify(w http.ResponseWriter, r *http.Request) {

@@ -1,6 +1,9 @@
 package qualitygate
 
 import (
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
 	"strings"
@@ -25,7 +28,7 @@ jobs:
         run: go test ./...
       - name: Go vet
         run: go vet ./...
-      - name: Migration 0098 lifecycle gate
+      - name: Migration registry lifecycle gate
         run: bash ./scripts/smoke_schema_migrate.sh
   detached-integration:
     steps:
@@ -87,6 +90,55 @@ jobs:
 	}
 }
 
+func TestValidateWorkflowRequiresControlled0165PathsInBothTriggers(t *testing.T) {
+	workflow := readRepositoryFile(t, ".github/workflows/mysql57-amd64.yml")
+	for _, required := range []string{
+		"cmd/mochat-ai-insight-0165/**",
+		"scripts/preflight_0165_ai_daily_insight_unification.go",
+		"scripts/lib/migration_inventory_smoke.sh",
+	} {
+		if strings.Count(workflow, `- "`+required+`"`) != 2 {
+			t.Fatalf("workflow must include %q in both push and pull_request paths", required)
+		}
+		mutated := strings.Replace(workflow, `      - "`+required+`"`+"\n", "", 1)
+		path := writeWorkflow(t, mutated)
+		assertFailureContains(t, validateWorkflow(path), "on.push.paths missing: "+required)
+	}
+}
+
+func TestValidateWorkflowRejectsExcessivePermissions(t *testing.T) {
+	workflow := readRepositoryFile(t, ".github/workflows/mysql57-amd64.yml")
+	const safe = "permissions:\n  contents: read\n"
+	if !strings.Contains(workflow, safe) {
+		t.Fatal("workflow fixture no longer has the exact read-only permission baseline")
+	}
+	for _, test := range []struct {
+		name        string
+		replacement string
+	}{
+		{name: "missing", replacement: ""},
+		{name: "write all", replacement: "permissions: write-all\n"},
+		{name: "contents write", replacement: "permissions:\n  contents: write\n"},
+		{name: "oidc write", replacement: "permissions:\n  contents: read\n  id-token: write\n"},
+		{name: "attestations write", replacement: "permissions:\n  contents: read\n  attestations: write\n"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			path := writeWorkflow(t, strings.Replace(workflow, safe, test.replacement, 1))
+			assertFailureContains(t, validateWorkflow(path), "workflow permissions must be exactly contents: read")
+		})
+	}
+
+	t.Run("job override", func(t *testing.T) {
+		const job = "  mysql57-amd64:\n"
+		if !strings.Contains(workflow, job) {
+			t.Fatal("workflow fixture no longer has the mysql57-amd64 job")
+		}
+		mutated := strings.Replace(workflow, job, job+"    permissions: write-all\n", 1)
+		path := writeWorkflow(t, mutated)
+		assertFailureContains(t, validateWorkflow(path), "workflow job mysql57-amd64 must not override permissions")
+	})
+}
+
 func TestValidateWorkflowRejectsRequiredCommandAsInertText(t *testing.T) {
 	workflow := readRepositoryFile(t, ".github/workflows/mysql57-amd64.yml")
 	cases := []struct {
@@ -107,7 +159,7 @@ func TestValidateWorkflowRejectsRequiredCommandAsInertText(t *testing.T) {
 			name:        "commented lifecycle",
 			original:    "        run: bash ./scripts/smoke_schema_migrate.sh\n",
 			replacement: "        run: |\n          # bash ./scripts/smoke_schema_migrate.sh\n",
-			step:        "Migration 0098 lifecycle gate",
+			step:        "Migration registry lifecycle gate",
 			command:     "bash ./scripts/smoke_schema_migrate.sh",
 		},
 		{
@@ -514,7 +566,7 @@ func TestValidateWorkflowRejectsEnvironmentOverrides(t *testing.T) {
 				"          MOCHAT_STACK_PROJECT: mochat-go-schema-migrate-ci\n" +
 				"          MOCHAT_MYSQL_PORT: \"13331\"\n" +
 				"          BASH_ENV: ./disable-errexit.sh\n",
-			failure: "Migration 0098 lifecycle gate step environment must exactly match the required allowlist",
+			failure: "Migration registry lifecycle gate step environment must exactly match the required allowlist",
 		},
 		{
 			name: "integration extra environment",
@@ -896,8 +948,28 @@ func TestValidateWorkflowRejectsLifecycleCommandInDeadBranch(t *testing.T) {
 	assertFailureContains(
 		t,
 		validateWorkflow(path),
-		"Migration 0098 lifecycle gate step does not own command: bash ./scripts/smoke_schema_migrate.sh",
+		"Migration registry lifecycle gate step does not own command: bash ./scripts/smoke_schema_migrate.sh",
 	)
+}
+
+func TestValidateWorkflowRequiresTwentyMinuteFullFixtureBudget(t *testing.T) {
+	workflow := readRepositoryFile(t, ".github/workflows/mysql57-amd64.yml")
+	const required = "          go test ./internal/store ./internal/migration -count=1 -timeout 20m\n"
+	if !strings.Contains(workflow, required) {
+		t.Fatalf("workflow fixture no longer contains %q", required)
+	}
+	for _, replacement := range []string{
+		"          go test ./internal/store ./internal/migration -count=1\n",
+		"          go test ./internal/store ./internal/migration -count=1 -timeout 10m\n",
+		"          go test ./internal/store -count=1 -timeout 20m\n",
+	} {
+		path := writeWorkflow(t, strings.Replace(workflow, required, replacement, 1))
+		assertFailureContains(
+			t,
+			validateWorkflow(path),
+			"integration step must run the complete store/migration fixture gate with a 20m timeout budget",
+		)
+	}
 }
 
 func TestValidateWorkflowAllowsEnvironmentPrefixForRequiredCommand(t *testing.T) {
@@ -936,36 +1008,52 @@ func TestValidateWorkflowRejectsCleanupCommandInNestedFunction(t *testing.T) {
 	)
 }
 
+func TestValidateLifecycleAcceptsRepositoryScripts(t *testing.T) {
+	lifecycle := readRepositoryFile(t, "scripts/smoke_schema_migrate.sh")
+	inventoryLifecycle := readRepositoryFile(t, "scripts/lib/migration_inventory_smoke.sh")
+	if _, err := parseShell(lifecycle); err != nil {
+		t.Fatalf("parse authoritative lifecycle: %v", err)
+	}
+	if _, err := parseShell(inventoryLifecycle); err != nil {
+		t.Fatalf("parse shared lifecycle: %v", err)
+	}
+	if failures := validateLifecycle(lifecycle, inventoryLifecycle); len(failures) != 0 {
+		t.Fatalf("repository migration lifecycle failed validation: %v", failures)
+	}
+}
+
 func TestValidateLifecycleRejectsCommentedCriticalCommand(t *testing.T) {
 	lifecycle := readRepositoryFile(t, "scripts/smoke_schema_migrate.sh")
-	command := `"$MIGRATE_BIN" -dsn "$MIGRATE_DSN" -project-root "$PWD" -action apply >"$WORK_DIR/apply.out"`
-	if !strings.Contains(lifecycle, command) {
+	inventoryLifecycle := readRepositoryFile(t, "scripts/lib/migration_inventory_smoke.sh")
+	command := `"$MIGRATE_BIN" -project-root "$PWD" -action inventory >"$INVENTORY_FILE"`
+	if !strings.Contains(inventoryLifecycle, command) {
 		t.Fatalf("lifecycle fixture no longer contains %q", command)
 	}
 
-	failures := validateLifecycle(strings.Replace(lifecycle, command, "# "+command, 1))
+	failures := validateLifecycle(lifecycle, strings.Replace(inventoryLifecycle, command, "# "+command, 1))
 	assertFailureContains(
 		t,
 		failures,
-		"authoritative lifecycle script must execute 0098 apply/checksum/rollback/replay in order",
+		"shared lifecycle must derive the migration registry from runtime inventory",
 	)
 }
 
 func TestValidateLifecycleRejectsCleanupCommandInNestedFunction(t *testing.T) {
 	lifecycle := readRepositoryFile(t, "scripts/smoke_schema_migrate.sh")
-	const original = "compose down -v --remove-orphans >/dev/null 2>&1 || true"
+	inventoryLifecycle := readRepositoryFile(t, "scripts/lib/migration_inventory_smoke.sh")
+	const original = "compose down --remove-orphans >/dev/null 2>&1 || true"
 	const replacement = "never_called() {\n" +
-		"      compose down -v --remove-orphans >/dev/null 2>&1 || true\n" +
+		"      compose down --remove-orphans >/dev/null 2>&1 || true\n" +
 		"    }"
 	if !strings.Contains(lifecycle, original) {
 		t.Fatalf("lifecycle fixture no longer contains cleanup command")
 	}
 
-	failures := validateLifecycle(strings.Replace(lifecycle, original, replacement, 1))
+	failures := validateLifecycle(strings.Replace(lifecycle, original, replacement, 1), inventoryLifecycle)
 	assertFailureContains(
 		t,
 		failures,
-		"authoritative lifecycle cleanup trap must be installed before startup",
+		"authoritative lifecycle cleanup trap must be installed before startup without deleting volumes",
 	)
 }
 
@@ -1119,6 +1207,171 @@ func TestShellFunctionExecutesRejectsDeadNestedPaths(t *testing.T) {
 				t.Fatalf("shellFunctionExecutes(%q) = %t, want %t", tc.script, got, tc.want)
 			}
 		})
+	}
+}
+
+func TestWeWorkCallbackQueueGateAndSmokeUseDurableInboxContract(t *testing.T) {
+	audit := readRepositoryFile(t, "scripts/audit_queue_annotation_coverage.sh")
+	for _, required := range []string{"wework-callback", "durable-inbox", "WeWorkCallbackInbox", "LegacyWeWorkCallbackBacklog"} {
+		if !strings.Contains(audit, required) {
+			t.Fatalf("queue annotation audit missing durable callback token %q", required)
+		}
+	}
+	if strings.Contains(audit, `"wework-callback", "WeWorkCallbackQueueDescriptor"`) {
+		t.Fatal("queue annotation audit still requires deleted Redis callback descriptor")
+	}
+
+	smoke := readRepositoryFile(t, "scripts/smoke_wework_callback_worker.sh")
+	if strings.Contains(smoke, "RPUSH mochat-go:wework-callback") {
+		t.Fatal("callback smoke still injects new events through the legacy Redis queue")
+	}
+	for _, required := range []string{"mochat-callback-inbox-seed", "mochat_go_wework_callback_inbox", "status = 'pending'", "status = 'completed'", "lease_fence", "status = 'dead'"} {
+		if !strings.Contains(smoke, required) {
+			t.Fatalf("callback smoke missing durable inbox lifecycle token %q", required)
+		}
+	}
+	standaloneAcceptance := readRepositoryFile(t, "scripts/standalone_acceptance.sh")
+	if !strings.Contains(standaloneAcceptance, "MOCHAT_CALLBACK_EXTENDED_SIDE_EFFECT_SMOKE=1 ./scripts/smoke_wework_callback_worker.sh") {
+		t.Fatal("standalone acceptance no longer preserves the full callback side-effect smoke")
+	}
+	assertDurableCallbackWorkerIsRedisOptional(t)
+	cutover := readRepositoryFile(t, "cmd/mochat-callback-legacy-cutover/main.go")
+	for _, required := range []string{"confirm-legacy-traffic-stopped", "MOCHAT_GO_WEWORK_CALLBACK_LEGACY_TRAFFIC_STOPPED", "sourceFingerprint", "ownerToken", "newCutoverOwnerToken", "BeginWeWorkCallbackLegacyCutover", "CompleteWeWorkCallbackLegacyCutover", "LegacyWeWorkCallbackCutoverName"} {
+		if !strings.Contains(cutover, required) {
+			t.Fatalf("controlled legacy cutover command missing %q", required)
+		}
+	}
+	for _, forbidden := range []string{`flag.String("dsn"`, `flag.String("redis-password"`, `flag.String("redis-addr"`} {
+		if strings.Contains(cutover, forbidden) {
+			t.Fatalf("controlled legacy cutover exposes secret-bearing argv flag %q", forbidden)
+		}
+	}
+}
+
+func TestValidateDeveloperScriptsAcceptsCallbackCutoverBuildTarget(t *testing.T) {
+	files := map[string]string{
+		"scripts/dev_check.sh": readRepositoryFile(t, "scripts/dev_check.sh"),
+		"scripts/test.sh":      readRepositoryFile(t, "scripts/test.sh"),
+	}
+	if failures := validateDeveloperScripts(files); len(failures) != 0 {
+		t.Fatalf("developer scripts rejected after adding callback cutover build target: %v", failures)
+	}
+}
+
+func assertDurableCallbackWorkerIsRedisOptional(t *testing.T) {
+	t.Helper()
+	mainPath := filepath.Join("..", "..", "cmd", "mochat-go", "main.go")
+	file, err := parser.ParseFile(token.NewFileSet(), mainPath, nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var callbackBlock *ast.BlockStmt
+	ast.Inspect(file, func(node ast.Node) bool {
+		if statement, ok := node.(*ast.IfStmt); ok {
+			selector, ok := statement.Cond.(*ast.SelectorExpr)
+			if ok && selector.Sel.Name == "EnableWeWorkCallbackWorker" {
+				callbackBlock = statement.Body
+			}
+		}
+		return true
+	})
+	if callbackBlock == nil {
+		t.Fatal("durable callback worker startup block not found")
+	}
+	lazyResolverInjected := false
+	staticEmptyCapabilities := false
+	contactWelcomeConstructed := false
+	contactWelcomeRegistered := false
+	ast.Inspect(callbackBlock, func(node ast.Node) bool {
+		call, ok := node.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		if name, ok := call.Fun.(*ast.Ident); ok {
+			switch name.Name {
+			case "getRedisStore", "ImportLegacyWeWorkCallbackBacklog", "executeCutover":
+				t.Fatalf("ordinary durable callback startup calls forbidden dependency %s", name.Name)
+			case "optionalWeWorkCallbackCapabilities":
+				t.Fatal("callback worker composition must not use a one-shot Redis startup probe")
+			}
+		}
+		if selector, ok := call.Fun.(*ast.SelectorExpr); ok {
+			switch selector.Sel.Name {
+			case "WithCapabilityResolver":
+				lazyResolverInjected = true
+			case "NewWeWorkCallbackWorker":
+				if len(call.Args) > 0 {
+					if literal, ok := call.Args[0].(*ast.CompositeLit); ok && len(literal.Elts) == 0 {
+						staticEmptyCapabilities = true
+					}
+				}
+			case "NewContactWelcomeWorker":
+				contactWelcomeConstructed = true
+			case "Add":
+				if len(call.Args) > 0 {
+					if taskName, ok := call.Args[0].(*ast.BasicLit); ok && taskName.Value == `"contact-welcome"` {
+						contactWelcomeRegistered = true
+					}
+				}
+			}
+		}
+		return true
+	})
+	if !lazyResolverInjected || !staticEmptyCapabilities {
+		t.Fatal("durable callback producer does not use an empty static capability set plus lazy Redis resolver")
+	}
+	if !contactWelcomeConstructed || !contactWelcomeRegistered {
+		t.Fatal("contact welcome consumer is not always registered with the durable callback worker")
+	}
+	for _, statement := range callbackBlock.List {
+		conditional, ok := statement.(*ast.IfStmt)
+		if !ok {
+			continue
+		}
+		conditionalWelcome := false
+		ast.Inspect(conditional.Body, func(node ast.Node) bool {
+			call, ok := node.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			if selector, ok := call.Fun.(*ast.SelectorExpr); ok && selector.Sel.Name == "NewContactWelcomeWorker" {
+				conditionalWelcome = true
+			}
+			return true
+		})
+		if conditionalWelcome {
+			t.Fatal("contact welcome consumer registration is still conditional on a startup probe")
+		}
+	}
+
+	configPath := filepath.Join("..", "..", "internal", "config", "config.go")
+	configFile, err := parser.ParseFile(token.NewFileSet(), configPath, nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	redisGateFound := false
+	ast.Inspect(configFile, func(node ast.Node) bool {
+		assign, ok := node.(*ast.AssignStmt)
+		if !ok || len(assign.Rhs) != 1 {
+			return true
+		}
+		for _, lhs := range assign.Lhs {
+			name, named := lhs.(*ast.Ident)
+			if !named || name.Name != "redisWorkerEnabled" {
+				continue
+			}
+			redisGateFound = true
+			ast.Inspect(assign.Rhs[0], func(child ast.Node) bool {
+				if selector, ok := child.(*ast.SelectorExpr); ok && selector.Sel.Name == "EnableWeWorkCallbackWorker" {
+					t.Fatal("durable callback worker is still part of the Redis-required config gate")
+				}
+				return true
+			})
+		}
+		return true
+	})
+	if !redisGateFound {
+		t.Fatal("Redis-required worker config gate was not found")
 	}
 }
 

@@ -412,8 +412,8 @@ func TestStandaloneComposeFreshInitUsesSchemaForCorpDataIndexes(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if latest.Version != "0171_archive_fixture_dataset_ledger" {
-		t.Fatalf("latest migration = %q, want 0171_archive_fixture_dataset_ledger", latest.Version)
+	if latest.Version != "0176_wework_callback_side_effect_reconciliation" {
+		t.Fatalf("latest migration = %q, want 0176_wework_callback_side_effect_reconciliation", latest.Version)
 	}
 	if mount := "./migrations/0105_corp_data_realtime_indexes.up.sql:"; strings.Contains(string(composeBody), mount) {
 		t.Fatalf("standalone fresh init must use the synchronized base schema instead of replaying %q", mount)
@@ -649,8 +649,8 @@ func TestPhase35OrderProductizationMigrationIsForwardOnly(t *testing.T) {
 	root := filepath.Join("..", "..")
 	migrations := DefaultMigrations(root)
 	latest := migrations[len(migrations)-1]
-	if latest.Version != "0171_archive_fixture_dataset_ledger" {
-		t.Fatalf("latest migration = %q, want 0171_archive_fixture_dataset_ledger", latest.Version)
+	if latest.Version != "0176_wework_callback_side_effect_reconciliation" {
+		t.Fatalf("latest migration = %q, want 0176_wework_callback_side_effect_reconciliation", latest.Version)
 	}
 	up, err := os.ReadFile(filepath.Join(root, "deploy", "standalone", "migrations", "0121_phase35_order_productization.up.sql"))
 	if err != nil {
@@ -952,6 +952,23 @@ func TestCustomerTagParityMigrationIsReversible(t *testing.T) {
 		if !strings.Contains(string(down), fragment) {
 			t.Errorf("down migration missing %q", fragment)
 		}
+	}
+	statements, err := SplitSQLStatements(string(down))
+	if err != nil {
+		t.Fatal(err)
+	}
+	activeNameDrop := -1
+	groupIDDrop := -1
+	for index, statement := range statements {
+		if strings.Contains(statement, "DROP COLUMN IF EXISTS `active_group_name`") {
+			activeNameDrop = index
+		}
+		if strings.Contains(statement, "DROP COLUMN IF EXISTS `group_id`") {
+			groupIDDrop = index
+		}
+	}
+	if activeNameDrop < 0 || groupIDDrop < 0 || activeNameDrop >= groupIDDrop {
+		t.Fatalf("0109 down must drop generated active_group_name in an earlier ALTER than dependency group_id; statements=%#v", statements)
 	}
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -16,13 +17,16 @@ import (
 )
 
 type memorySaaSAuthPersistence struct {
-	mu         sync.Mutex
-	statuses   map[int]int
-	challenges map[[32]byte]SaaSMFAChallenge
-	identities map[int]SaaSIdentity
-	lastSteps  map[int]int64
-	sessions   map[[32]byte]memorySession
-	revoked    map[[32]byte]bool
+	mu                    sync.Mutex
+	statuses              map[int]int
+	challenges            map[[32]byte]SaaSMFAChallenge
+	identities            map[int]SaaSIdentity
+	lastSteps             map[int]int64
+	sessions              map[[32]byte]memorySession
+	revoked               map[[32]byte]bool
+	findChallengeErr      error
+	completeChallengeErr  error
+	recordMFAFailureCalls int
 }
 
 type memorySession struct {
@@ -77,6 +81,9 @@ func (p *memorySaaSAuthPersistence) CreateMFAChallenge(_ context.Context, userID
 func (p *memorySaaSAuthPersistence) FindMFAChallenge(_ context.Context, digest [32]byte) (SaaSMFAChallenge, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	if p.findChallengeErr != nil {
+		return SaaSMFAChallenge{}, p.findChallengeErr
+	}
 	challenge, ok := p.challenges[digest]
 	if !ok {
 		return SaaSMFAChallenge{}, ErrMFAChallengeInvalid
@@ -87,6 +94,7 @@ func (p *memorySaaSAuthPersistence) FindMFAChallenge(_ context.Context, digest [
 func (p *memorySaaSAuthPersistence) RecordMFAFailure(_ context.Context, digest [32]byte) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	p.recordMFAFailureCalls++
 	challenge, ok := p.challenges[digest]
 	if !ok || challenge.Status != 0 || challenge.ExpiresAt.Before(time.Now()) {
 		return ErrMFAChallengeInvalid
@@ -102,6 +110,9 @@ func (p *memorySaaSAuthPersistence) RecordMFAFailure(_ context.Context, digest [
 func (p *memorySaaSAuthPersistence) CompleteMFAChallenge(_ context.Context, digest [32]byte, userID int, authVersion uint64, challengeType string, totpStep int64) (SaaSIdentity, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	if p.completeChallengeErr != nil {
+		return SaaSIdentity{}, p.completeChallengeErr
+	}
 	challenge, ok := p.challenges[digest]
 	if !ok || challenge.Status != 0 || challenge.UserID != userID || challenge.AuthVersion != authVersion || challenge.ChallengeType != challengeType || challenge.ExpiresAt.Before(time.Now()) || totpStep <= p.lastSteps[userID] {
 		return SaaSIdentity{}, ErrMFAChallengeInvalid
@@ -340,9 +351,14 @@ func TestSaaSAuthHTTPEnrollmentMFAThenPasswordCreatesDurableSession(t *testing.T
 	if sameStepReplay.Code != http.StatusUnauthorized {
 		t.Fatalf("same TOTP step replay status=%d body=%s", sameStepReplay.Code, sameStepReplay.Body.String())
 	}
+	thirdChallengeDigest := sha256.Sum256([]byte(thirdLoginEnvelope.Data.ChallengeToken))
 	persistence.mu.Lock()
 	if len(persistence.sessions) != sessionsAfterSecondMFA {
 		t.Fatalf("same TOTP step replay changed session count from %d to %d", sessionsAfterSecondMFA, len(persistence.sessions))
+	}
+	thirdChallenge := persistence.challenges[thirdChallengeDigest]
+	if thirdChallenge.Attempts != 1 || thirdChallenge.Status != 0 {
+		t.Fatalf("same TOTP step replay challenge attempts/status = %d/%d, want 1/0", thirdChallenge.Attempts, thirdChallenge.Status)
 	}
 	persistence.mu.Unlock()
 	sessionRequest := httptest.NewRequest(http.MethodGet, "/saas/auth/session", nil)
@@ -368,6 +384,62 @@ func TestSaaSAuthHTTPEnrollmentMFAThenPasswordCreatesDurableSession(t *testing.T
 	handler.ServeHTTP(oldSessionResponse, sessionRequest)
 	if oldSessionResponse.Code != http.StatusUnauthorized {
 		t.Fatalf("revoked bearer remained valid: status=%d body=%s", oldSessionResponse.Code, oldSessionResponse.Body.String())
+	}
+}
+
+func TestSaaSAuthMFAFindDependencyFailureReturns503WithoutRecordingFailure(t *testing.T) {
+	identity := SaaSIdentity{ID: 31, LoginName: "dependency-admin", Status: SaaSIdentityStatusActive, AuthVersion: 1}
+	persistence := newMemorySaaSAuthPersistence(identity)
+	persistence.findChallengeErr = errors.New("database unavailable")
+	handler, err := NewHTTPHandler(testSaaSHTTPConfig(&fakeSaaSIdentityStore{}, persistence))
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/saas/auth/mfa", strings.NewReader(`{"challengeToken":"dependency-token","code":"123456"}`)))
+	if response.Code != http.StatusServiceUnavailable {
+		t.Fatalf("find dependency failure status=%d body=%s, want 503", response.Code, response.Body.String())
+	}
+	if persistence.recordMFAFailureCalls != 0 {
+		t.Fatalf("find dependency failure recorded %d MFA failures", persistence.recordMFAFailureCalls)
+	}
+}
+
+func TestSaaSAuthMFACompleteDependencyFailureReturns503WithoutRecordingFailure(t *testing.T) {
+	passwordHash, err := HashPassword("dependency-initial-password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	identity := SaaSIdentity{ID: 32, LoginName: "complete-dependency-admin", PasswordHash: passwordHash, Status: SaaSIdentityStatusActive, AuthVersion: 1, MustRotatePassword: 1, MFARequired: 1}
+	persistence := newMemorySaaSAuthPersistence(identity)
+	identityStore := &fakeSaaSIdentityStore{authenticate: func(context.Context, string) (SaaSIdentity, error) { return identity, nil }}
+	handler, err := NewHTTPHandler(testSaaSHTTPConfig(identityStore, persistence))
+	if err != nil {
+		t.Fatal(err)
+	}
+	login := httptest.NewRecorder()
+	handler.ServeHTTP(login, httptest.NewRequest(http.MethodPost, "/saas/auth/login", strings.NewReader(`{"login":"complete-dependency-admin","password":"dependency-initial-password"}`)))
+	var enrollment struct {
+		Data struct {
+			Token  string `json:"enrollmentToken"`
+			Secret string `json:"enrollmentSecret"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(login.Body.Bytes(), &enrollment); err != nil {
+		t.Fatal(err)
+	}
+	code, err := totp.GenerateCode(enrollment.Data.Secret, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	persistence.completeChallengeErr = errors.New("database unavailable")
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/saas/auth/mfa", strings.NewReader(`{"challengeToken":"`+enrollment.Data.Token+`","code":"`+code+`"}`)))
+	if response.Code != http.StatusServiceUnavailable {
+		t.Fatalf("complete dependency failure status=%d body=%s, want 503", response.Code, response.Body.String())
+	}
+	if persistence.recordMFAFailureCalls != 0 {
+		t.Fatalf("complete dependency failure recorded %d MFA failures", persistence.recordMFAFailureCalls)
 	}
 }
 

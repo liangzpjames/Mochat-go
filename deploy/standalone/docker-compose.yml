@@ -13,6 +13,7 @@ secrets:
 services:
   app:
     logging: *mochat-logging
+    stop_grace_period: 70s
     profiles:
       - app
     build:
@@ -287,13 +288,14 @@ services:
       archive-bridge:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:8080/readyz"]
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:8080/healthz"]
       interval: 5s
       timeout: 3s
       retries: 30
 
   archive-bridge:
     logging: *mochat-logging
+    restart: unless-stopped
     profiles:
       - app
     build:
@@ -310,14 +312,24 @@ services:
       MOCHAT_LOG_SOURCE: "${MOCHAT_LOG_SOURCE:-0}"
       MOCHAT_ARCHIVE_BRIDGE_ADDR: "0.0.0.0:8083"
       MOCHAT_ARCHIVE_BRIDGE_BEARER: "${MOCHAT_ARCHIVE_BRIDGE_BEARER:?MOCHAT_ARCHIVE_BRIDGE_BEARER must be set}"
+      MOCHAT_MYSQL_DSN: "${MOCHAT_MYSQL_USER:-mochat}:${MOCHAT_MYSQL_PASSWORD:-mochat_pass}@tcp(mysql:3306)/${MOCHAT_MYSQL_DATABASE:-mochat}?parseTime=true&loc=Local"
+      MOCHAT_GO_WECOM_CREDENTIAL_ENCRYPTION_KEY: "${MOCHAT_GO_WECOM_CREDENTIAL_ENCRYPTION_KEY:?MOCHAT_GO_WECOM_CREDENTIAL_ENCRYPTION_KEY must be set}"
+      MOCHAT_GO_WECOM_CREDENTIAL_ENCRYPTION_KEYS: "${MOCHAT_GO_WECOM_CREDENTIAL_ENCRYPTION_KEYS:-}"
+      MOCHAT_GO_WECOM_CREDENTIAL_ENCRYPTION_KEY_ID: "${MOCHAT_GO_WECOM_CREDENTIAL_ENCRYPTION_KEY_ID:-primary}"
       MOCHAT_ARCHIVE_SDK_ENABLED: "${MOCHAT_ARCHIVE_SDK_ENABLED:-false}"
+      MOCHAT_ARCHIVE_BRIDGE_STATE_ROOT: "/app/storage/archive-bridge/finance"
+      WECOM_FINANCE_SDK_PATH: "/opt/wecom-sdk/libWeWorkFinanceSdk_C.so"
       MOCHAT_ARCHIVE_FIXTURE_ENABLED: "${MOCHAT_ARCHIVE_FIXTURE_ENABLED:-false}"
       MOCHAT_ARCHIVE_FIXTURE_ADMIN_BEARER: "${MOCHAT_ARCHIVE_FIXTURE_ADMIN_BEARER:-}"
       MOCHAT_ARCHIVE_FIXTURE_STATE_PATH: "/app/storage/archive-fixture/state.json"
     volumes:
       - app-storage:/app/storage
+      - "${MOCHAT_WECOM_FINANCE_SDK_DIR:-./wecom-sdk}:/opt/wecom-sdk:ro"
+    depends_on:
+      mysql:
+        condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:8083/healthz"]
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:8083/readyz"]
       interval: 5s
       timeout: 3s
       retries: 30

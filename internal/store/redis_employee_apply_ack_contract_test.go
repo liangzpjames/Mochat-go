@@ -60,7 +60,7 @@ func TestEmployeeApplyAckKeepsOtherQueueCompletionSemantics(t *testing.T) {
 		t.Fatal(err)
 	}
 	source := string(sourceBytes)
-	for _, method := range []string{"AckWeWorkCallback", "AckContactWelcome"} {
+	for _, method := range []string{"AckContactWelcome"} {
 		start := strings.Index(source, "func (s *RedisStore) "+method)
 		if start < 0 {
 			t.Fatalf("%s implementation not found", method)

@@ -179,4 +179,34 @@ describe('createAccessLoader', () => {
     await expect(createAccessLoader(deps())({ request: new Request('https://app.test/known-but-forbidden') })).rejects.toMatchObject({ status: 403 });
     await expect(createAccessLoader(deps())({ request: new Request('https://app.test/contactField/index') })).rejects.toMatchObject({ status: 403 });
   });
+
+  it('keeps a server-granted non-manifest legacy deep link forbidden', async () => {
+    const legacyProfile = {
+      ...profile,
+      catalog: [{
+        id: 99,
+        code: 'legacy.contact_field',
+        path: '/contactField/index',
+        name: 'legacy contact field',
+        groupCode: 'legacy',
+        sort: 99,
+        superadminOnly: false,
+        scopeRequired: false,
+      }],
+      effectivePermissions: [{
+        code: 'legacy.contact_field',
+        path: '/contactField/index',
+        name: 'legacy contact field',
+        scope: 'tenant' as const,
+        sources: [],
+      }],
+      allowedRoutes: ['/contactField/index'],
+    };
+
+    await expect(createAccessLoader(deps({
+      loadProfile: vi.fn(() => Promise.resolve(legacyProfile)),
+      knownRoutes: new Set(['/contactField/index']),
+      manifestRoutes: new Set(['/chat/v2-all']),
+    }))({ request: new Request('https://app.test/contactField/index') })).rejects.toMatchObject({ status: 403 });
+  });
 });

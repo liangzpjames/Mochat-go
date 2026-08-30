@@ -4,12 +4,17 @@ param(
     [switch]$DryRun,
     [switch]$SkipHttpCheck,
     [switch]$EnableArchiveFixture,
+    [switch]$ApproveControlledMigrations,
+    [string]$ControlledRequestID = '',
+    [string]$ControlledMaintenanceConfirmationFile = '',
     [string]$ProjectName = 'mochat-go-desktop',
     [ValidateRange(1, 65535)][int]$DashboardPort = 18080,
     [ValidateRange(1, 65535)][int]$SidebarPort = 18081,
     [ValidateRange(1, 65535)][int]$OperationPort = 18082,
     [ValidateRange(1, 65535)][int]$MySQLPort = 13316,
     [ValidateRange(1, 65535)][int]$RedisPort = 26389,
+    [ValidateRange(1, 300)][int]$HttpCheckTimeoutSeconds = 90,
+    [ValidateSet('completed', 'controlled_pending')][string]$DryRunMigrationState = 'completed',
     [string]$DockerCommand = 'docker'
 )
 
@@ -59,6 +64,23 @@ function New-CryptographicSecret {
     return ([BitConverter]::ToString($bytes).Replace('-', '')).ToLowerInvariant()
 }
 
+function Protect-LocalSecretFile {
+    param([string]$Path)
+
+    if ($env:OS -ne 'Windows_NT') {
+        return
+    }
+    $identity = [Security.Principal.WindowsIdentity]::GetCurrent().Name
+    & icacls.exe $Path '/inheritance:r' '/grant:r' "${identity}:(F)" '*S-1-5-18:(F)' '*S-1-5-32-544:(F)' | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        throw "无法限制本地密钥文件 ACL：$Path"
+    }
+    & icacls.exe $Path '/remove:g' '*S-1-5-11' '*S-1-5-32-545' | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        throw "无法移除本地密钥文件的宽泛 ACL：$Path"
+    }
+}
+
 function Get-OrCreateSecretFile {
     param(
         [string]$Directory,
@@ -70,7 +92,8 @@ function Get-OrCreateSecretFile {
         New-Item -ItemType Directory -Path $Directory -Force | Out-Null
         [System.IO.File]::WriteAllText($path, (New-CryptographicSecret), [System.Text.Encoding]::ASCII)
     }
-    $value = (Get-Content -LiteralPath $path -Raw).Trim()
+    $rawValue = Get-Content -LiteralPath $path -Raw
+    $value = if ($null -eq $rawValue) { '' } else { ([string]$rawValue).Trim() }
     if ($value -notmatch '^[a-f0-9]{64}$') {
         throw "本地密钥文件格式无效：$path"
     }
@@ -111,6 +134,7 @@ function Initialize-LocalIdentityRealmSecrets {
         if ([string]::IsNullOrWhiteSpace($env:MOCHAT_GO_WECOM_CREDENTIAL_ENCRYPTION_KEY)) { $env:MOCHAT_GO_WECOM_CREDENTIAL_ENCRYPTION_KEY = 'dry-run-wecom-key' }
         if ([string]::IsNullOrWhiteSpace($env:MOCHAT_ARCHIVE_BRIDGE_BEARER)) { $env:MOCHAT_ARCHIVE_BRIDGE_BEARER = 'dry-run-archive-bridge-bearer' }
         if ([string]::IsNullOrWhiteSpace($env:MOCHAT_ARCHIVE_FIXTURE_ADMIN_BEARER)) { $env:MOCHAT_ARCHIVE_FIXTURE_ADMIN_BEARER = 'dry-run-archive-fixture-admin-bearer' }
+        if ([string]::IsNullOrWhiteSpace($env:MOCHAT_GO_SAAS_BACKUP_ENCRYPTION_KEY)) { $env:MOCHAT_GO_SAAS_BACKUP_ENCRYPTION_KEY = ('0a' * 32) }
     } else {
         if ([string]::IsNullOrWhiteSpace($env:MOCHAT_SAAS_ADMIN_MFA_ENCRYPTION_KEY_FILE) -or -not (Test-Path -LiteralPath $env:MOCHAT_SAAS_ADMIN_MFA_ENCRYPTION_KEY_FILE -PathType Leaf)) {
             $env:MOCHAT_SAAS_ADMIN_MFA_ENCRYPTION_KEY_FILE = Get-OrCreateSecretFile -Directory $secretRoot -Name 'saas-admin-mfa.key'
@@ -138,9 +162,17 @@ function Initialize-LocalIdentityRealmSecrets {
             $keyPath = Get-OrCreateSecretFile -Directory $secretRoot -Name 'archive-fixture-admin-bearer.key'
             $env:MOCHAT_ARCHIVE_FIXTURE_ADMIN_BEARER = (Get-Content -LiteralPath $keyPath -Raw).Trim()
         }
+		if ([string]::IsNullOrWhiteSpace($env:MOCHAT_GO_SAAS_BACKUP_ENCRYPTION_KEY)) {
+			$keyPath = Get-OrCreateSecretFile -Directory $secretRoot -Name 'saas-backup-encryption.key'
+			Protect-LocalSecretFile -Path $keyPath
+			$env:MOCHAT_GO_SAAS_BACKUP_ENCRYPTION_KEY = (Get-Content -LiteralPath $keyPath -Raw).Trim()
+		}
     }
     if ($env:MOCHAT_SAAS_ADMIN_JWT_SECRET -eq $env:MOCHAT_DASHBOARD_JWT_SECRET) {
         throw 'SaaS 与 Dashboard 必须使用不同的 JWT 密钥'
+    }
+    if ([string]::IsNullOrWhiteSpace($env:MOCHAT_GO_SAAS_BACKUP_ENCRYPTION_KEY)) {
+        throw 'SaaS 备份加密密钥为空；受控迁移维护已阻断'
     }
     if ([string]::IsNullOrWhiteSpace($env:MOCHAT_SAAS_ADMIN_MFA_ENCRYPTION_KEY_ID)) { $env:MOCHAT_SAAS_ADMIN_MFA_ENCRYPTION_KEY_ID = 'local-saas-mfa-primary' }
     if ([string]::IsNullOrWhiteSpace($env:MOCHAT_DASHBOARD_MFA_ENCRYPTION_KEY_ID)) { $env:MOCHAT_DASHBOARD_MFA_ENCRYPTION_KEY_ID = 'local-dashboard-mfa-primary' }
@@ -163,7 +195,14 @@ function Format-Command {
         [string[]]$Secrets = @()
     )
 
-    $rendered = 'docker ' + ($Arguments -join ' ')
+	$displayArguments = foreach ($argument in $Arguments) {
+		if ($argument -match '[\s;`"$<>|&]') {
+			"'" + $argument.Replace("'", "''") + "'"
+		} else {
+			$argument
+		}
+	}
+	$rendered = 'docker ' + ($displayArguments -join ' ')
     foreach ($secret in $Secrets) {
         if (-not [string]::IsNullOrEmpty($secret)) {
             $rendered = $rendered.Replace($secret, '<已隐藏>')
@@ -303,7 +342,7 @@ function Wait-HttpEndpoint {
     param(
         [string]$Name,
         [string]$Url,
-        [int]$TimeoutSeconds = 90
+        [int]$TimeoutSeconds = $HttpCheckTimeoutSeconds
     )
 
     if ($DryRun -or $SkipHttpCheck) {
@@ -360,17 +399,207 @@ function Test-MigrationLedgerExists {
 
 function Invoke-AutomaticMigrations {
     try {
+        if ($DryRun -and $DryRunMigrationState -eq 'controlled_pending') {
+            throw 'MIGRATION_CONTROLLED_PENDING 0130_identity_realms_single_corp_backfill'
+        }
         Invoke-Compose -Arguments @(
             'exec', '-T', 'app',
             'mochat-migrate', '-action', 'up', '-project-root', '/app'
         ) -Capture
     } catch {
         $message = $_.Exception.Message
-        if ($message -notmatch 'controlled migration (0130_identity_realms_single_corp_backfill|0131_identity_realms_single_corp_cutover) is pending') {
+        if ($message -notmatch 'MIGRATION_CONTROLLED_PENDING[\s\t]+(0130_identity_realms_single_corp_backfill|0131_identity_realms_single_corp_cutover)') {
             throw
         }
-        Write-Host '普通迁移已完成至下一个 controlled migration；0130/0131 必须按维护流程显式执行。' -ForegroundColor Yellow
+        Stop-AtControlledMigrationCheckpoint -Version $Matches[1]
     }
+}
+
+function Wait-ComposeServiceStopped {
+    param(
+        [string]$Service,
+        [int]$TimeoutSeconds = 60
+    )
+
+    if ($DryRun) {
+        Write-Host "[预览] 已确认服务停止：$Service"
+        return
+    }
+
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    $containerName = "$ProjectName-$Service-1"
+    while ((Get-Date) -lt $deadline) {
+        $stateOutput = Invoke-Docker -Arguments @(
+            'inspect', '--format', '{{.State.Status}}|{{if .State.Health}}{{.State.Health.Status}}{{end}}', $containerName
+        ) -Capture
+        $state = ($stateOutput -split "`r?`n" | ForEach-Object { $_.Trim() } | Where-Object { $_ -match '^(running|created|exited|dead)\|' } | Select-Object -Last 1)
+        if ($state -match '^(exited|created|dead)\|') {
+            Write-Host "已确认服务停止：$Service" -ForegroundColor Green
+            return
+        }
+        Start-Sleep -Seconds 2
+    }
+    throw "等待服务 $Service 停止超时（$TimeoutSeconds 秒）"
+}
+
+function Get-CapturedField {
+    param(
+        [string]$Output,
+        [string]$Name
+    )
+
+    foreach ($line in ($Output -split "`r?`n")) {
+		$parts = $line.Trim() -split '\s+', 2
+        if ($parts.Length -eq 2 -and $parts[0] -eq $Name) {
+            return $parts[1].Trim()
+        }
+    }
+    return ''
+}
+
+function Stop-ControlledApp {
+    Invoke-Compose -Arguments @('stop', '--timeout', '70', 'app')
+    Wait-ComposeServiceStopped -Service 'app'
+}
+
+function Remove-ControlledMaintenanceFiles {
+    param([string]$MaintenanceRoot)
+
+    Invoke-Compose -Arguments @(
+        'run', '--rm', '--no-deps', '--entrypoint', '/bin/sh', 'app', '-c',
+        "rm -f $MaintenanceRoot/mysql.dsn $MaintenanceRoot/wecom.key $MaintenanceRoot/confirmation.txt"
+    )
+}
+
+function Stop-AtControlledMigrationCheckpoint {
+    param([string]$Version)
+
+    Stop-ControlledApp
+    Invoke-Compose -Arguments @(
+        'run', '--rm', '--no-deps', '--entrypoint', '/bin/sh', 'app', '-c',
+        'test -n "$MOCHAT_MYSQL_DSN" && test -n "$MOCHAT_GO_SAAS_BACKUP_ENCRYPTION_KEY"'
+    )
+
+    Write-Host ''
+    Write-Host "受控迁移维护检查点：$Version 尚未完成；app 已停止，MySQL/Redis 与命名卷保持不变，且不会等待 /readyz。" -ForegroundColor Yellow
+    Write-Host '默认流程不会执行受控写入。确认备份/恢复要求及维护确认工件均获审批后，复制并执行：' -ForegroundColor Yellow
+    Write-Host ("  & '" + $PSCommandPath + "' -ApproveControlledMigrations -ProjectName '" + $ProjectName + "' -ControlledRequestID '<approved-request-id>' -ControlledMaintenanceConfirmationFile '<approved-maintenance-confirmation-file>'")
+    throw "controlled migration $Version requires explicit maintenance authorization"
+}
+
+function Invoke-ControlledMigrationResume {
+    if ($ResetData) {
+        throw '-ApproveControlledMigrations 不能与 -ResetData 同时使用'
+    }
+    if ([string]::IsNullOrWhiteSpace($ControlledRequestID) -or $ControlledRequestID -eq '<approved-request-id>') {
+        throw '显式受控迁移必须提供已审批的 -ControlledRequestID'
+    }
+    if ([string]::IsNullOrWhiteSpace($ControlledMaintenanceConfirmationFile) -or $ControlledMaintenanceConfirmationFile -eq '<approved-maintenance-confirmation-file>') {
+        throw '显式受控迁移必须提供已审批的 -ControlledMaintenanceConfirmationFile'
+    }
+    if (-not $DryRun -and -not (Test-Path -LiteralPath $ControlledMaintenanceConfirmationFile -PathType Leaf)) {
+        throw "维护确认工件不存在：$ControlledMaintenanceConfirmationFile"
+    }
+
+    $database = if ([string]::IsNullOrWhiteSpace($env:MOCHAT_MYSQL_DATABASE)) { 'mochat' } else { $env:MOCHAT_MYSQL_DATABASE }
+    $platformTenantID = if ([string]::IsNullOrWhiteSpace($env:MOCHAT_GO_SAAS_PLATFORM_ADMIN_TENANT_ID)) { '1' } else { $env:MOCHAT_GO_SAAS_PLATFORM_ADMIN_TENANT_ID }
+    $credentialKeyID = if ([string]::IsNullOrWhiteSpace($env:MOCHAT_GO_WECOM_CREDENTIAL_ENCRYPTION_KEY_ID)) { 'primary' } else { $env:MOCHAT_GO_WECOM_CREDENTIAL_ENCRYPTION_KEY_ID }
+    $maintenanceRoot = '/app/storage/identity-maintenance'
+
+    Write-Host '显式受控迁移维护：先 quiesce app，再以一次性容器验证秘密并执行备份；MySQL/Redis 与命名卷保持运行。' -ForegroundColor Yellow
+    $operationError = $null
+    $cleanupError = $null
+    $stopError = $null
+    $completed = $false
+    try {
+        Stop-ControlledApp
+        Invoke-Compose -Arguments @(
+            'run', '--rm', '--no-deps', '--entrypoint', '/bin/sh', 'app', '-c',
+            'test -n "$MOCHAT_MYSQL_DSN" && test -n "$MOCHAT_GO_SAAS_BACKUP_ENCRYPTION_KEY"'
+        )
+
+        $backupOutput = Invoke-Compose -Arguments @(
+            'run', '--rm', '--no-deps', '--entrypoint', '/usr/local/bin/mochat-saas-maintenance', 'app', '-action', 'backup-create'
+        ) -Capture
+        if ($DryRun) {
+            $backupRunID = 'dry-run-backup-id'
+        } else {
+            $backupRunID = Get-CapturedField -Output $backupOutput -Name 'backup_run_id'
+            $backupStatus = Get-CapturedField -Output $backupOutput -Name 'status'
+            $backupEncrypted = Get-CapturedField -Output $backupOutput -Name 'encrypted'
+            if ([string]::IsNullOrWhiteSpace($backupRunID) -or $backupStatus -ne 'succeeded' -or $backupEncrypted -ne 'true') {
+                throw '受控迁移备份创建结果未证明成功且已加密'
+            }
+        }
+
+        $verifyOutput = Invoke-Compose -Arguments @(
+            'run', '--rm', '--no-deps', '--entrypoint', '/usr/local/bin/mochat-saas-maintenance', 'app', '-action', 'backup-verify', '-backup-run-id', $backupRunID
+        ) -Capture
+        if (-not $DryRun) {
+            $verificationStatus = Get-CapturedField -Output $verifyOutput -Name 'verification_status'
+            if ($verificationStatus -ne 'passed') {
+                throw '受控迁移备份验证未通过'
+            }
+        }
+
+        Invoke-Compose -Arguments @(
+            'run', '--rm', '--no-deps', '--entrypoint', '/bin/sh', 'app', '-c',
+            "umask 077; mkdir -p $maintenanceRoot; printf '%s' `"`$MOCHAT_MYSQL_DSN`" > $maintenanceRoot/mysql.dsn; printf '%s' `"`$MOCHAT_GO_WECOM_CREDENTIAL_ENCRYPTION_KEY`" > $maintenanceRoot/wecom.key"
+        )
+        Invoke-Compose -Arguments @('cp', $ControlledMaintenanceConfirmationFile, "app:$maintenanceRoot/confirmation.txt")
+        Invoke-Compose -Arguments @(
+            'run', '--rm', '--no-deps', '--user', 'root', '--entrypoint', '/bin/sh', 'app', '-c',
+            "chown mochat:mochat $maintenanceRoot/confirmation.txt; chmod 0400 $maintenanceRoot/confirmation.txt"
+        )
+
+        Invoke-Compose -Arguments @(
+            'run', '--rm', '--no-deps', '--entrypoint', '/usr/local/bin/mochat-identity-preflight', 'app',
+            '--dsn-file', "$maintenanceRoot/mysql.dsn", '--schema', $database, '--platform-tenant-id', $platformTenantID,
+            '--credential-key-file', "$maintenanceRoot/wecom.key", '--credential-key-id', $credentialKeyID
+        )
+        $identityCommon = @(
+            '--execute', '--request-id', $ControlledRequestID, '--dsn-file', "$maintenanceRoot/mysql.dsn", '--schema', $database,
+            '--platform-tenant-id', $platformTenantID, '--maintenance-confirmation-file', "$maintenanceRoot/confirmation.txt",
+            '--credential-key-file', "$maintenanceRoot/wecom.key", '--credential-key-id', $credentialKeyID, '--project-root', '/app'
+        )
+        Invoke-Compose -Arguments (@('run', '--rm', '--no-deps', '--entrypoint', '/usr/local/bin/mochat-identity-migrate', 'app', 'up') + $identityCommon)
+        Invoke-Compose -Arguments (@('run', '--rm', '--no-deps', '--entrypoint', '/usr/local/bin/mochat-identity-migrate', 'app', 'encrypt-credentials') + $identityCommon)
+        Invoke-Compose -Arguments (@('run', '--rm', '--no-deps', '--entrypoint', '/usr/local/bin/mochat-identity-migrate', 'app', 'cutover') + $identityCommon)
+
+        Invoke-Compose -Arguments @(
+            'run', '--rm', '--no-deps', '--entrypoint', '/usr/local/bin/mochat-migrate', 'app', '-action', 'up', '-project-root', '/app'
+        ) -Capture
+        Remove-ControlledMaintenanceFiles -MaintenanceRoot $maintenanceRoot
+        Invoke-Compose -Arguments @('up', '-d', 'app')
+        Wait-ComposeService -Service 'app' -TimeoutSeconds 300
+        Wait-HttpEndpoint -Name '应用存活状态（受控迁移后）' -Url "http://127.0.0.1:$DashboardPort/healthz"
+        Wait-HttpEndpoint -Name '应用就绪状态（受控迁移后）' -Url "http://127.0.0.1:$DashboardPort/readyz"
+        $completed = $true
+    } catch {
+        $operationError = $_.Exception
+    } finally {
+        try {
+            Remove-ControlledMaintenanceFiles -MaintenanceRoot $maintenanceRoot
+        } catch {
+            $cleanupError = $_.Exception
+        }
+        if (-not $completed -or $null -ne $cleanupError) {
+            try {
+                Stop-ControlledApp
+            } catch {
+                $stopError = $_.Exception
+            }
+        }
+    }
+
+    $failures = @()
+    if ($null -ne $operationError) { $failures += "维护步骤失败：$($operationError.Message)" }
+    if ($null -ne $cleanupError) { $failures += "临时秘密清理失败：$($cleanupError.Message)" }
+    if ($null -ne $stopError) { $failures += "无法确认 app 已停止：$($stopError.Message)" }
+    if ($failures.Count -gt 0) {
+        throw ($failures -join '；')
+    }
+    Write-Host '受控迁移、automatic up、app 重启及 health/ready 验证已完成。' -ForegroundColor Green
 }
 
 if (-not (Test-Path -LiteralPath $composeFile)) {
@@ -423,6 +652,11 @@ try {
     }
     Invoke-Compose -Arguments @('config', '--quiet') | Out-Null
 
+    if ($ApproveControlledMigrations) {
+        Invoke-ControlledMigrationResume
+        return
+    }
+
     if ($ResetData) {
         Write-Host '警告：已指定 -ResetData，将删除当前项目的数据库、Redis、上传文件、备份和审计锚点数据卷。' -ForegroundColor Red
         Invoke-Compose -Arguments @('down', '--volumes', '--remove-orphans')
@@ -436,6 +670,8 @@ try {
     Wait-ComposeService -Service 'mysql' -TimeoutSeconds 180
     Wait-ComposeService -Service 'redis' -TimeoutSeconds 180
     Wait-ComposeService -Service 'app' -TimeoutSeconds 300
+
+    Wait-HttpEndpoint -Name '应用存活状态（迁移前）' -Url "http://127.0.0.1:$DashboardPort/healthz"
 
     if (Test-MigrationLedgerExists) {
         Write-Host '检测到迁移账本，跳过 baseline。'

@@ -222,11 +222,8 @@ func runMigration(args []string, output io.Writer) error {
 			if pathErr != nil {
 				return errors.New("identity migration path is invalid")
 			}
-			if _, err := identitymigration.PreflightCutover(ctx, db, identitymigration.DatabaseOptions{Schema: options.Schema, PlatformTenantID: options.PlatformTenantID, RequestID: options.RequestID, CredentialManager: manager}); err != nil {
-				return preservePhaseError(err, "identity cutover preflight failed")
-			}
-			if err := executeControlledScript(ctx, db, cutoverPath, options.Schema, options.PlatformTenantID, options.RequestID); err != nil {
-				return err
+			if _, err := identitymigration.ApplyCutover(ctx, db, identitymigration.DatabaseOptions{Schema: options.Schema, PlatformTenantID: options.PlatformTenantID, RequestID: options.RequestID, CredentialManager: manager}, cutoverPath); err != nil {
+				return preservePhaseError(err, "identity cutover did not complete")
 			}
 			if err := migration.RecordControlledMigration(ctx, db, root, "0131_identity_realms_single_corp_cutover", options.RequestID); err != nil {
 				return &identitymigration.PhaseError{Phase: "ledger", Label: "standard_record"}
@@ -303,6 +300,28 @@ func runMigration(args []string, output io.Writer) error {
 	default:
 		return errors.New("unknown migration action")
 	}
+}
+
+func finalizeIdentityCorpTenantConstraint(ctx context.Context, db *sql.DB) error {
+	var invalid int
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM mc_corp WHERE tenant_id IS NULL`).Scan(&invalid); err != nil {
+		return &identitymigration.PhaseError{Phase: "cutover", Label: "corp_tenant_validate"}
+	}
+	if invalid != 0 {
+		return &identitymigration.PhaseError{Phase: "cutover", Label: "corp_tenant_incomplete"}
+	}
+	if _, err := db.ExecContext(ctx, `ALTER TABLE mc_corp MODIFY COLUMN tenant_id int(10) unsigned NOT NULL DEFAULT 0`); err != nil {
+		return &identitymigration.PhaseError{Phase: "cutover", Label: "corp_tenant_constraint"}
+	}
+	var compatible int
+	if err := db.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM information_schema.columns
+		WHERE table_schema=DATABASE() AND table_name='mc_corp' AND column_name='tenant_id'
+		  AND data_type='int' AND numeric_precision=10 AND column_type LIKE '%unsigned%' AND is_nullable='NO'
+	`).Scan(&compatible); err != nil || compatible != 1 {
+		return &identitymigration.PhaseError{Phase: "verify", Label: "corp_tenant_constraint"}
+	}
+	return nil
 }
 
 func executeControlledScript(ctx context.Context, db *sql.DB, path, schema string, platformTenantID int64, requestID string) error {

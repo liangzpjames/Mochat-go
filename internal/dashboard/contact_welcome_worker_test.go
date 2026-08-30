@@ -1,10 +1,50 @@
 package dashboard
 
 import (
+	"bytes"
 	"context"
+	"errors"
+	"log"
 	"path/filepath"
+	"strings"
+	"sync"
 	"testing"
+	"time"
 )
+
+func TestContactWelcomeWorkerBacksOffAndRecoversAfterQueueReturns(t *testing.T) {
+	const secret = "callback-secret-value"
+	queue := &recoveringContactWelcomeQueue{failuresRemaining: 3, err: errors.New("redis password=" + secret), acked: make(chan struct{})}
+	var logs bytes.Buffer
+	worker := NewContactWelcomeWorker(queue, &fakeContactWelcomeStore{}, &fakeContactWelcomeClient{}, t.TempDir(), "", log.New(&logs, "", 0))
+	worker.dependencyRetryBase = 5 * time.Millisecond
+	worker.dependencyRetryMax = 20 * time.Millisecond
+	worker.pollTimeout = time.Millisecond
+	worker.recoveryInterval = time.Hour
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	started := time.Now()
+	result := make(chan error, 1)
+	go func() { result <- worker.Run(ctx) }()
+
+	select {
+	case <-queue.acked:
+	case <-ctx.Done():
+		t.Fatal("contact welcome worker did not recover before timeout")
+	}
+	cancel()
+	<-result
+	if elapsed := time.Since(started); elapsed < 30*time.Millisecond {
+		t.Fatalf("queue dependency retries did not back off: elapsed=%v", elapsed)
+	}
+	if queue.dequeueCalls < 4 || queue.ackCalls != 1 {
+		t.Fatalf("dequeue_calls=%d ack_calls=%d", queue.dequeueCalls, queue.ackCalls)
+	}
+	if output := logs.String(); strings.Contains(output, secret) || !strings.Contains(output, "contact_welcome_queue_dependency_degraded") || !strings.Contains(output, "contact_welcome_queue_dependency_recovered") {
+		t.Fatalf("unexpected recovery logs=%q", output)
+	}
+}
 
 func TestContactWelcomeWorkerSendsTextAndLink(t *testing.T) {
 	store := &fakeContactWelcomeStore{
@@ -122,6 +162,51 @@ type fakeContactWelcomeClient struct {
 	sentCredential  RoomWelcomeCorpCredential
 	sentWelcomeCode string
 	sentPayload     ContactWelcomePayload
+}
+
+type recoveringContactWelcomeQueue struct {
+	mu                sync.Mutex
+	failuresRemaining int
+	err               error
+	dequeueCalls      int
+	ackCalls          int
+	delivered         bool
+	acked             chan struct{}
+}
+
+func (q *recoveringContactWelcomeQueue) DequeueContactWelcome(ctx context.Context, _ time.Duration) (ContactWelcomeDelivery, bool, error) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.dequeueCalls++
+	if q.failuresRemaining > 0 {
+		q.failuresRemaining--
+		return ContactWelcomeDelivery{}, false, q.err
+	}
+	if !q.delivered {
+		q.delivered = true
+		return ContactWelcomeDelivery{Raw: "queued-before-recovery"}, true, nil
+	}
+	return ContactWelcomeDelivery{}, false, ctx.Err()
+}
+
+func (q *recoveringContactWelcomeQueue) AckContactWelcome(context.Context, ContactWelcomeDelivery) error {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.ackCalls++
+	select {
+	case <-q.acked:
+	default:
+		close(q.acked)
+	}
+	return nil
+}
+
+func (q *recoveringContactWelcomeQueue) RetryContactWelcome(context.Context, ContactWelcomeDelivery, string, int) (bool, error) {
+	return false, nil
+}
+
+func (q *recoveringContactWelcomeQueue) RecoverContactWelcomeProcessing(context.Context, time.Duration, int) (int, error) {
+	return 0, nil
 }
 
 func (c *fakeContactWelcomeClient) UploadTemporaryImage(_ context.Context, _ RoomWelcomeCorpCredential, filePath string) (string, error) {

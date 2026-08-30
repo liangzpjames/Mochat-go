@@ -5,51 +5,21 @@ package migration
 import (
 	"context"
 	"database/sql"
-	"path/filepath"
 	"testing"
 )
 
 func TestPublicPoolParityMigrationApplyAndRollbackOnIsolatedMariaDB(t *testing.T) {
-	db := newLeadParityMigrationDB(t)
-	if _, err := db.Exec(`CREATE TABLE mochat_go_scrm_contacts (
-		id varchar(36) NOT NULL, tenant_id bigint unsigned NOT NULL, corp_id bigint unsigned NOT NULL,
-		phone varchar(32) NOT NULL DEFAULT '', deleted_at datetime(6) NULL, PRIMARY KEY(id)
-	) ENGINE=InnoDB`); err != nil {
+	db := newMigrationIntegrationDBThrough(t, "0107_scrm_contact_lifecycle_idempotency")
+	if _, err := db.Exec(`INSERT INTO mochat_go_scrm_contacts(id,tenant_id,corp_id,name,phone,version,created_at,updated_at) VALUES('contact-1',1,2,'Historical contact','13800000000',1,NOW(6),NOW(6))`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`CREATE TABLE mochat_go_scrm_leads (
-		id varchar(36) NOT NULL, tenant_id bigint unsigned NOT NULL, corp_id bigint unsigned NOT NULL,
-		source varchar(32) NOT NULL DEFAULT '', converted_contact_id varchar(36) NULL, PRIMARY KEY(id)
-	) ENGINE=InnoDB`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec(`CREATE TABLE mochat_go_scrm_assignments (
-		id varchar(36) NOT NULL, tenant_id bigint unsigned NOT NULL, corp_id bigint unsigned NOT NULL,
-		contact_id varchar(36) NOT NULL, owner_id bigint unsigned NULL, status varchar(32) NOT NULL,
-		updated_at datetime(6) NOT NULL, PRIMARY KEY(id)
-	) ENGINE=InnoDB`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec(`INSERT INTO mochat_go_scrm_contacts(id,tenant_id,corp_id,phone) VALUES('contact-1',1,2,'13800000000')`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec(`INSERT INTO mochat_go_scrm_leads(id,tenant_id,corp_id,source,converted_contact_id) VALUES('lead-1',1,2,'wecom','contact-1')`); err != nil {
+	if _, err := db.Exec(`INSERT INTO mochat_go_scrm_leads(id,tenant_id,corp_id,business_key,name,phone,source,status,owner_id,converted_contact_id,discard_reason,version,created_at,updated_at) VALUES('lead-1',1,2,'public-pool-lead','Historical lead','13800000000','wecom','converted',NULL,'contact-1','',1,NOW(6),NOW(6))`); err != nil {
 		t.Fatal(err)
 	}
 
-	root := filepath.Join("..", "..")
-	migration := Migration{
-		Version:     "0108_scrm_public_pool_parity",
-		Description: "SCRM public pool parity",
-		Path:        filepath.Join(root, "deploy", "standalone", "migrations", "0108_scrm_public_pool_parity.up.sql"),
-		DownPath:    filepath.Join(root, "deploy", "standalone", "migrations", "0108_scrm_public_pool_parity.down.sql"),
-	}
-	runner, err := NewRunner(db, []Migration{migration})
-	if err != nil {
-		t.Fatal(err)
-	}
+	runner := newMigrationRunnerThrough(t, db, "0108_scrm_public_pool_parity")
 	items, err := runner.Apply(context.Background())
-	if err != nil || len(items) != 1 || items[0].State != "applied_now" {
+	if err != nil || len(items) == 0 || items[len(items)-1].Migration.Version != "0108_scrm_public_pool_parity" || items[len(items)-1].State != "applied_now" {
 		t.Fatalf("apply items=%#v err=%v", items, err)
 	}
 	for _, column := range []string{"source", "business_type", "region"} {
@@ -74,7 +44,7 @@ func TestPublicPoolParityMigrationApplyAndRollbackOnIsolatedMariaDB(t *testing.T
 	if err := db.QueryRow(`SELECT source FROM mochat_go_scrm_contacts WHERE id='contact-1'`).Scan(&source); err != nil || source != "wecom" {
 		t.Fatalf("source backfill=%q err=%v", source, err)
 	}
-	if rolledBack, err := runner.RollbackLast(context.Background()); err != nil || rolledBack != migration.Version {
+	if rolledBack, err := runner.RollbackLast(context.Background()); err != nil || rolledBack != "0108_scrm_public_pool_parity" {
 		t.Fatalf("rollback=%q err=%v", rolledBack, err)
 	}
 	if tableExists(t, db, "mochat_go_scrm_assignment_history") {
@@ -89,7 +59,7 @@ func TestPublicPoolParityMigrationApplyAndRollbackOnIsolatedMariaDB(t *testing.T
 		t.Fatal("assignment public-pool index still exists after 0108 down")
 	}
 	var migrationRows int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM mochat_go_schema_migrations WHERE version=?`, migration.Version).Scan(&migrationRows); err != nil || migrationRows != 0 {
+	if err := db.QueryRow(`SELECT COUNT(*) FROM mochat_go_schema_migrations WHERE version=?`, "0108_scrm_public_pool_parity").Scan(&migrationRows); err != nil || migrationRows != 0 {
 		t.Fatalf("migration rows=%d err=%v", migrationRows, err)
 	}
 }

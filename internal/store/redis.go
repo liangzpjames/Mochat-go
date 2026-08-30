@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"strconv"
 	"time"
 
@@ -21,14 +22,25 @@ type RedisConfig struct {
 }
 
 type RedisStore struct {
-	client *redis.Client
+	client                      *redis.Client
+	weWorkCallbackWakeupTestKey string
 }
+
+const (
+	legacyWeWorkCallbackPendingKey    = "mochat-go:wework-callback"
+	legacyWeWorkCallbackProcessingKey = "mochat-go:wework-callback:processing"
+	legacyWeWorkCallbackDeadKey       = "mochat-go:wework-callback:dead"
+	weWorkCallbackWakeupKey           = "mochat-go:wework-callback:wakeup"
+	weWorkCallbackWakeupWaitSlice     = time.Second
+	weWorkCallbackWakeupDeadlineSlack = 25 * time.Millisecond
+)
 
 func NewRedisStore(cfg RedisConfig) *RedisStore {
 	return &RedisStore{client: redis.NewClient(&redis.Options{
-		Addr:     cfg.Addr,
-		Password: cfg.Password,
-		DB:       cfg.DB,
+		Addr:                  cfg.Addr,
+		Password:              cfg.Password,
+		DB:                    cfg.DB,
+		ContextTimeoutEnabled: true,
 	})}
 }
 
@@ -92,59 +104,106 @@ func (s *RedisStore) AddJWTBlacklist(ctx context.Context, key string, ttl time.D
 	return s.client.Set(ctx, key, time.Now().Unix(), ttl).Err()
 }
 
-func (s *RedisStore) EnqueueWeWorkCallback(ctx context.Context, event dashboard.WeWorkCallbackEvent) error {
-	return s.enqueueReliableQueueItem(ctx, dashboard.WeWorkCallbackQueueDescriptor(), event, dashboard.WeWorkCallbackIdempotencyKey(event))
+func (s *RedisStore) WakeWeWorkCallback(ctx context.Context) error {
+	wakeupKey := s.weWorkCallbackWakeupKey()
+	pipe := s.client.TxPipeline()
+	pipe.LPush(ctx, wakeupKey, "pending")
+	pipe.LTrim(ctx, wakeupKey, 0, 63)
+	_, err := pipe.Exec(ctx)
+	return err
 }
 
-func (s *RedisStore) DequeueWeWorkCallback(ctx context.Context, timeout time.Duration) (dashboard.WeWorkCallbackDelivery, bool, error) {
-	descriptor := dashboard.WeWorkCallbackQueueDescriptor()
-	raw, err := s.client.BLMove(ctx, descriptor.SourceKey, descriptor.ProcessingKey, "LEFT", "RIGHT", timeout).Result()
+func (s *RedisStore) WaitWeWorkCallbackWakeup(ctx context.Context, timeout time.Duration) error {
+	if s == nil || s.client == nil {
+		return errors.New("wework callback wakeup store is not configured")
+	}
+	if timeout <= 0 {
+		timeout = time.Second
+	}
+	waitDeadline := time.Now().Add(timeout)
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		remaining := time.Until(waitDeadline)
+		if remaining <= 0 {
+			return nil
+		}
+		slice := min(remaining, weWorkCallbackWakeupWaitSlice)
+		sliceDeadline := time.Now().Add(slice)
+		ownsSliceDeadline := true
+		if parentDeadline, ok := ctx.Deadline(); ok && !sliceDeadline.Before(parentDeadline) {
+			ownsSliceDeadline = false
+		}
+		sliceCtx, cancelSlice := context.WithDeadline(ctx, sliceDeadline)
+		_, err := s.client.BRPop(sliceCtx, weWorkCallbackWakeupBRPopTimeout(slice), s.weWorkCallbackWakeupKey()).Result()
+		observedAt := time.Now()
+		sliceContextExpired := errors.Is(sliceCtx.Err(), context.DeadlineExceeded)
+		cancelSlice()
+		if err == nil {
+			return nil
+		}
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
+		sliceExpired := ownsSliceDeadline && (errors.Is(err, context.DeadlineExceeded) || sliceContextExpired || weWorkCallbackWakeupSliceNetworkTimeout(err, ownsSliceDeadline, observedAt, sliceDeadline))
+		if errors.Is(err, redis.Nil) || sliceExpired {
+			continue
+		}
+		return err
+	}
+}
+
+func weWorkCallbackWakeupSliceNetworkTimeout(err error, ownsDeadline bool, observedAt time.Time, deadline time.Time) bool {
+	if !ownsDeadline || observedAt.Before(deadline.Add(-weWorkCallbackWakeupDeadlineSlack)) {
+		return false
+	}
+	var networkErr net.Error
+	return errors.As(err, &networkErr) && networkErr.Timeout()
+}
+
+func weWorkCallbackWakeupBRPopTimeout(slice time.Duration) time.Duration {
+	return max(slice, time.Second)
+}
+
+func (s *RedisStore) weWorkCallbackWakeupKey() string {
+	if s != nil && s.weWorkCallbackWakeupTestKey != "" {
+		return s.weWorkCallbackWakeupTestKey
+	}
+	return weWorkCallbackWakeupKey
+}
+
+func (s *RedisStore) PreflightLegacyWeWorkCallbackBacklog(ctx context.Context) (dashboard.LegacyWeWorkCallbackBacklogStats, error) {
+	pipe := s.client.Pipeline()
+	pending := pipe.LLen(ctx, legacyWeWorkCallbackPendingKey)
+	processing := pipe.LLen(ctx, legacyWeWorkCallbackProcessingKey)
+	dead := pipe.LLen(ctx, legacyWeWorkCallbackDeadKey)
+	if _, err := pipe.Exec(ctx); err != nil {
+		return dashboard.LegacyWeWorkCallbackBacklogStats{}, err
+	}
+	return dashboard.LegacyWeWorkCallbackBacklogStats{Pending: pending.Val(), Processing: processing.Val(), Dead: dead.Val()}, nil
+}
+
+func (s *RedisStore) NextLegacyWeWorkCallback(ctx context.Context) (dashboard.LegacyWeWorkCallbackDelivery, bool, error) {
+	raw, err := s.client.LIndex(ctx, legacyWeWorkCallbackProcessingKey, 0).Result()
 	if err == redis.Nil {
-		return dashboard.WeWorkCallbackDelivery{}, false, nil
+		raw, err = s.client.LMove(ctx, legacyWeWorkCallbackPendingKey, legacyWeWorkCallbackProcessingKey, "LEFT", "RIGHT").Result()
+	}
+	if err == redis.Nil {
+		return dashboard.LegacyWeWorkCallbackDelivery{}, false, nil
 	}
 	if err != nil {
-		return dashboard.WeWorkCallbackDelivery{}, false, err
+		return dashboard.LegacyWeWorkCallbackDelivery{}, false, err
 	}
 	var event dashboard.WeWorkCallbackEvent
-	attempts, err := decodeReliableQueuePayload(raw, &event)
-	if err != nil {
-		_ = s.moveMalformedQueueItem(ctx, descriptor.ProcessingKey, descriptor.DeadLetterKey, raw, err.Error())
-		return dashboard.WeWorkCallbackDelivery{}, false, err
+	if _, err := decodeReliableQueuePayload(raw, &event); err != nil {
+		return dashboard.LegacyWeWorkCallbackDelivery{}, false, fmt.Errorf("decode legacy wework callback delivery: %w", err)
 	}
-	markedRaw, err := s.markReliableQueueProcessing(ctx, descriptor.ProcessingKey, raw, event, attempts)
-	if err != nil {
-		return dashboard.WeWorkCallbackDelivery{}, false, err
-	}
-	return dashboard.WeWorkCallbackDelivery{Event: event, Raw: markedRaw, Attempts: attempts}, true, nil
+	return dashboard.LegacyWeWorkCallbackDelivery{Event: event, Raw: raw}, true, nil
 }
 
-func (s *RedisStore) AckWeWorkCallback(ctx context.Context, delivery dashboard.WeWorkCallbackDelivery) error {
-	return s.ackReliableQueueItem(ctx, dashboard.WeWorkCallbackQueueDescriptor().ProcessingKey, delivery.Raw)
-}
-
-func (s *RedisStore) RetryWeWorkCallback(ctx context.Context, delivery dashboard.WeWorkCallbackDelivery, reason string, maxAttempts int) (bool, error) {
-	descriptor := dashboard.WeWorkCallbackQueueDescriptor()
-	return s.retryReliableQueueItem(ctx, reliableQueueRetryOptions{
-		SourceKey:      descriptor.SourceKey,
-		ProcessingKey:  descriptor.ProcessingKey,
-		DeadLetterKey:  descriptor.DeadLetterKey,
-		Raw:            delivery.Raw,
-		Event:          delivery.Event,
-		CurrentAttempt: delivery.Attempts,
-		Reason:         reason,
-		MaxAttempts:    maxAttempts,
-	})
-}
-
-func (s *RedisStore) RecoverWeWorkCallbackProcessing(ctx context.Context, staleAfter time.Duration, maxAttempts int) (int, error) {
-	descriptor := dashboard.WeWorkCallbackQueueDescriptor()
-	return s.recoverReliableQueueProcessing(ctx, reliableQueueRecoveryOptions{
-		SourceKey:     descriptor.SourceKey,
-		ProcessingKey: descriptor.ProcessingKey,
-		DeadLetterKey: descriptor.DeadLetterKey,
-		StaleAfter:    staleAfter,
-		MaxAttempts:   maxAttempts,
-	})
+func (s *RedisStore) AckLegacyWeWorkCallback(ctx context.Context, delivery dashboard.LegacyWeWorkCallbackDelivery) error {
+	return s.ackReliableQueueItem(ctx, legacyWeWorkCallbackProcessingKey, delivery.Raw)
 }
 
 func (s *RedisStore) EnqueueContactWelcome(ctx context.Context, event dashboard.ContactWelcomeEvent) error {

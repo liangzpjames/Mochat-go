@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+	"jiyi/mochat-go/internal/httpresponse"
 )
 
 type ArchiveMediaContentFilter struct {
@@ -172,6 +173,9 @@ func (handler *ArchiveMediaContentHandler) ServeHTTP(w http.ResponseWriter, requ
 	name := safeArchiveMediaFilename(object.Name, id)
 	if value := mime.FormatMediaType(disposition, map[string]string{"filename": name}); value != "" {
 		w.Header().Set("Content-Disposition", value)
+	}
+	if request.Method == http.MethodGet {
+		httpresponse.AllowLongWrite(w)
 	}
 	w.Header().Set("Content-Type", mimeType)
 	w.Header().Set("Accept-Ranges", "bytes")

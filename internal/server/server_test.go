@@ -3,11 +3,13 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -534,7 +536,7 @@ func TestUnknownRouteWithoutPHPFallbackReturnsBadGateway(t *testing.T) {
 	}
 }
 
-func TestReadyzReportsSourceAndProxyState(t *testing.T) {
+func TestReadyzReportsSourceAndProxyStateAsStableChecks(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte("Hello MoChat "))
 	}))
@@ -560,24 +562,23 @@ func TestReadyzReportsSourceAndProxyState(t *testing.T) {
 		t.Fatalf("status = %d, want %d, body=%s", rec.Code, http.StatusOK, rec.Body.String())
 	}
 
-	var payload statusPayload
+	var payload readinessPayload
 	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
 		t.Fatal(err)
 	}
-	if !payload.SourceRootExists {
-		t.Fatalf("SourceRootExists = false")
+	if !payload.Ready || len(payload.ReadinessChecks) != 4 {
+		t.Fatalf("readiness payload = %+v", payload)
 	}
-	if !payload.ManifestExists {
-		t.Fatalf("ManifestExists = false")
+	for _, check := range payload.ReadinessChecks {
+		if !check.Ready {
+			t.Fatalf("readiness check = %+v", check)
+		}
 	}
-	if !payload.ProxyFallbackEnabled {
-		t.Fatalf("ProxyFallbackEnabled = false")
-	}
-	if !payload.PHPUpstreamReady {
-		t.Fatalf("PHPUpstreamReady = false, probe=%s", payload.PHPUpstreamProbe)
-	}
-	if payload.NextMigrationBoundary != "auth/tenant/rbac" {
-		t.Fatalf("NextMigrationBoundary = %q", payload.NextMigrationBoundary)
+	wantCodes := []string{"compat_source", "compat_manifest", "compat_proxy", "compat_upstream"}
+	for index, wantCode := range wantCodes {
+		if payload.ReadinessChecks[index].Code != wantCode {
+			t.Fatalf("readiness check %d code = %q, want %q", index, payload.ReadinessChecks[index].Code, wantCode)
+		}
 	}
 }
 
@@ -608,6 +609,33 @@ func TestReadyzRejectsWrongUpstream(t *testing.T) {
 	}
 }
 
+func TestReadyzCapsTheWholeProbeBudgetAtTwoSeconds(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, request *http.Request) {
+		<-request.Context().Done()
+	}))
+	defer upstream.Close()
+	srv, err := New(config.Config{
+		ListenAddr:   ":0",
+		PHPUpstream:  upstream.URL,
+		SourceRoot:   t.TempDir(),
+		ManifestPath: writeManifest(t),
+		ProxyTimeout: 5 * time.Second,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	started := time.Now()
+	recorder := httptest.NewRecorder()
+	srv.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/readyz", nil))
+	if elapsed := time.Since(started); elapsed > 2500*time.Millisecond {
+		t.Fatalf("readiness exceeded total budget: %s", elapsed)
+	}
+	if recorder.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
 func TestReadyzStandaloneDoesNotRequireSourceManifestOrPHP(t *testing.T) {
 	srv, err := New(config.Config{
 		ListenAddr:   ":0",
@@ -625,24 +653,193 @@ func TestReadyzStandaloneDoesNotRequireSourceManifestOrPHP(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d, body=%s", rec.Code, http.StatusOK, rec.Body.String())
 	}
-	var payload statusPayload
+	var payload readinessPayload
 	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
 		t.Fatal(err)
 	}
-	if !payload.Standalone || payload.Mode != "standalone-go" {
+	if !payload.Ready || len(payload.ReadinessChecks) != 1 || payload.ReadinessChecks[0] != (ReadinessCheck{Code: "compat_assets", Ready: true}) {
 		t.Fatalf("standalone payload = %+v", payload)
 	}
-	if payload.SourceRootExists {
-		t.Fatalf("SourceRootExists = true")
+}
+
+func TestHealthzStaysLiveWhileDependencyReadinessRecovers(t *testing.T) {
+	var mysqlDown atomic.Bool
+	var redisDown atomic.Bool
+	var migrationsBehind atomic.Bool
+	mysqlDown.Store(true)
+	redisDown.Store(true)
+	migrationsBehind.Store(true)
+	checker := NewReadinessChecker(
+		ReadinessProbe{Code: "mysql_connection", Check: func(context.Context) error {
+			if mysqlDown.Load() {
+				return errors.New("mysql down dsn=user:secret@tcp(mysql.internal:3306)/mochat")
+			}
+			return nil
+		}},
+		ReadinessProbe{Code: "redis_connection", Check: func(context.Context) error {
+			if redisDown.Load() {
+				return errors.New("redis down at redis.internal:6379 password=secret")
+			}
+			return nil
+		}},
+		ReadinessProbe{Code: "migration_current", Check: func(context.Context) error {
+			if migrationsBehind.Load() {
+				return errors.New("migration 0172 pending")
+			}
+			return nil
+		}},
+	)
+	srv, err := New(config.Config{ListenAddr: ":0", Standalone: true, ProxyTimeout: time.Second}, WithReadinessChecker(checker))
+	if err != nil {
+		t.Fatal(err)
 	}
-	if !payload.ManifestExists {
-		t.Fatalf("ManifestExists = false")
+
+	health := httptest.NewRecorder()
+	srv.ServeHTTP(health, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+	if health.Code != http.StatusOK {
+		t.Fatalf("health status = %d body=%s", health.Code, health.Body.String())
 	}
-	if payload.ProxyFallbackEnabled {
-		t.Fatalf("ProxyFallbackEnabled = true")
+	notReady := httptest.NewRecorder()
+	srv.ServeHTTP(notReady, httptest.NewRequest(http.MethodGet, "/readyz", nil))
+	if notReady.Code != http.StatusServiceUnavailable {
+		t.Fatalf("ready status = %d body=%s", notReady.Code, notReady.Body.String())
 	}
-	if payload.PHPUpstreamReady {
-		t.Fatalf("PHPUpstreamReady = true")
+	for _, code := range []string{"mysql_connection", "redis_connection", "migration_current"} {
+		if !strings.Contains(notReady.Body.String(), `"code":"`+code+`"`) {
+			t.Fatalf("readiness body missing code %q: %s", code, notReady.Body.String())
+		}
+	}
+	for _, secret := range []string{"user:secret", "mysql.internal", "redis.internal", "password=secret", "0172"} {
+		if strings.Contains(notReady.Body.String(), secret) {
+			t.Fatalf("readiness leaked %q: %s", secret, notReady.Body.String())
+		}
+	}
+
+	mysqlDown.Store(false)
+	redisDown.Store(false)
+	migrationsBehind.Store(false)
+	ready := httptest.NewRecorder()
+	srv.ServeHTTP(ready, httptest.NewRequest(http.MethodGet, "/readyz", nil))
+	if ready.Code != http.StatusOK {
+		t.Fatalf("recovered ready status = %d body=%s", ready.Code, ready.Body.String())
+	}
+}
+
+func TestReadyzPublishesOnlyStableReadinessFields(t *testing.T) {
+	var redisDown atomic.Bool
+	redisDown.Store(true)
+	checker := NewReadinessChecker(ReadinessProbe{Code: "redis_connection", Check: func(context.Context) error {
+		if redisDown.Load() {
+			return errors.New("dial tcp redis.internal:6379: password=secret dsn=root:secret@tcp(mysql.internal:3306)/mochat")
+		}
+		return nil
+	}})
+	srv, err := New(config.Config{
+		ListenAddr:   ":0",
+		Standalone:   true,
+		SourceRoot:   `C:\private\dsn=root-secret`,
+		ManifestPath: `C:\private\manifest-0172.json`,
+		PHPUpstream:  "http://php.internal:9501",
+		ProxyTimeout: time.Second,
+	}, WithReadinessChecker(checker), WithBackgroundTasks(func() []taskrunner.Snapshot {
+		return []taskrunner.Snapshot{{
+			Name:   "sensitive-task",
+			Status: taskrunner.StatusFailed,
+			Error:  `task failed path=C:\private\task.log`,
+			LatestExecution: &taskrunner.ExecutionSnapshot{
+				Status: taskrunner.StatusFailed,
+				Error:  "dial tcp worker.internal:9443: bare-secret",
+			},
+		}}
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	assertPublicPayload := func(wantStatus int, wantReady bool) {
+		t.Helper()
+		recorder := httptest.NewRecorder()
+		srv.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/readyz", nil))
+		if recorder.Code != wantStatus {
+			t.Fatalf("status = %d, want %d, body=%s", recorder.Code, wantStatus, recorder.Body.String())
+		}
+		for _, private := range []string{
+			"background_tasks", "latest_execution", "error", "redis.internal", "mysql.internal", "worker.internal",
+			"root-secret", "bare-secret", "C:\\private", "php.internal", "0172", "source_root", "manifest_path", "php_upstream",
+		} {
+			if strings.Contains(strings.ToLower(recorder.Body.String()), strings.ToLower(private)) {
+				t.Fatalf("readyz leaked %q: %s", private, recorder.Body.String())
+			}
+		}
+		var payload map[string]any
+		if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+			t.Fatal(err)
+		}
+		if len(payload) != 2 {
+			t.Fatalf("readyz fields = %#v, want only ready and readiness_checks", payload)
+		}
+		ready, ok := payload["ready"].(bool)
+		if !ok || ready != wantReady {
+			t.Fatalf("ready = %#v, want %t", payload["ready"], wantReady)
+		}
+		checks, ok := payload["readiness_checks"].([]any)
+		if !ok || len(checks) != 2 {
+			t.Fatalf("readiness_checks = %#v", payload["readiness_checks"])
+		}
+		for _, raw := range checks {
+			check, ok := raw.(map[string]any)
+			if !ok || len(check) != 2 {
+				t.Fatalf("readiness check fields = %#v", raw)
+			}
+			if _, ok := check["code"].(string); !ok {
+				t.Fatalf("readiness code = %#v", check["code"])
+			}
+			if _, ok := check["ready"].(bool); !ok {
+				t.Fatalf("readiness ready = %#v", check["ready"])
+			}
+		}
+	}
+
+	assertPublicPayload(http.StatusServiceUnavailable, false)
+	redisDown.Store(false)
+	assertPublicPayload(http.StatusOK, true)
+}
+
+func TestReadinessFailureCanSelectAStablePublicCode(t *testing.T) {
+	checker := NewReadinessChecker(ReadinessProbe{Code: "migration_current", Check: func(context.Context) error {
+		return NewReadinessFailure("migration_database_ahead")
+	}})
+	checks := checker.Check(context.Background())
+	if len(checks) != 1 || checks[0].Code != "migration_database_ahead" || checks[0].Ready {
+		t.Fatalf("checks = %+v", checks)
+	}
+}
+
+func TestReadinessCheckerReplacesUnstableProbeCode(t *testing.T) {
+	checker := NewReadinessChecker(ReadinessProbe{
+		Code: "redis at redis.internal:6379",
+		Check: func(context.Context) error {
+			return errors.New("dsn=root:secret@tcp(mysql.internal:3306)/mochat")
+		},
+	})
+	checks := checker.Check(context.Background())
+	if len(checks) != 1 || checks[0].Code != "dependency_check" || checks[0].Ready {
+		t.Fatalf("checks = %+v", checks)
+	}
+}
+
+func TestReadyzFailsImmediatelyWhenDraining(t *testing.T) {
+	checker := NewReadinessChecker(ReadinessProbe{Code: "mysql_connection", Check: func(context.Context) error { return nil }})
+	srv, err := New(config.Config{ListenAddr: ":0", Standalone: true, ProxyTimeout: time.Second}, WithReadinessChecker(checker))
+	if err != nil {
+		t.Fatal(err)
+	}
+	checker.BeginDrain()
+
+	recorder := httptest.NewRecorder()
+	srv.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/readyz", nil))
+	if recorder.Code != http.StatusServiceUnavailable || !strings.Contains(recorder.Body.String(), `"code":"runtime_draining"`) {
+		t.Fatalf("draining readiness = %d body=%s", recorder.Code, recorder.Body.String())
 	}
 }
 

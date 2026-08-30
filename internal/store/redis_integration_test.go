@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"strconv"
 	"strings"
@@ -23,6 +24,93 @@ func newRedisIntegrationStore(t *testing.T, addr string) *RedisStore {
 		database = parsed
 	}
 	return NewRedisStore(RedisConfig{Addr: addr, DB: database})
+}
+
+func TestRedisStoreWeWorkCallbackWakeupIsDurablyConsumedIntegration(t *testing.T) {
+	addr := os.Getenv("MOCHAT_REDIS_ADDR")
+	if addr == "" {
+		t.Skip("MOCHAT_REDIS_ADDR is not set")
+	}
+	store := newRedisIntegrationStore(t, addr)
+	store.weWorkCallbackWakeupTestKey = weWorkCallbackWakeupKey + ":integration:" + strconv.FormatInt(time.Now().UnixNano(), 10)
+	defer func() {
+		_ = store.client.Del(context.Background(), store.weWorkCallbackWakeupTestKey).Err()
+		_ = store.Close()
+	}()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := store.client.Del(ctx, store.weWorkCallbackWakeupTestKey).Err(); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.WakeWeWorkCallback(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if length, err := store.client.LLen(ctx, store.weWorkCallbackWakeupTestKey).Result(); err != nil || length != 1 {
+		t.Fatalf("wakeup tokens=%d err=%v", length, err)
+	}
+	if err := store.WaitWeWorkCallbackWakeup(ctx, time.Second); err != nil {
+		t.Fatal(err)
+	}
+	if length, err := store.client.LLen(ctx, store.weWorkCallbackWakeupTestKey).Result(); err != nil || length != 0 {
+		t.Fatalf("remaining wakeup tokens=%d err=%v", length, err)
+	}
+}
+
+func TestRedisStoreEmptyWeWorkCallbackWakeupWaitStopsOnRootCancelIntegration(t *testing.T) {
+	addr := os.Getenv("MOCHAT_REDIS_ADDR")
+	if addr == "" {
+		t.Skip("MOCHAT_REDIS_ADDR is not set")
+	}
+	store := newRedisIntegrationStore(t, addr)
+	store.weWorkCallbackWakeupTestKey = weWorkCallbackWakeupKey + ":cancel-integration:" + strconv.FormatInt(time.Now().UnixNano(), 10)
+	defer func() {
+		_ = store.client.Del(context.Background(), store.weWorkCallbackWakeupTestKey).Err()
+		_ = store.Close()
+	}()
+	ctx, cancel := context.WithCancel(context.Background())
+	result := make(chan error, 1)
+	go func() { result <- store.WaitWeWorkCallbackWakeup(ctx, 5*time.Second) }()
+	time.Sleep(50 * time.Millisecond)
+	started := time.Now()
+	cancel()
+	select {
+	case err := <-result:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("empty wakeup wait error=%v, want context canceled", err)
+		}
+		if elapsed := time.Since(started); elapsed > 1500*time.Millisecond {
+			t.Fatalf("empty wakeup wait cancellation took %s", elapsed)
+		}
+	case <-time.After(1500 * time.Millisecond):
+		_ = store.Close()
+		t.Fatal("empty wakeup wait ignored root context cancellation")
+	}
+}
+
+func TestRedisStoreEmptyWeWorkCallbackWakeupWaitPreservesTotalPollIntervalIntegration(t *testing.T) {
+	addr := os.Getenv("MOCHAT_REDIS_ADDR")
+	if addr == "" {
+		t.Skip("MOCHAT_REDIS_ADDR is not set")
+	}
+	store := newRedisIntegrationStore(t, addr)
+	store.weWorkCallbackWakeupTestKey = weWorkCallbackWakeupKey + ":poll-interval-integration:" + strconv.FormatInt(time.Now().UnixNano(), 10)
+	defer func() {
+		_ = store.client.Del(context.Background(), store.weWorkCallbackWakeupTestKey).Err()
+		_ = store.Close()
+	}()
+
+	const pollInterval = 2200 * time.Millisecond
+	started := time.Now()
+	if err := store.WaitWeWorkCallbackWakeup(context.Background(), pollInterval); err != nil {
+		t.Fatal(err)
+	}
+	elapsed := time.Since(started)
+	if elapsed < 2*time.Second {
+		t.Fatalf("empty wakeup wait returned after %s, internal slices changed the total poll interval", elapsed)
+	}
+	if elapsed > 4*time.Second {
+		t.Fatalf("empty wakeup wait exceeded its bounded poll interval: %s", elapsed)
+	}
 }
 
 func TestRedisStoreQueueIdempotencyIntegration(t *testing.T) {
@@ -130,56 +218,6 @@ func TestRedisStoreQueueIdempotencyIntegration(t *testing.T) {
 	}
 	if err := store.AckEmployeeApply(ctx, dashboard.EmployeeApplyDelivery{Raw: "legacy-employee-raw"}); err != nil {
 		t.Fatal(err)
-	}
-
-	weworkDescriptor := dashboard.WeWorkCallbackQueueDescriptor()
-	weworkEvent := dashboard.WeWorkCallbackEvent{
-		CorpID:    7,
-		WxCorpID:  "ww-go",
-		EventPath: "event.change_external_contact.add_external_contact",
-		Message: map[string]string{
-			"ToUserName":     "ww-go",
-			"CreateTime":     "1710000000",
-			"UserID":         "go-user",
-			"ExternalUserID": "external-user",
-		},
-		RawXML:     "<xml><UserID>go-user</UserID><ExternalUserID>external-user</ExternalUserID></xml>",
-		ReceivedAt: "2026-07-04 12:00:00",
-	}
-	weworkDuplicate := weworkEvent
-	weworkDuplicate.RawXML = "<xml><ExternalUserID>external-user</ExternalUserID><UserID>go-user</UserID></xml>"
-	weworkDuplicate.ReceivedAt = "2026-07-04 12:01:00"
-	weworkIDKey := dashboard.WeWorkCallbackIdempotencyKey(weworkEvent)
-	if err := store.client.Del(ctx, weworkDescriptor.SourceKey, weworkDescriptor.ProcessingKey, weworkDescriptor.DeadLetterKey, weworkIDKey).Err(); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.EnqueueWeWorkCallback(ctx, weworkEvent); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.EnqueueWeWorkCallback(ctx, weworkDuplicate); err != nil {
-		t.Fatal(err)
-	}
-	if length, err := store.client.LLen(ctx, weworkDescriptor.SourceKey).Result(); err != nil || length != 1 {
-		t.Fatalf("wework source queue length = %d err=%v", length, err)
-	}
-	if ttl, err := store.client.TTL(ctx, weworkIDKey).Result(); err != nil || ttl <= 0 {
-		t.Fatalf("wework idempotency ttl = %s err=%v", ttl, err)
-	}
-	weworkDelivery, ok, err := store.DequeueWeWorkCallback(ctx, time.Second)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !ok {
-		t.Fatal("expected wework delivery")
-	}
-	if weworkDelivery.Event.EventPath != weworkEvent.EventPath || weworkDelivery.Event.Message["ExternalUserID"] != "external-user" {
-		t.Fatalf("wework delivery = %+v", weworkDelivery)
-	}
-	if err := store.AckWeWorkCallback(ctx, weworkDelivery); err != nil {
-		t.Fatal(err)
-	}
-	if length, err := store.client.LLen(ctx, weworkDescriptor.ProcessingKey).Result(); err != nil || length != 0 {
-		t.Fatalf("wework processing queue length = %d err=%v", length, err)
 	}
 
 	welcomeDescriptor := dashboard.ContactWelcomeQueueDescriptor()
@@ -554,6 +592,74 @@ func TestRedisStoreQueueIdempotencyIntegration(t *testing.T) {
 	}
 	if length, err := store.client.LLen(ctx, statisticDescriptor.ProcessingKey).Result(); err != nil || length != 0 {
 		t.Fatalf("employee statistic apply processing queue length = %d err=%v", length, err)
+	}
+}
+
+func TestRedisStoreLegacyWeWorkCallbackBacklogCutoverIntegration(t *testing.T) {
+	addr := os.Getenv("MOCHAT_REDIS_ADDR")
+	if addr == "" {
+		t.Skip("MOCHAT_REDIS_ADDR is not set")
+	}
+	store := newRedisIntegrationStore(t, addr)
+	defer store.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := store.client.Del(ctx, legacyWeWorkCallbackPendingKey, legacyWeWorkCallbackProcessingKey, legacyWeWorkCallbackDeadKey).Err(); err != nil {
+		t.Fatal(err)
+	}
+	defer store.client.Del(context.Background(), legacyWeWorkCallbackPendingKey, legacyWeWorkCallbackProcessingKey, legacyWeWorkCallbackDeadKey)
+
+	pendingEvent := dashboard.WeWorkCallbackEvent{CorpID: 7, WxCorpID: "wx-legacy", EventPath: "event.pending", Message: map[string]string{"MsgId": "pending-1"}}
+	pendingRaw, err := json.Marshal(pendingEvent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	processingEvent := dashboard.WeWorkCallbackEvent{CorpID: 7, WxCorpID: "wx-legacy", EventPath: "event.processing", Message: map[string]string{"MsgId": "processing-1"}}
+	processingPayload, err := json.Marshal(processingEvent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	processingRaw, err := json.Marshal(reliableQueueEnvelope{Queue: "wework-callback", PayloadType: "dashboard.WeWorkCallbackEvent.v1", Payload: processingPayload, Attempts: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.client.RPush(ctx, legacyWeWorkCallbackPendingKey, pendingRaw).Err(); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.client.RPush(ctx, legacyWeWorkCallbackProcessingKey, processingRaw).Err(); err != nil {
+		t.Fatal(err)
+	}
+
+	stats, err := store.PreflightLegacyWeWorkCallbackBacklog(ctx)
+	if err != nil || stats.Pending != 1 || stats.Processing != 1 || stats.Dead != 0 {
+		t.Fatalf("stats=%+v err=%v", stats, err)
+	}
+	first, found, err := store.NextLegacyWeWorkCallback(ctx)
+	if err != nil || !found || first.Event.EventPath != "event.processing" {
+		t.Fatalf("first=%+v found=%v err=%v", first, found, err)
+	}
+	if err := store.AckLegacyWeWorkCallback(ctx, first); err != nil {
+		t.Fatal(err)
+	}
+	second, found, err := store.NextLegacyWeWorkCallback(ctx)
+	if err != nil || !found || second.Event.EventPath != "event.pending" {
+		t.Fatalf("second=%+v found=%v err=%v", second, found, err)
+	}
+	if pending, _ := store.client.LLen(ctx, legacyWeWorkCallbackPendingKey).Result(); pending != 0 {
+		t.Fatalf("pending=%d after atomic move", pending)
+	}
+	if processing, _ := store.client.LLen(ctx, legacyWeWorkCallbackProcessingKey).Result(); processing != 1 {
+		t.Fatalf("processing=%d before durable ack", processing)
+	}
+	if err := store.AckLegacyWeWorkCallback(ctx, second); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.client.RPush(ctx, legacyWeWorkCallbackDeadKey, `{"lastError":"operator review required"}`).Err(); err != nil {
+		t.Fatal(err)
+	}
+	stats, err = store.PreflightLegacyWeWorkCallbackBacklog(ctx)
+	if err != nil || stats.Dead != 1 {
+		t.Fatalf("dead stats=%+v err=%v", stats, err)
 	}
 }
 

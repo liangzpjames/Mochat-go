@@ -1,10 +1,11 @@
 package domain
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"strings"
-
-	"github.com/google/uuid"
 )
 
 type OrderStatus string
@@ -16,7 +17,10 @@ const (
 	OrderCancelled OrderStatus = "cancelled"
 )
 
-var ErrOrderVersionConflict = errors.New("order version conflict")
+var (
+	ErrOrderVersionConflict     = errors.New("order version conflict")
+	ErrOrderIdempotencyConflict = errors.New("order idempotency key reused with different payload")
+)
 
 type Order struct {
 	ID            string      `json:"id"`
@@ -43,6 +47,23 @@ type NewOrderInput struct {
 	Status                   OrderStatus
 }
 
+type OrderCreateCommand struct {
+	Order          Order
+	ActorID        int64
+	IdempotencyKey string
+	RequestHash    string
+	ResponseStatus int
+	ResponseBody   []byte
+}
+
+type OrderCreateReceipt struct {
+	OrderID        string
+	RequestHash    string
+	ResponseStatus int
+	ResponseBody   []byte
+	Replayed       bool
+}
+
 func NewOrder(input NewOrderInput) (Order, error) {
 	title := strings.TrimSpace(input.Title)
 	note := strings.TrimSpace(input.Note)
@@ -55,9 +76,38 @@ func NewOrder(input NewOrderInput) (Order, error) {
 	}
 	id := strings.TrimSpace(input.ID)
 	if id == "" {
-		id = uuid.NewString()
+		return Order{}, errors.New("invalid order")
 	}
 	return Order{ID: id, TenantID: input.TenantID, CorpID: input.CorpID, ContactID: input.ContactID, OpportunityID: input.OpportunityID, Title: title, Note: note, AmountCents: input.AmountCents, Currency: currency, Status: input.Status, Version: 1}, nil
+}
+
+func OrderCreateRequestHash(order Order, requestedID string) (string, error) {
+	requestedID = strings.TrimSpace(requestedID)
+	canonical := struct {
+		RequestedID   string      `json:"requestedId,omitempty"`
+		ContactID     string      `json:"contactId"`
+		OpportunityID string      `json:"opportunityId"`
+		Title         string      `json:"title"`
+		Note          string      `json:"note"`
+		AmountCents   int64       `json:"amountCents"`
+		Currency      string      `json:"currency"`
+		Status        OrderStatus `json:"status"`
+	}{
+		RequestedID:   requestedID,
+		ContactID:     order.ContactID,
+		OpportunityID: order.OpportunityID,
+		Title:         strings.TrimSpace(order.Title),
+		Note:          strings.TrimSpace(order.Note),
+		AmountCents:   order.AmountCents,
+		Currency:      strings.ToUpper(strings.TrimSpace(order.Currency)),
+		Status:        order.Status,
+	}
+	body, err := json.Marshal(canonical)
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(body)
+	return hex.EncodeToString(sum[:]), nil
 }
 
 func (order *Order) Transition(status OrderStatus, version int64) error {

@@ -2,7 +2,7 @@
 
 ## 阶段状态
 
-Phase 2.1 已于 2026-07-29 通过功能矩阵、自动化测试、生产构建和四前端浏览器验收，Phase 3 前置门禁已解除。验收证据见 [Phase 2.1 验收记录](../phase-2.1-functional-frontend-migration/evidence/README.md)。
+Phase 2.1 已于 2026-07-29 通过功能矩阵、自动化测试、生产构建和四前端浏览器验收，Phase 3 前置门禁已解除。验收证据见 [Phase 2.1 验收记录](../../phase-2.1-functional-frontend-migration/evidence/README.md)。
 
 ## 调研边界
 

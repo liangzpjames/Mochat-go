@@ -311,7 +311,10 @@ func TestCustomerConversationGroupRoomsScopeContactCorpAndBindEachSource(t *test
 	if got := strings.Count(sqlText, "JOIN mc_work_contact contact_scope ON contact_scope.id=membership.contact_id AND contact_scope.corp_id=?"); got != 2 {
 		t.Fatalf("group source must scope contact corp twice, got %d in %s", got, sqlText)
 	}
-	want := []any{"archive-source", 27, 27, 31, "archive-source", 27, 27, 31, 27, 27, 27, 27}
+	if got := strings.Count(sqlText, "SELECT * FROM archive WHERE source=?"); got != 3 {
+		t.Fatalf("group source must bind latest, anti-newer, and count sources, got %d in %s", got, sqlText)
+	}
+	want := []any{"archive-source", 27, 27, 31, "archive-source", "archive-source", 27, 27, 31, 27, 27, 27, 27}
 	if len(args) != len(want) {
 		t.Fatalf("args=%#v want=%#v", args, want)
 	}

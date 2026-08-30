@@ -4,74 +4,16 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"os"
-	"path/filepath"
-	"strings"
-	"sync/atomic"
 	"testing"
 	"time"
 
 	"jiyi/mochat-go/internal/dashboardprincipal"
-	"jiyi/mochat-go/internal/migration"
 	"jiyi/mochat-go/internal/wecomcapability"
-
-	"github.com/go-sql-driver/mysql"
 )
 
-var capabilityLedgerStoreSchemaSequence atomic.Int64
-
 func TestMySQLStoreCapabilityLedgerPersistsScopedOperationAndStringTargets(t *testing.T) {
-	dsn := strings.TrimSpace(os.Getenv("MOCHAT_GO_MYSQL_INTEGRATION_DSN"))
-	if dsn == "" {
-		t.Skip("SKIP: MOCHAT_GO_MYSQL_INTEGRATION_DSN is not set; isolated MariaDB DSN is required")
-	}
-	cfg, err := mysql.ParseDSN(dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	adminCfg := *cfg
-	adminCfg.DBName = ""
-	admin, err := sql.Open("mysql", adminCfg.FormatDSN())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := admin.PingContext(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = admin.Close() })
-	schema := fmt.Sprintf("mochat_wecom_0139_store_%d_%d", os.Getpid(), capabilityLedgerStoreSchemaSequence.Add(1))
-	if _, err := admin.Exec("CREATE DATABASE `" + schema + "` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		if _, err := admin.Exec("DROP DATABASE IF EXISTS `" + schema + "`"); err != nil {
-			t.Errorf("drop temporary schema: %v", err)
-		}
-	})
-	testCfg := *cfg
-	testCfg.DBName = schema
-	db, err := sql.Open("mysql", testCfg.FormatDSN())
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-	if err := db.PingContext(context.Background()); err != nil {
-		t.Fatal(err)
-	}
+	db := newCurrentStoreIntegrationDB(t)
 	createCapabilityLedgerStoreFixture(t, db)
-	root := filepath.Join("..", "..")
-	runner, err := migration.NewRunner(db, []migration.Migration{{
-		Version:     "0139_wecom_capability_ledger",
-		Description: "wecom capability ledger",
-		Path:        filepath.Join(root, "deploy", "standalone", "migrations", "0139_wecom_capability_ledger.up.sql"),
-		DownPath:    filepath.Join(root, "deploy", "standalone", "migrations", "0139_wecom_capability_ledger.down.sql"),
-	}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := runner.Apply(context.Background()); err != nil {
-		t.Fatal(err)
-	}
 
 	store := NewMySQLStore(db)
 	principal := dashboardprincipal.DashboardPrincipal{UserID: 0, TenantID: 11, CorpID: 1101}
@@ -139,9 +81,13 @@ func TestMySQLStoreCapabilityLedgerPersistsScopedOperationAndStringTargets(t *te
 		t.Fatalf("claimed dispatch=%+v err=%v", claimedDispatch, err)
 	}
 	for _, status := range []string{wecomcapability.DispatchSubmitting, wecomcapability.DispatchSubmitted, wecomcapability.DispatchPolling} {
-		claimedDispatch, err = store.TransitionCapabilityDispatch(context.Background(), principal, CapabilityDispatchTransitionInput{
+		transition := CapabilityDispatchTransitionInput{
 			DispatchID: dispatch.ID, Status: status, LeaseToken: claimedDispatch.LeaseToken, Attempt: claimedDispatch.Attempt,
-		})
+		}
+		if status == wecomcapability.DispatchSubmitted {
+			transition.ProviderRequestID = "provider-request-1"
+		}
+		claimedDispatch, err = store.TransitionCapabilityDispatch(context.Background(), principal, transition)
 		if err != nil {
 			t.Fatalf("dispatch transition %s: %v", status, err)
 		}
@@ -294,9 +240,13 @@ func TestMySQLStoreCapabilityLedgerPersistsScopedOperationAndStringTargets(t *te
 			if phaseDispatchClaim.Status == phase {
 				break
 			}
-			phaseDispatchClaim, err = store.TransitionCapabilityDispatch(context.Background(), principal, CapabilityDispatchTransitionInput{
+			transition := CapabilityDispatchTransitionInput{
 				DispatchID: phaseDispatch.ID, Status: next, LeaseToken: phaseDispatchClaim.LeaseToken, Attempt: phaseDispatchClaim.Attempt,
-			})
+			}
+			if next == wecomcapability.DispatchSubmitted {
+				transition.ProviderRequestID = fmt.Sprintf("provider-phase-%d", index)
+			}
+			phaseDispatchClaim, err = store.TransitionCapabilityDispatch(context.Background(), principal, transition)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -407,16 +357,10 @@ func TestMySQLStoreCapabilityLedgerPersistsScopedOperationAndStringTargets(t *te
 func createCapabilityLedgerStoreFixture(t *testing.T, db *sql.DB) {
 	t.Helper()
 	statements := []string{
-		`CREATE TABLE mc_tenant (id INT UNSIGNED NOT NULL PRIMARY KEY) ENGINE=InnoDB`,
-		`CREATE TABLE mc_user (id INT UNSIGNED NOT NULL, tenant_id INT UNSIGNED NOT NULL, PRIMARY KEY (id), UNIQUE KEY uni_dashboard_user_tenant_id_id (tenant_id,id)) ENGINE=InnoDB`,
-		`CREATE TABLE mc_corp (id INT UNSIGNED NOT NULL, tenant_id INT UNSIGNED NOT NULL, name VARCHAR(255) NOT NULL DEFAULT '', wx_corpid VARCHAR(255) NOT NULL DEFAULT '', wecom_credentials_ciphertext TEXT NULL, wecom_credentials_key_id VARCHAR(64) NOT NULL DEFAULT '', deleted_at DATETIME NULL, updated_at DATETIME NULL, PRIMARY KEY (id), UNIQUE KEY uni_mc_corp_tenant_id_id (tenant_id,id)) ENGINE=InnoDB`,
-		`CREATE TABLE mochat_go_tenant_corp_bindings (tenant_id INT UNSIGNED NOT NULL, corp_id INT UNSIGNED NOT NULL, status TINYINT UNSIGNED NOT NULL DEFAULT 1, version BIGINT UNSIGNED NOT NULL DEFAULT 1, verified_wx_corpid VARCHAR(255) NULL, verified_corp_name VARCHAR(255) NOT NULL DEFAULT '', verified_at TIMESTAMP NULL, created_at TIMESTAMP NULL, updated_at TIMESTAMP NULL, PRIMARY KEY (tenant_id), UNIQUE KEY uni_tenant_corp_binding_corp (corp_id), CONSTRAINT fk_tenant_corp_binding_corp FOREIGN KEY (tenant_id,corp_id) REFERENCES mc_corp (tenant_id,id)) ENGINE=InnoDB`,
-		`CREATE TABLE mc_contact_message_batch_send (id INT UNSIGNED NOT NULL AUTO_INCREMENT, corp_id INT UNSIGNED NOT NULL DEFAULT 0, user_id INT UNSIGNED NOT NULL DEFAULT 0, employee_ids JSON NOT NULL, content JSON NOT NULL, created_at TIMESTAMP NULL, updated_at TIMESTAMP NULL, deleted_at TIMESTAMP NULL, PRIMARY KEY (id)) ENGINE=InnoDB`,
-		`CREATE TABLE mc_room_message_batch_send (id INT UNSIGNED NOT NULL AUTO_INCREMENT, corp_id INT UNSIGNED NOT NULL DEFAULT 0, user_id INT UNSIGNED NOT NULL DEFAULT 0, employee_ids JSON NOT NULL, content JSON NOT NULL, created_at TIMESTAMP NULL, updated_at TIMESTAMP NULL, deleted_at TIMESTAMP NULL, PRIMARY KEY (id)) ENGINE=InnoDB`,
-		`INSERT INTO mc_tenant VALUES (11),(22)`,
-		`INSERT INTO mc_user(id,tenant_id) VALUES (11001,11),(22001,22)`,
+		`INSERT INTO mc_tenant (id,name,status) VALUES (11,'tenant-11',1),(22,'tenant-22',1)`,
+		`INSERT INTO mc_user(id,tenant_id,phone,name,status) VALUES (11001,11,'13800001101','user-11',1),(22001,22,'13800002201','user-22',1)`,
 		`INSERT INTO mc_corp(id,tenant_id,name,wx_corpid) VALUES (1101,11,'corp-11','wx-corp-11'),(2201,22,'corp-22','wx-corp-22')`,
-		`INSERT INTO mochat_go_tenant_corp_bindings(tenant_id,corp_id) VALUES (11,1101),(22,2201)`,
+		`INSERT INTO mochat_go_tenant_corp_bindings(tenant_id,corp_id,status,verified_wx_corpid,verified_corp_name,verified_at) VALUES (11,1101,2,'wx-corp-11','corp-11',NOW()),(22,2201,2,'wx-corp-22','corp-22',NOW())`,
 	}
 	for _, statement := range statements {
 		if _, err := db.Exec(statement); err != nil {

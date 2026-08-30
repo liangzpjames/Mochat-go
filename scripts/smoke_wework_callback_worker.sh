@@ -11,14 +11,42 @@ MYSQL_PORT="${MOCHAT_MYSQL_PORT:-13318}"
 REDIS_PORT="${MOCHAT_REDIS_PORT:-26391}"
 WECOM_ADDR="${MOCHAT_WECOM_ADDR:-127.0.0.1:19053}"
 WORK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/mochat-go-wework-worker.XXXXXX")"
-GO_BIN="$WORK_DIR/mochat-go"
+SAAS_MFA_KEY_FILE="$WORK_DIR/saas-mfa.key"
+DASHBOARD_MFA_KEY_FILE="$WORK_DIR/dashboard-mfa.key"
+GO_BIN="$WORK_DIR/mochat-go.exe"
+CALLBACK_SEED_BIN="$WORK_DIR/mochat-callback-inbox-seed.exe"
 GO_LOG="$WORK_DIR/go.log"
 WECOM_LOG="$WORK_DIR/wecom.log"
 WECOM_PID=""
 GO_PID=""
 
+runtime_path() {
+  if command -v cygpath >/dev/null 2>&1; then
+    cygpath -w "$1"
+  else
+    printf '%s\n' "$1"
+  fi
+}
+
+CALLBACK_SEED_BIN_EXEC="$(runtime_path "$CALLBACK_SEED_BIN")"
+
+printf '%s\n' 'callback-smoke-saas-mfa-key-32bytes' >"$SAAS_MFA_KEY_FILE"
+printf '%s\n' 'callback-smoke-dashboard-mfa-key' >"$DASHBOARD_MFA_KEY_FILE"
+chmod 600 "$SAAS_MFA_KEY_FILE" "$DASHBOARD_MFA_KEY_FILE"
+
 compose() {
-  MOCHAT_MYSQL_PORT="$MYSQL_PORT" MOCHAT_REDIS_PORT="$REDIS_PORT" docker compose -p "$PROJECT_NAME" -f "$COMPOSE_FILE" "$@"
+  MOCHAT_MYSQL_PORT="$MYSQL_PORT" \
+    MOCHAT_REDIS_PORT="$REDIS_PORT" \
+    MOCHAT_SAAS_ADMIN_MFA_ENCRYPTION_KEY_FILE="$SAAS_MFA_KEY_FILE" \
+    MOCHAT_DASHBOARD_MFA_ENCRYPTION_KEY_FILE="$DASHBOARD_MFA_KEY_FILE" \
+    MOCHAT_SAAS_ADMIN_JWT_SECRET="callback-smoke-saas-jwt-secret" \
+    MOCHAT_SAAS_ADMIN_MFA_ENCRYPTION_KEY_ID="callback-smoke-saas" \
+    MOCHAT_DASHBOARD_JWT_SECRET="callback-smoke-dashboard-jwt-secret" \
+    MOCHAT_DASHBOARD_MFA_ENCRYPTION_KEY_ID="callback-smoke-dashboard" \
+    MOCHAT_GO_WECOM_CREDENTIAL_ENCRYPTION_KEY="callback-smoke-wecom-key-32bytes" \
+    MOCHAT_ARCHIVE_BRIDGE_BEARER="callback-smoke-archive-bridge" \
+    MOCHAT_ARCHIVE_FIXTURE_ADMIN_BEARER="callback-smoke-archive-fixture" \
+    docker compose -p "$PROJECT_NAME" -f "$COMPOSE_FILE" "$@"
 }
 
 cleanup() {
@@ -30,7 +58,11 @@ cleanup() {
     kill "$WECOM_PID" 2>/dev/null || true
     wait "$WECOM_PID" 2>/dev/null || true
   fi
-  rm -rf "$WORK_DIR"
+  if [ "${KEEP_WORK_DIR:-0}" = "1" ]; then
+    echo "callback smoke work directory kept at $WORK_DIR" >&2
+  else
+    rm -rf "$WORK_DIR"
+  fi
   if [ "${KEEP_STACK:-0}" != "1" ]; then
     compose down -v --remove-orphans >/dev/null 2>&1 || true
   fi
@@ -127,6 +159,14 @@ wait_redis_scalar() {
   [ -f "$GO_LOG" ] && tail -120 "$GO_LOG" >&2 || true
   [ -f "$WECOM_LOG" ] && tail -120 "$WECOM_LOG" >&2 || true
   exit 1
+}
+
+seed_callback_inbox() {
+  local event_path="$1"
+  MOCHAT_GO_ALLOW_CALLBACK_INBOX_SEED=1 "$CALLBACK_SEED_BIN_EXEC" \
+    -dsn "mochat:mochat_pass@tcp(127.0.0.1:$MYSQL_PORT)/mochat?parseTime=true&loc=Local" \
+    -tenant-id 1 \
+    -event "$(runtime_path "$event_path")"
 }
 
 wait_file_contains() {
@@ -528,6 +568,9 @@ wait_url "http://$WECOM_ADDR/healthz" 200
 compose up -d mysql redis
 wait_service_healthy mysql
 wait_service_healthy redis
+compose exec -T mysql mariadb -umochat -pmochat_pass mochat -e \
+  "ALTER TABLE mc_corp MODIFY COLUMN tenant_id int(10) unsigned NOT NULL DEFAULT 0, ADD UNIQUE KEY uni_mc_corp_tenant_id_id (tenant_id,id)"
+compose exec -T mysql mariadb -umochat -pmochat_pass mochat <deploy/standalone/migrations/0172_wework_callback_inbox.up.sql
 
 compose exec -T mysql mariadb -umochat -pmochat_pass mochat <<'SQL'
 INSERT INTO mc_corp (id, name, wx_corpid, employee_secret, contact_secret, token, encoding_aes_key, tenant_id, created_at, updated_at, deleted_at)
@@ -544,45 +587,62 @@ ON DUPLICATE KEY UPDATE
   deleted_at = NULL;
 SQL
 
-env -u GOROOT go build -o "$GO_BIN" ./cmd/mochat-go
+go build -o "$(runtime_path "$GO_BIN")" ./cmd/mochat-go
+go build -o "$(runtime_path "$CALLBACK_SEED_BIN")" ./cmd/mochat-callback-inbox-seed
+
+MOCHAT_GO_ALLOW_CALLBACK_INBOX_SEED=1 "$CALLBACK_SEED_BIN_EXEC" \
+  -dsn "mochat:mochat_pass@tcp(127.0.0.1:$MYSQL_PORT)/mochat?parseTime=true&loc=Local" \
+  -tenant-id 1 \
+  -mode exercise-lifecycle
+wait_mysql_scalar "SELECT COUNT(*) FROM mochat_go_wework_callback_inbox WHERE event_json LIKE '%smoke-completed%' AND status = 'completed' AND lease_fence = 1;" "1"
+wait_mysql_scalar "SELECT COUNT(*) FROM mochat_go_wework_callback_inbox WHERE event_json LIKE '%smoke-dead%' AND status = 'dead' AND attempt = 1;" "1"
+wait_mysql_scalar "SELECT COUNT(*) FROM mochat_go_wework_callback_inbox WHERE event_json LIKE '%smoke-recovered%' AND status = 'completed' AND lease_fence = 2 AND attempt = 2;" "1"
+
+cat >"$WORK_DIR/pending-before-worker-event.json" <<'JSON'
+{"corpId":1,"wxCorpId":"ww-worker","eventPath":"event.msgaudit_notify","message":{"MsgId":"smoke-pending-before-worker"},"receivedAt":"2026-07-04 00:00:00"}
+JSON
+seed_callback_inbox "$WORK_DIR/pending-before-worker-event.json"
+wait_mysql_scalar "SELECT COUNT(*) FROM mochat_go_wework_callback_inbox WHERE event_json LIKE '%smoke-pending-before-worker%' AND status = 'pending';" "1"
 
 mkdir -p "$WORK_DIR/upload/room" "$WORK_DIR/upload/fission"
 printf 'fake room qrcode image' >"$WORK_DIR/upload/room/qrcode-auto-pull.png"
 printf 'fake fission push image' >"$WORK_DIR/upload/fission/push-image.png"
 
-env -u GOROOT \
-  MOCHAT_GO_STANDALONE=1 \
+MOCHAT_GO_STANDALONE=0 \
+  MOCHAT_GO_RUNTIME_ROLE=worker \
+  MOCHAT_GO_ENABLE_ALL_MIGRATED_ROUTES=0 \
   MOCHAT_GO_ADDR="$GO_ADDR" \
   MOCHAT_MYSQL_DSN="mochat:mochat_pass@tcp(127.0.0.1:$MYSQL_PORT)/mochat?parseTime=true&loc=Local" \
   MOCHAT_REDIS_ADDR="127.0.0.1:$REDIS_PORT" \
   MOCHAT_SIMPLE_JWT_SECRET="worker-secret" \
+  MOCHAT_SAAS_ADMIN_JWT_SECRET="callback-smoke-saas-jwt-secret" \
+  MOCHAT_SAAS_ADMIN_JWT_ISSUER="callback-smoke-saas" \
+  MOCHAT_SAAS_ADMIN_JWT_AUDIENCE="callback-smoke-saas" \
+  MOCHAT_DASHBOARD_JWT_SECRET="callback-smoke-dashboard-jwt-secret" \
+  MOCHAT_DASHBOARD_JWT_ISSUER="callback-smoke-dashboard" \
+  MOCHAT_DASHBOARD_JWT_AUDIENCE="callback-smoke-dashboard" \
   MOCHAT_WECOM_API_BASE_URL="http://$WECOM_ADDR" \
-  MOCHAT_FILE_STORAGE_ROOT="$WORK_DIR/upload" \
+  MOCHAT_FILE_STORAGE_ROOT="$(runtime_path "$WORK_DIR/upload")" \
   MOCHAT_GO_ENABLE_WEWORK_CALLBACK_WORKER=1 \
   "$GO_BIN" >"$GO_LOG" 2>&1 &
 GO_PID="$!"
 
-wait_url "http://$GO_ADDR/readyz" 200
-curl -sS -f "http://$GO_ADDR/compat/status" >"$WORK_DIR/status.json"
-python3 - "$WORK_DIR/status.json" <<'PY'
-import json
-import pathlib
-import sys
+wait_mysql_scalar "SELECT COUNT(*) FROM mochat_go_wework_callback_inbox WHERE event_json LIKE '%smoke-pending-before-worker%' AND status = 'completed' AND lease_fence >= 1;" "1"
+wait_file_contains '"task_name":"wework-callback"' "$GO_LOG"
+wait_redis_scalar "0" LLEN mochat-go:wework-callback
+wait_redis_scalar "0" LLEN mochat-go:wework-callback:processing
+wait_redis_scalar "0" LLEN mochat-go:wework-callback:dead
 
-status = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
-tasks = {task.get("name"): task for task in status.get("background_tasks", [])}
-for name in ("wework-callback", "contact-welcome"):
-    task = tasks.get(name)
-    assert task, status
-    assert task.get("status") == "running", task
-    assert task.get("started_at"), task
-PY
+if [ "${MOCHAT_CALLBACK_EXTENDED_SIDE_EFFECT_SMOKE:-0}" != "1" ]; then
+  echo "wework callback durable inbox lifecycle smoke passed"
+  exit 0
+fi
 
 cat >"$WORK_DIR/event.json" <<'JSON'
 {"corpId":1,"wxCorpId":"ww-worker","eventPath":"event.change_contact.create_user","message":{"ToUserName":"ww-worker","MsgType":"event","Event":"change_contact","ChangeType":"create_user","UserID":"go-worker-user"},"rawXml":"<xml/>","receivedAt":"2026-07-04 00:00:00"}
 JSON
 
-compose exec -T redis redis-cli -x RPUSH mochat-go:wework-callback <"$WORK_DIR/event.json" >/dev/null
+seed_callback_inbox "$WORK_DIR/event.json"
 
 wait_mysql_scalar "SELECT COUNT(*) FROM mc_work_department WHERE corp_id = 1 AND wx_department_id = 2 AND name = 'Go回调销售部' AND deleted_at IS NULL;" "1"
 wait_mysql_scalar "SELECT COUNT(*) FROM mc_work_employee we JOIN mc_work_department wd ON wd.id = we.main_department_id WHERE we.corp_id = 1 AND we.wx_user_id = 'go-worker-user' AND we.name = 'Go回调员工' AND we.mobile = '13900000000' AND we.contact_auth = 1 AND wd.wx_department_id = 2 AND we.deleted_at IS NULL AND wd.deleted_at IS NULL;" "1"
@@ -597,7 +657,7 @@ cat >"$WORK_DIR/update-user-event.json" <<'JSON'
 {"corpId":1,"wxCorpId":"ww-worker","eventPath":"event.change_contact.update_user","message":{"ToUserName":"ww-worker","MsgType":"event","Event":"change_contact","ChangeType":"update_user","UserID":"go-worker-user"},"rawXml":"<xml/>","receivedAt":"2026-07-04 00:00:01"}
 JSON
 
-compose exec -T redis redis-cli -x RPUSH mochat-go:wework-callback <"$WORK_DIR/update-user-event.json" >/dev/null
+seed_callback_inbox "$WORK_DIR/update-user-event.json"
 
 wait_mysql_scalar "SELECT COUNT(*) FROM mc_work_employee WHERE corp_id = 1 AND wx_user_id = 'go-worker-user' AND name = 'Go回调员工更新' AND deleted_at IS NULL;" "1"
 wait_redis_scalar "0" LLEN mochat-go:wework-callback
@@ -608,7 +668,7 @@ cat >"$WORK_DIR/create-party-event.json" <<'JSON'
 {"corpId":1,"wxCorpId":"ww-worker","eventPath":"event.change_contact.create_party","message":{"ToUserName":"ww-worker","MsgType":"event","Event":"change_contact","ChangeType":"create_party","Id":"3","Name":"Go回调售后部","ParentId":"1","Order":"70"},"rawXml":"<xml/>","receivedAt":"2026-07-04 00:00:02"}
 JSON
 
-compose exec -T redis redis-cli -x RPUSH mochat-go:wework-callback <"$WORK_DIR/create-party-event.json" >/dev/null
+seed_callback_inbox "$WORK_DIR/create-party-event.json"
 
 wait_mysql_scalar "SELECT COUNT(*) FROM mc_work_department child JOIN mc_work_department parent ON parent.id = child.parent_id WHERE child.corp_id = 1 AND child.wx_department_id = 3 AND child.name = 'Go回调售后部' AND child.wx_parentid = 1 AND child.\`order\` = 70 AND child.level = 1 AND child.path <> '' AND child.deleted_at IS NULL AND parent.wx_department_id = 1 AND parent.deleted_at IS NULL;" "1"
 wait_redis_scalar "0" LLEN mochat-go:wework-callback
@@ -619,7 +679,7 @@ cat >"$WORK_DIR/update-party-event.json" <<'JSON'
 {"corpId":1,"wxCorpId":"ww-worker","eventPath":"event.change_contact.update_party","message":{"ToUserName":"ww-worker","MsgType":"event","Event":"change_contact","ChangeType":"update_party","Id":"3","Name":"Go回调售后部更新","ParentId":"2","Order":"60"},"rawXml":"<xml/>","receivedAt":"2026-07-04 00:00:03"}
 JSON
 
-compose exec -T redis redis-cli -x RPUSH mochat-go:wework-callback <"$WORK_DIR/update-party-event.json" >/dev/null
+seed_callback_inbox "$WORK_DIR/update-party-event.json"
 
 wait_mysql_scalar "SELECT COUNT(*) FROM mc_work_department child JOIN mc_work_department parent ON parent.id = child.parent_id WHERE child.corp_id = 1 AND child.wx_department_id = 3 AND child.name = 'Go回调售后部更新' AND child.wx_parentid = 2 AND child.\`order\` = 60 AND child.level = 2 AND child.path <> '' AND child.deleted_at IS NULL AND parent.wx_department_id = 2 AND parent.deleted_at IS NULL;" "1"
 wait_redis_scalar "0" LLEN mochat-go:wework-callback
@@ -630,7 +690,7 @@ cat >"$WORK_DIR/delete-party-event.json" <<'JSON'
 {"corpId":1,"wxCorpId":"ww-worker","eventPath":"event.change_contact.delete_party","message":{"ToUserName":"ww-worker","MsgType":"event","Event":"change_contact","ChangeType":"delete_party","Id":"3"},"rawXml":"<xml/>","receivedAt":"2026-07-04 00:00:04"}
 JSON
 
-compose exec -T redis redis-cli -x RPUSH mochat-go:wework-callback <"$WORK_DIR/delete-party-event.json" >/dev/null
+seed_callback_inbox "$WORK_DIR/delete-party-event.json"
 
 wait_mysql_scalar "SELECT COUNT(*) FROM mc_work_department WHERE corp_id = 1 AND wx_department_id = 3 AND deleted_at IS NOT NULL;" "1"
 wait_redis_scalar "0" LLEN mochat-go:wework-callback
@@ -641,7 +701,7 @@ cat >"$WORK_DIR/create-tag-event.json" <<'JSON'
 {"corpId":1,"wxCorpId":"ww-worker","eventPath":"event.change_external_tag.create","message":{"ToUserName":"ww-worker","MsgType":"event","Event":"change_external_tag","ChangeType":"create","TagType":"tag","Id":"tag-callback"},"rawXml":"<xml/>","receivedAt":"2026-07-04 00:00:05"}
 JSON
 
-compose exec -T redis redis-cli -x RPUSH mochat-go:wework-callback <"$WORK_DIR/create-tag-event.json" >/dev/null
+seed_callback_inbox "$WORK_DIR/create-tag-event.json"
 
 wait_mysql_scalar "SELECT COUNT(*) FROM mc_work_contact_tag tag JOIN mc_work_contact_tag_group grp ON grp.id = tag.contact_tag_group_id WHERE tag.corp_id = 1 AND tag.wx_contact_tag_id = 'tag-callback' AND tag.name = 'Go回调标签' AND tag.\`order\` = 31 AND tag.deleted_at IS NULL AND grp.wx_group_id = 'tag-group-callback' AND grp.group_name = 'Go回调标签组' AND grp.deleted_at IS NULL;" "1"
 wait_redis_scalar "0" LLEN mochat-go:wework-callback
@@ -652,7 +712,7 @@ cat >"$WORK_DIR/update-tag-event.json" <<'JSON'
 {"corpId":1,"wxCorpId":"ww-worker","eventPath":"event.change_external_tag.update","message":{"ToUserName":"ww-worker","MsgType":"event","Event":"change_external_tag","ChangeType":"update","TagType":"tag","Id":"tag-callback"},"rawXml":"<xml/>","receivedAt":"2026-07-04 00:00:06"}
 JSON
 
-compose exec -T redis redis-cli -x RPUSH mochat-go:wework-callback <"$WORK_DIR/update-tag-event.json" >/dev/null
+seed_callback_inbox "$WORK_DIR/update-tag-event.json"
 
 wait_mysql_scalar "SELECT COUNT(*) FROM mc_work_contact_tag WHERE corp_id = 1 AND wx_contact_tag_id = 'tag-callback' AND name = 'Go回调标签更新' AND deleted_at IS NULL;" "1"
 wait_redis_scalar "0" LLEN mochat-go:wework-callback
@@ -906,7 +966,7 @@ cat >"$WORK_DIR/add-contact-event.json" <<'JSON'
 {"corpId":1,"wxCorpId":"ww-worker","eventPath":"event.change_external_contact.add_external_contact","message":{"ToUserName":"ww-worker","MsgType":"event","Event":"change_external_contact","ChangeType":"add_external_contact","UserID":"go-worker-user","ExternalUserID":"external-callback","State":"channelCode-900","WelcomeCode":"welcome-code"},"rawXml":"<xml/>","receivedAt":"2026-07-04 00:00:07"}
 JSON
 
-compose exec -T redis redis-cli -x RPUSH mochat-go:wework-callback <"$WORK_DIR/add-contact-event.json" >/dev/null
+seed_callback_inbox "$WORK_DIR/add-contact-event.json"
 
 wait_mysql_scalar "SELECT COUNT(*) FROM mc_work_contact WHERE corp_id = 1 AND wx_external_userid = 'external-callback' AND name = 'Go回调客户' AND business_no = 'GO-CALLBACK-1' AND deleted_at IS NULL;" "1"
 wait_mysql_scalar "SELECT COUNT(*) FROM mc_work_contact_employee rel JOIN mc_work_contact contact ON contact.id = rel.contact_id WHERE rel.corp_id = 1 AND contact.wx_external_userid = 'external-callback' AND rel.employee_id = (SELECT id FROM mc_work_employee WHERE corp_id = 1 AND wx_user_id = 'go-worker-user' LIMIT 1) AND rel.remark = 'Go回调客户备注' AND rel.description = 'Go回调客户描述' AND rel.add_way = 2 AND rel.status = 1 AND rel.deleted_at IS NULL AND contact.deleted_at IS NULL;" "1"
@@ -951,7 +1011,7 @@ cat >"$WORK_DIR/auto-pull-contact-event.json" <<'JSON'
 {"corpId":1,"wxCorpId":"ww-worker","eventPath":"event.change_external_contact.add_external_contact","message":{"ToUserName":"ww-worker","MsgType":"event","Event":"change_external_contact","ChangeType":"add_external_contact","UserID":"go-worker-user","ExternalUserID":"external-auto-pull","State":"workRoomAutoPullId-901","WelcomeCode":"auto-pull-welcome-code"},"rawXml":"<xml/>","receivedAt":"2026-07-04 00:00:07"}
 JSON
 
-compose exec -T redis redis-cli -x RPUSH mochat-go:wework-callback <"$WORK_DIR/auto-pull-contact-event.json" >/dev/null
+seed_callback_inbox "$WORK_DIR/auto-pull-contact-event.json"
 
 wait_mysql_scalar "SELECT COUNT(*) FROM mc_work_contact WHERE corp_id = 1 AND wx_external_userid = 'external-auto-pull' AND name = 'Go回调自动拉群客户' AND business_no = 'GO-AUTO-PULL-1' AND deleted_at IS NULL;" "1"
 wait_mysql_scalar "SELECT COUNT(*) FROM mc_work_contact_employee rel JOIN mc_work_contact contact ON contact.id = rel.contact_id WHERE rel.corp_id = 1 AND contact.wx_external_userid = 'external-auto-pull' AND rel.state = 'workRoomAutoPullId-901' AND rel.status = 1 AND rel.deleted_at IS NULL AND contact.deleted_at IS NULL;" "1"
@@ -968,7 +1028,7 @@ cat >"$WORK_DIR/fission-contact-event.json" <<'JSON'
 {"corpId":1,"wxCorpId":"ww-worker","eventPath":"event.change_external_contact.add_external_contact","message":{"ToUserName":"ww-worker","MsgType":"event","Event":"change_external_contact","ChangeType":"add_external_contact","UserID":"go-worker-user","ExternalUserID":"external-fission","State":"fission-903","WelcomeCode":"fission-welcome-code"},"rawXml":"<xml/>","receivedAt":"2026-07-04 00:00:07"}
 JSON
 
-compose exec -T redis redis-cli -x RPUSH mochat-go:wework-callback <"$WORK_DIR/fission-contact-event.json" >/dev/null
+seed_callback_inbox "$WORK_DIR/fission-contact-event.json"
 
 wait_mysql_scalar "SELECT COUNT(*) FROM mc_work_contact WHERE corp_id = 1 AND wx_external_userid = 'external-fission' AND name = 'Go回调裂变客户' AND business_no = 'GO-FISSION-1' AND deleted_at IS NULL;" "1"
 wait_mysql_scalar "SELECT COUNT(*) FROM mc_work_contact_employee rel JOIN mc_work_contact contact ON contact.id = rel.contact_id WHERE rel.corp_id = 1 AND contact.wx_external_userid = 'external-fission' AND rel.state = 'fission-903' AND rel.status = 1 AND rel.deleted_at IS NULL AND contact.deleted_at IS NULL;" "1"
@@ -992,7 +1052,7 @@ cat >"$WORK_DIR/delete-fission-contact-event.json" <<'JSON'
 {"corpId":1,"wxCorpId":"ww-worker","eventPath":"event.change_external_contact.del_external_contact","message":{"ToUserName":"ww-worker","MsgType":"event","Event":"change_external_contact","ChangeType":"del_external_contact","UserID":"go-worker-user","ExternalUserID":"external-fission"},"rawXml":"<xml/>","receivedAt":"2026-07-04 00:00:08"}
 JSON
 
-compose exec -T redis redis-cli -x RPUSH mochat-go:wework-callback <"$WORK_DIR/delete-fission-contact-event.json" >/dev/null
+seed_callback_inbox "$WORK_DIR/delete-fission-contact-event.json"
 
 wait_mysql_scalar "SELECT COUNT(*) FROM mc_work_fission_contact WHERE fission_id = 903 AND contact_superior_user_parent = 903 AND external_user_id = 'external-fission' AND loss = 1 AND deleted_at IS NULL;" "1"
 wait_mysql_scalar "SELECT COUNT(*) FROM mc_work_fission_contact WHERE id = 903 AND fission_id = 903 AND invite_count = 0 AND deleted_at IS NULL;" "1"
@@ -1006,7 +1066,7 @@ cat >"$WORK_DIR/edit-contact-event.json" <<'JSON'
 {"corpId":1,"wxCorpId":"ww-worker","eventPath":"event.change_external_contact.edit_external_contact","message":{"ToUserName":"ww-worker","MsgType":"event","Event":"change_external_contact","ChangeType":"edit_external_contact","UserID":"go-worker-user","ExternalUserID":"external-callback"},"rawXml":"<xml/>","receivedAt":"2026-07-04 00:00:09"}
 JSON
 
-compose exec -T redis redis-cli -x RPUSH mochat-go:wework-callback <"$WORK_DIR/edit-contact-event.json" >/dev/null
+seed_callback_inbox "$WORK_DIR/edit-contact-event.json"
 
 wait_mysql_scalar "SELECT COUNT(*) FROM mc_work_contact WHERE corp_id = 1 AND wx_external_userid = 'external-callback' AND name = 'Go回调客户更新' AND business_no = 'GO-CALLBACK-2' AND deleted_at IS NULL;" "1"
 wait_mysql_scalar "SELECT COUNT(*) FROM mc_work_contact_employee rel JOIN mc_work_contact contact ON contact.id = rel.contact_id WHERE rel.corp_id = 1 AND contact.wx_external_userid = 'external-callback' AND rel.remark = 'Go回调客户备注更新' AND rel.description = 'Go回调客户描述更新' AND rel.add_way = 3 AND rel.status = 1 AND rel.deleted_at IS NULL AND contact.deleted_at IS NULL;" "1"
@@ -1019,7 +1079,7 @@ cat >"$WORK_DIR/delete-contact-event.json" <<'JSON'
 {"corpId":1,"wxCorpId":"ww-worker","eventPath":"event.change_external_contact.del_external_contact","message":{"ToUserName":"ww-worker","MsgType":"event","Event":"change_external_contact","ChangeType":"del_external_contact","UserID":"go-worker-user","ExternalUserID":"external-callback"},"rawXml":"<xml/>","receivedAt":"2026-07-04 00:00:10"}
 JSON
 
-compose exec -T redis redis-cli -x RPUSH mochat-go:wework-callback <"$WORK_DIR/delete-contact-event.json" >/dev/null
+seed_callback_inbox "$WORK_DIR/delete-contact-event.json"
 
 wait_mysql_scalar "SELECT COUNT(*) FROM mc_work_contact_employee rel JOIN mc_work_contact contact ON contact.id = rel.contact_id WHERE rel.corp_id = 1 AND contact.wx_external_userid = 'external-callback' AND rel.status = 2 AND rel.deleted_at IS NOT NULL;" "1"
 wait_mysql_scalar "SELECT COUNT(*) FROM mc_work_contact WHERE corp_id = 1 AND wx_external_userid = 'external-callback' AND deleted_at IS NOT NULL;" "1"
@@ -1033,7 +1093,7 @@ cat >"$WORK_DIR/readd-contact-event.json" <<'JSON'
 {"corpId":1,"wxCorpId":"ww-worker","eventPath":"event.change_external_contact.add_external_contact","message":{"ToUserName":"ww-worker","MsgType":"event","Event":"change_external_contact","ChangeType":"add_external_contact","UserID":"go-worker-user","ExternalUserID":"external-callback","State":"callback-state"},"rawXml":"<xml/>","receivedAt":"2026-07-04 00:00:11"}
 JSON
 
-compose exec -T redis redis-cli -x RPUSH mochat-go:wework-callback <"$WORK_DIR/readd-contact-event.json" >/dev/null
+seed_callback_inbox "$WORK_DIR/readd-contact-event.json"
 
 wait_mysql_scalar "SELECT COUNT(*) FROM mc_work_contact WHERE corp_id = 1 AND wx_external_userid = 'external-callback' AND name = 'Go回调客户恢复' AND business_no = 'GO-CALLBACK-3' AND deleted_at IS NULL;" "1"
 wait_mysql_scalar "SELECT COUNT(*) FROM mc_work_contact_employee rel JOIN mc_work_contact contact ON contact.id = rel.contact_id WHERE rel.corp_id = 1 AND contact.wx_external_userid = 'external-callback' AND rel.remark = 'Go回调客户备注恢复' AND rel.add_way = 4 AND rel.status = 1 AND rel.deleted_at IS NULL AND contact.deleted_at IS NULL;" "1"
@@ -1047,7 +1107,7 @@ cat >"$WORK_DIR/delete-follow-contact-event.json" <<'JSON'
 {"corpId":1,"wxCorpId":"ww-worker","eventPath":"event.change_external_contact.del_follow_user","message":{"ToUserName":"ww-worker","MsgType":"event","Event":"change_external_contact","ChangeType":"del_follow_user","UserID":"go-worker-user","ExternalUserID":"external-callback"},"rawXml":"<xml/>","receivedAt":"2026-07-04 00:00:11"}
 JSON
 
-compose exec -T redis redis-cli -x RPUSH mochat-go:wework-callback <"$WORK_DIR/delete-follow-contact-event.json" >/dev/null
+seed_callback_inbox "$WORK_DIR/delete-follow-contact-event.json"
 
 wait_mysql_scalar "SELECT COUNT(*) FROM mc_work_contact_employee rel JOIN mc_work_contact contact ON contact.id = rel.contact_id WHERE rel.corp_id = 1 AND contact.wx_external_userid = 'external-callback' AND rel.status = 3 AND rel.deleted_at IS NOT NULL;" "1"
 wait_mysql_scalar "SELECT COUNT(*) FROM mc_work_contact WHERE corp_id = 1 AND wx_external_userid = 'external-callback' AND deleted_at IS NOT NULL;" "1"
@@ -1060,7 +1120,7 @@ cat >"$WORK_DIR/delete-tag-event.json" <<'JSON'
 {"corpId":1,"wxCorpId":"ww-worker","eventPath":"event.change_external_tag.delete","message":{"ToUserName":"ww-worker","MsgType":"event","Event":"change_external_tag","ChangeType":"delete","TagType":"tag","Id":"tag-callback"},"rawXml":"<xml/>","receivedAt":"2026-07-04 00:00:12"}
 JSON
 
-compose exec -T redis redis-cli -x RPUSH mochat-go:wework-callback <"$WORK_DIR/delete-tag-event.json" >/dev/null
+seed_callback_inbox "$WORK_DIR/delete-tag-event.json"
 
 wait_mysql_scalar "SELECT COUNT(*) FROM mc_work_contact_tag WHERE corp_id = 1 AND wx_contact_tag_id = 'tag-callback' AND deleted_at IS NOT NULL;" "1"
 wait_mysql_scalar "SELECT COUNT(*) FROM mc_work_contact_tag_group WHERE corp_id = 1 AND wx_group_id = 'tag-group-callback' AND deleted_at IS NULL;" "1"
@@ -1081,10 +1141,10 @@ cat >"$WORK_DIR/noop-transfer-fail-event.json" <<'JSON'
 {"corpId":1,"wxCorpId":"ww-worker","eventPath":"event.change_external_contact.transfer_fail","message":{"ToUserName":"ww-worker","MsgType":"event","Event":"change_external_contact","ChangeType":"transfer_fail","UserID":"go-worker-user","ExternalUserID":"external-callback"},"rawXml":"<xml/>","receivedAt":"2026-07-04 00:00:16"}
 JSON
 
-compose exec -T redis redis-cli -x RPUSH mochat-go:wework-callback <"$WORK_DIR/noop-shuffle-tag-event.json" >/dev/null
-compose exec -T redis redis-cli -x RPUSH mochat-go:wework-callback <"$WORK_DIR/noop-update-contact-tag-event.json" >/dev/null
-compose exec -T redis redis-cli -x RPUSH mochat-go:wework-callback <"$WORK_DIR/noop-half-contact-event.json" >/dev/null
-compose exec -T redis redis-cli -x RPUSH mochat-go:wework-callback <"$WORK_DIR/noop-transfer-fail-event.json" >/dev/null
+seed_callback_inbox "$WORK_DIR/noop-shuffle-tag-event.json"
+seed_callback_inbox "$WORK_DIR/noop-update-contact-tag-event.json"
+seed_callback_inbox "$WORK_DIR/noop-half-contact-event.json"
+seed_callback_inbox "$WORK_DIR/noop-transfer-fail-event.json"
 
 wait_mysql_scalar "SELECT COUNT(*) FROM mc_work_contact WHERE corp_id = 1 AND wx_external_userid = 'external-callback' AND deleted_at IS NOT NULL;" "1"
 wait_redis_scalar "0" LLEN mochat-go:wework-callback
@@ -1157,7 +1217,7 @@ cat >"$WORK_DIR/create-room-event.json" <<'JSON'
 {"corpId":1,"wxCorpId":"ww-worker","eventPath":"event.change_external_chat.create","message":{"ToUserName":"ww-worker","MsgType":"event","Event":"change_external_chat","ChangeType":"create","ChatId":"room-callback"},"rawXml":"<xml/>","receivedAt":"2026-07-04 00:00:08"}
 JSON
 
-compose exec -T redis redis-cli -x RPUSH mochat-go:wework-callback <"$WORK_DIR/create-room-event.json" >/dev/null
+seed_callback_inbox "$WORK_DIR/create-room-event.json"
 
 wait_mysql_scalar "SELECT COUNT(*) FROM mc_work_room room JOIN mc_work_employee employee ON employee.id = room.owner_id WHERE room.corp_id = 1 AND room.wx_chat_id = 'room-callback' AND room.name = 'Go回调单群更新' AND room.notice = '只同步回调指定客户群' AND room.status = 1 AND employee.wx_user_id = 'go-worker-user' AND room.deleted_at IS NULL;" "1"
 wait_mysql_scalar "SELECT COUNT(*) FROM mc_work_room WHERE corp_id = 1 AND wx_chat_id = 'room-stay' AND name = '不应删除客户群' AND deleted_at IS NULL;" "1"
@@ -1172,7 +1232,7 @@ cat >"$WORK_DIR/room-event.json" <<'JSON'
 {"corpId":1,"wxCorpId":"ww-worker","eventPath":"event.change_external_chat.update","message":{"ToUserName":"ww-worker","MsgType":"event","Event":"change_external_chat","ChangeType":"update","ChatId":"room-callback"},"rawXml":"<xml/>","receivedAt":"2026-07-04 00:00:08"}
 JSON
 
-compose exec -T redis redis-cli -x RPUSH mochat-go:wework-callback <"$WORK_DIR/room-event.json" >/dev/null
+seed_callback_inbox "$WORK_DIR/room-event.json"
 
 wait_mysql_scalar "SELECT COUNT(*) FROM mc_work_room room JOIN mc_work_employee employee ON employee.id = room.owner_id WHERE room.corp_id = 1 AND room.wx_chat_id = 'room-callback' AND room.name = 'Go回调单群更新' AND room.notice = '只同步回调指定客户群' AND room.status = 1 AND employee.wx_user_id = 'go-worker-user' AND room.deleted_at IS NULL;" "1"
 wait_mysql_scalar "SELECT COUNT(*) FROM mc_work_room WHERE corp_id = 1 AND wx_chat_id = 'room-stay' AND name = '不应删除客户群' AND deleted_at IS NULL;" "1"
@@ -1189,7 +1249,7 @@ cat >"$WORK_DIR/dismiss-room-event.json" <<'JSON'
 {"corpId":1,"wxCorpId":"ww-worker","eventPath":"event.change_external_chat.dismiss","message":{"ToUserName":"ww-worker","MsgType":"event","Event":"change_external_chat","ChangeType":"dismiss","ChatId":"room-callback"},"rawXml":"<xml/>","receivedAt":"2026-07-04 00:00:08"}
 JSON
 
-compose exec -T redis redis-cli -x RPUSH mochat-go:wework-callback <"$WORK_DIR/dismiss-room-event.json" >/dev/null
+seed_callback_inbox "$WORK_DIR/dismiss-room-event.json"
 
 wait_mysql_scalar "SELECT COUNT(*) FROM mc_work_room WHERE corp_id = 1 AND wx_chat_id = 'room-callback' AND deleted_at IS NOT NULL;" "1"
 wait_mysql_scalar "SELECT COUNT(*) FROM mc_work_room WHERE corp_id = 1 AND wx_chat_id = 'room-stay' AND name = '不应删除客户群' AND deleted_at IS NULL;" "1"
@@ -1201,7 +1261,7 @@ cat >"$WORK_DIR/delete-user-event.json" <<'JSON'
 {"corpId":1,"wxCorpId":"ww-worker","eventPath":"event.change_contact.delete_user","message":{"ToUserName":"ww-worker","MsgType":"event","Event":"change_contact","ChangeType":"delete_user","UserID":"go-worker-user"},"rawXml":"<xml/>","receivedAt":"2026-07-04 00:00:09"}
 JSON
 
-compose exec -T redis redis-cli -x RPUSH mochat-go:wework-callback <"$WORK_DIR/delete-user-event.json" >/dev/null
+seed_callback_inbox "$WORK_DIR/delete-user-event.json"
 
 wait_mysql_scalar "SELECT COUNT(*) FROM mc_work_employee WHERE corp_id = 1 AND wx_user_id = 'go-worker-user' AND deleted_at IS NOT NULL;" "1"
 wait_mysql_scalar "SELECT COUNT(*) FROM mc_work_employee_department wed JOIN mc_work_employee we ON we.id = wed.employee_id WHERE we.corp_id = 1 AND we.wx_user_id = 'go-worker-user' AND wed.deleted_at IS NOT NULL;" "1"
@@ -1213,6 +1273,6 @@ wait_redis_scalar "0" LLEN mochat-go:wework-callback
 wait_redis_scalar "0" LLEN mochat-go:wework-callback:processing
 wait_redis_scalar "0" LLEN mochat-go:wework-callback:dead
 
-grep -q "go worker enabled: WeWork callback Redis consumer" "$GO_LOG"
+grep -q "go worker enabled: durable MySQL WeWork callback inbox consumer" "$GO_LOG"
 
 echo "wework callback worker smoke passed"

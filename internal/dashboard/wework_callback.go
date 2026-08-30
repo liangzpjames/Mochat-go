@@ -21,6 +21,7 @@ import (
 )
 
 type WeWorkCallbackCorp struct {
+	TenantID       int
 	ID             int
 	WxCorpID       string
 	Token          string
@@ -30,38 +31,45 @@ type WeWorkCallbackCorp struct {
 type WeWorkCallbackStore interface {
 	WeWorkCallbackCorpByID(ctx context.Context, corpID int) (WeWorkCallbackCorp, bool, error)
 	WeWorkCallbackCorpByWXID(ctx context.Context, wxCorpID string) (WeWorkCallbackCorp, bool, error)
-}
-
-type WeWorkCallbackQueue interface {
-	EnqueueWeWorkCallback(ctx context.Context, event WeWorkCallbackEvent) error
+	WeWorkCallbackInboxStore
 }
 
 type WeWorkCallbackEvent struct {
+	TenantID   int               `json:"tenantId"`
 	CorpID     int               `json:"corpId"`
 	WxCorpID   string            `json:"wxCorpId"`
 	EventPath  string            `json:"eventPath"`
 	Message    map[string]string `json:"message"`
-	RawXML     string            `json:"rawXml"`
+	RawXML     string            `json:"rawXml,omitempty"`
 	ReceivedAt string            `json:"receivedAt"`
-}
-
-type WeWorkCallbackDelivery struct {
-	Event    WeWorkCallbackEvent
-	Raw      string
-	Attempts int
+	EventKey   string            `json:"-"`
+	LeaseFence uint64            `json:"-"`
 }
 
 type WeWorkCallbackHandler struct {
-	store WeWorkCallbackStore
-	queue WeWorkCallbackQueue
-	now   func() time.Time
+	store             WeWorkCallbackStore
+	wakeup            WeWorkCallbackWakeup
+	now               func() time.Time
+	acceptanceTimeout time.Duration
 }
 
-func NewWeWorkCallbackHandler(store WeWorkCallbackStore, queue WeWorkCallbackQueue) *WeWorkCallbackHandler {
-	return &WeWorkCallbackHandler{store: store, queue: queue, now: time.Now}
+func NewWeWorkCallbackHandler(store WeWorkCallbackStore, wakeup WeWorkCallbackWakeup) *WeWorkCallbackHandler {
+	return &WeWorkCallbackHandler{store: store, wakeup: wakeup, now: time.Now, acceptanceTimeout: 3 * time.Second}
+}
+
+func (h *WeWorkCallbackHandler) WithAcceptanceTimeout(timeout time.Duration) *WeWorkCallbackHandler {
+	if timeout > 0 {
+		h.acceptanceTimeout = timeout
+	}
+	return h
 }
 
 func (h *WeWorkCallbackHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if h.acceptanceTimeout > 0 {
+		ctx, cancel := context.WithTimeout(r.Context(), h.acceptanceTimeout)
+		defer cancel()
+		r = r.WithContext(ctx)
+	}
 	switch r.Method {
 	case http.MethodGet:
 		h.verifyURL(w, r)
@@ -78,7 +86,11 @@ func (h *WeWorkCallbackHandler) verifyURL(w http.ResponseWriter, r *http.Request
 		http.Error(w, "missing echostr", http.StatusBadRequest)
 		return
 	}
-	corp, ok := h.callbackCorp(r, "")
+	corp, ok, err := h.callbackCorp(r, "")
+	if err != nil {
+		http.Error(w, "callback store unavailable", http.StatusServiceUnavailable)
+		return
+	}
 	if !ok {
 		http.Error(w, "corp not found", http.StatusBadRequest)
 		return
@@ -97,6 +109,10 @@ func (h *WeWorkCallbackHandler) verifyURL(w http.ResponseWriter, r *http.Request
 }
 
 func (h *WeWorkCallbackHandler) receiveEvent(w http.ResponseWriter, r *http.Request) {
+	if !weWorkCallbackTimestampFresh(r.URL.Query().Get("timestamp"), h.now(), 10*time.Minute) {
+		http.Error(w, "stale timestamp", http.StatusBadRequest)
+		return
+	}
 	body, err := io.ReadAll(io.LimitReader(r.Body, 2<<20))
 	if err != nil {
 		http.Error(w, "read body failed", http.StatusBadRequest)
@@ -107,7 +123,11 @@ func (h *WeWorkCallbackHandler) receiveEvent(w http.ResponseWriter, r *http.Requ
 		http.Error(w, "invalid body", http.StatusBadRequest)
 		return
 	}
-	corp, ok := h.callbackCorp(r, wrapper.ToUserName)
+	corp, ok, err := h.callbackCorp(r, wrapper.ToUserName)
+	if err != nil {
+		http.Error(w, "callback store unavailable", http.StatusServiceUnavailable)
+		return
+	}
 	if !ok {
 		http.Error(w, "corp not found", http.StatusBadRequest)
 		return
@@ -126,37 +146,58 @@ func (h *WeWorkCallbackHandler) receiveEvent(w http.ResponseWriter, r *http.Requ
 		http.Error(w, "invalid message", http.StatusBadRequest)
 		return
 	}
-	if h.queue != nil {
-		_ = h.queue.EnqueueWeWorkCallback(r.Context(), WeWorkCallbackEvent{
-			CorpID:     corp.ID,
-			WxCorpID:   corp.WxCorpID,
-			EventPath:  weWorkEventPath(message),
-			Message:    message,
-			RawXML:     string(plain),
-			ReceivedAt: h.now().Format("2006-01-02 15:04:05"),
-		})
+	event := WeWorkCallbackEvent{
+		TenantID:   corp.TenantID,
+		CorpID:     corp.ID,
+		WxCorpID:   corp.WxCorpID,
+		EventPath:  weWorkEventPath(message),
+		Message:    normalizedWeWorkCallbackMessage(message),
+		ReceivedAt: h.now().Format("2006-01-02 15:04:05"),
+	}
+	_, err = h.store.AcceptWeWorkCallback(r.Context(), event, WeWorkCallbackEventKey(event), WeWorkCallbackPayloadFingerprint(event))
+	if errors.Is(err, ErrWeWorkCallbackConflict) {
+		http.Error(w, "callback payload conflicts with accepted event", http.StatusConflict)
+		return
+	}
+	if err != nil {
+		http.Error(w, "callback store unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	if h.wakeup != nil {
+		wakeupCtx, cancel := context.WithTimeout(r.Context(), 50*time.Millisecond)
+		_ = h.wakeup.WakeWeWorkCallback(wakeupCtx)
+		cancel()
 	}
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	_, _ = w.Write([]byte("success"))
 }
 
-func (h *WeWorkCallbackHandler) callbackCorp(r *http.Request, wxCorpID string) (WeWorkCallbackCorp, bool) {
+func (h *WeWorkCallbackHandler) callbackCorp(r *http.Request, wxCorpID string) (WeWorkCallbackCorp, bool, error) {
 	if h.store == nil {
-		return WeWorkCallbackCorp{}, false
+		return WeWorkCallbackCorp{}, false, errors.New("callback store is not configured")
 	}
 	ctx := r.Context()
 	if corpID := positiveStringInt(r.URL.Query().Get("cid")); corpID > 0 {
 		corp, found, err := h.store.WeWorkCallbackCorpByID(ctx, corpID)
-		return corp, found && err == nil
+		return corp, found, err
 	}
 	if wxCorpID == "" {
 		wxCorpID = r.URL.Query().Get("ToUserName")
 	}
 	if strings.TrimSpace(wxCorpID) == "" {
-		return WeWorkCallbackCorp{}, false
+		return WeWorkCallbackCorp{}, false, nil
 	}
 	corp, found, err := h.store.WeWorkCallbackCorpByWXID(ctx, strings.TrimSpace(wxCorpID))
-	return corp, found && err == nil
+	return corp, found, err
+}
+
+func weWorkCallbackTimestampFresh(raw string, now time.Time, tolerance time.Duration) bool {
+	seconds, err := strconv.ParseInt(strings.TrimSpace(raw), 10, 64)
+	if err != nil || seconds <= 0 || tolerance <= 0 {
+		return false
+	}
+	delta := now.Sub(time.Unix(seconds, 0))
+	return delta >= -tolerance && delta <= tolerance
 }
 
 type weWorkEncryptedXML struct {

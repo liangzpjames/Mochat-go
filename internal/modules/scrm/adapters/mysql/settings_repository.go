@@ -6,22 +6,11 @@ import (
 	"encoding/json"
 	"errors"
 	"github.com/google/uuid"
+	"jiyi/mochat-go/internal/modules/scrm/ports"
 	"time"
 )
 
-type SCRMSetting struct {
-	ID        string    `json:"id"`
-	TenantID  int64     `json:"tenantId"`
-	CorpID    int64     `json:"corpId"`
-	Type      string    `json:"type"`
-	Key       string    `json:"key"`
-	Label     string    `json:"label"`
-	Value     any       `json:"value"`
-	Enabled   bool      `json:"enabled"`
-	Version   int64     `json:"version"`
-	UpdatedBy int64     `json:"updatedBy"`
-	UpdatedAt time.Time `json:"updatedAt"`
-}
+type SCRMSetting = ports.SCRMSetting
 type SQLSettingsRepository struct{ db *sql.DB }
 
 func NewSQLSettingsRepository(db *sql.DB) (*SQLSettingsRepository, error) {
@@ -30,7 +19,7 @@ func NewSQLSettingsRepository(db *sql.DB) (*SQLSettingsRepository, error) {
 	}
 	return &SQLSettingsRepository{db: db}, nil
 }
-func (r *SQLSettingsRepository) List(ctx context.Context, t, c int64, typ string) ([]SCRMSetting, error) {
+func (r *SQLSettingsRepository) List(ctx context.Context, t, c int64, typ string) ([]ports.SCRMSetting, error) {
 	q := `SELECT id,tenant_id,corp_id,setting_type,setting_key,label,value_json,enabled,version,updated_by,updated_at FROM mochat_go_scrm_settings WHERE tenant_id=? AND corp_id=? AND deleted_at IS NULL`
 	a := []any{t, c}
 	if typ != "" {
@@ -42,9 +31,9 @@ func (r *SQLSettingsRepository) List(ctx context.Context, t, c int64, typ string
 		return nil, e
 	}
 	defer rows.Close()
-	out := []SCRMSetting{}
+	out := []ports.SCRMSetting{}
 	for rows.Next() {
-		var s SCRMSetting
+		var s ports.SCRMSetting
 		var raw []byte
 		var en int
 		if e := rows.Scan(&s.ID, &s.TenantID, &s.CorpID, &s.Type, &s.Key, &s.Label, &raw, &en, &s.Version, &s.UpdatedBy, &s.UpdatedAt); e != nil {
@@ -56,7 +45,7 @@ func (r *SQLSettingsRepository) List(ctx context.Context, t, c int64, typ string
 	}
 	return out, rows.Err()
 }
-func (r *SQLSettingsRepository) Upsert(ctx context.Context, s SCRMSetting, actor int64) (SCRMSetting, error) {
+func (r *SQLSettingsRepository) Upsert(ctx context.Context, s ports.SCRMSetting, actor int64) (ports.SCRMSetting, error) {
 	raw, e := json.Marshal(s.Value)
 	if e != nil {
 		return s, e

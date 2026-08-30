@@ -1,749 +1,926 @@
 {
   "dashboard:/autoTag/dayPartCreate": {
     "target": "react",
-    "playwrightRun": "playwright-run.json",
+    "playwrightRun": null,
     "preservesQueryAndHash": true,
     "desktopScreenshot": "screenshots/dashboard--autoTag__dayPartCreate--desktop.png",
     "desktopSha256": "e6fe04cf2964184db56ead54cf744db72d672684e743872afbd2323d10a08ed5",
     "mobileScreenshot": "screenshots/dashboard--autoTag__dayPartCreate--mobile.png",
-    "mobileSha256": "306b52e62b8df1d427710c59df8e166eac003ab44ad92fa5bda570fa219a41c7"
+    "mobileSha256": "306b52e62b8df1d427710c59df8e166eac003ab44ad92fa5bda570fa219a41c7",
+    "currentReachable": false,
+    "evidenceStatus": "historical"
   },
   "dashboard:/autoTag/dayPartIndex": {
     "target": "react",
-    "playwrightRun": "playwright-run.json",
+    "playwrightRun": null,
     "preservesQueryAndHash": true,
     "desktopScreenshot": "screenshots/dashboard--autoTag__dayPartIndex--desktop.png",
     "desktopSha256": "a23097d2895e75c3c85aec47175a5686df07f182900bda2378a555555d2427f6",
     "mobileScreenshot": "screenshots/dashboard--autoTag__dayPartIndex--mobile.png",
-    "mobileSha256": "380413940195b2d9510b9d143b109d735265516b433b0010392f55c5b8a58620"
+    "mobileSha256": "380413940195b2d9510b9d143b109d735265516b433b0010392f55c5b8a58620",
+    "currentReachable": false,
+    "evidenceStatus": "historical"
   },
   "dashboard:/autoTag/dayPartShow": {
     "target": "react",
-    "playwrightRun": "playwright-run.json",
+    "playwrightRun": null,
     "preservesQueryAndHash": true,
     "desktopScreenshot": "screenshots/dashboard--autoTag__dayPartShow--desktop.png",
     "desktopSha256": "854fb44b77012574945131c43193af6ead5665213f71ddc43bafa7a3466207a7",
     "mobileScreenshot": "screenshots/dashboard--autoTag__dayPartShow--mobile.png",
-    "mobileSha256": "78db73da9073cfe58f585535fd971d8cbeb962f6a0f77c0b9dce951e10a760e3"
+    "mobileSha256": "78db73da9073cfe58f585535fd971d8cbeb962f6a0f77c0b9dce951e10a760e3",
+    "currentReachable": false,
+    "evidenceStatus": "historical"
   },
   "dashboard:/autoTag/joinRoomCreate": {
     "target": "react",
-    "playwrightRun": "playwright-run.json",
+    "playwrightRun": null,
     "preservesQueryAndHash": true,
     "desktopScreenshot": "screenshots/dashboard--autoTag__joinRoomCreate--desktop.png",
     "desktopSha256": "2d60cb1585d89d732d10e6e2a65e349b71df739f47ed3580f7a6549c1535b2a8",
     "mobileScreenshot": "screenshots/dashboard--autoTag__joinRoomCreate--mobile.png",
-    "mobileSha256": "9609d37a07dab2bff87d3d435c9465b691d5de9cf856e4bf78b0f0f6ba4ccf7e"
+    "mobileSha256": "9609d37a07dab2bff87d3d435c9465b691d5de9cf856e4bf78b0f0f6ba4ccf7e",
+    "currentReachable": false,
+    "evidenceStatus": "historical"
   },
   "dashboard:/autoTag/joinRoomIndex": {
     "target": "react",
-    "playwrightRun": "playwright-run.json",
+    "playwrightRun": null,
     "preservesQueryAndHash": true,
     "desktopScreenshot": "screenshots/dashboard--autoTag__joinRoomIndex--desktop.png",
     "desktopSha256": "2737829486b7124e1e5d2a2bbc2562f19c9f27ded21d06d67506023ab2ec070a",
     "mobileScreenshot": "screenshots/dashboard--autoTag__joinRoomIndex--mobile.png",
-    "mobileSha256": "c9af2edb961bd26bbf99343ebbcafca54af49ad22cd2bdb441ea18ae63040ebe"
+    "mobileSha256": "c9af2edb961bd26bbf99343ebbcafca54af49ad22cd2bdb441ea18ae63040ebe",
+    "currentReachable": false,
+    "evidenceStatus": "historical"
   },
   "dashboard:/autoTag/joinRoomShow": {
     "target": "react",
-    "playwrightRun": "playwright-run.json",
+    "playwrightRun": null,
     "preservesQueryAndHash": true,
     "desktopScreenshot": "screenshots/dashboard--autoTag__joinRoomShow--desktop.png",
     "desktopSha256": "66e0cb7971a986b7003db428e0eb5b75f0cabcd33724ceb1d9b72200ae99dbc5",
     "mobileScreenshot": "screenshots/dashboard--autoTag__joinRoomShow--mobile.png",
-    "mobileSha256": "32f9916a57d30c626172239296a31ae7045c73677e7f26813b02b32ceb5fbd06"
+    "mobileSha256": "32f9916a57d30c626172239296a31ae7045c73677e7f26813b02b32ceb5fbd06",
+    "currentReachable": false,
+    "evidenceStatus": "historical"
   },
   "dashboard:/autoTag/keywordCreate": {
     "target": "react",
-    "playwrightRun": "playwright-run.json",
+    "playwrightRun": null,
     "preservesQueryAndHash": true,
     "desktopScreenshot": "screenshots/dashboard--autoTag__keywordCreate--desktop.png",
     "desktopSha256": "f7a9dba743680255dca0c17407f4cf86d259dccab7c1fcb742e7ebeddecd4d72",
     "mobileScreenshot": "screenshots/dashboard--autoTag__keywordCreate--mobile.png",
-    "mobileSha256": "c87d822fe09d2d63eed33ddc333302e4c9c6efa4bc7523a5edbe44d51cc0fdda"
+    "mobileSha256": "c87d822fe09d2d63eed33ddc333302e4c9c6efa4bc7523a5edbe44d51cc0fdda",
+    "currentReachable": false,
+    "evidenceStatus": "historical"
   },
   "dashboard:/autoTag/keywordIndex": {
     "target": "react",
-    "playwrightRun": "playwright-run.json",
+    "playwrightRun": null,
     "preservesQueryAndHash": true,
     "desktopScreenshot": "screenshots/dashboard--autoTag__keywordIndex--desktop.png",
     "desktopSha256": "8251bf2ca966ac860f057fe5dae714bc2fa7b78fa23ce43d0d7a4d7fd0c6714f",
     "mobileScreenshot": "screenshots/dashboard--autoTag__keywordIndex--mobile.png",
-    "mobileSha256": "8c0e66a740248a33262afb320dff2563f3dea176d1e2056a1218ae09f6635929"
+    "mobileSha256": "8c0e66a740248a33262afb320dff2563f3dea176d1e2056a1218ae09f6635929",
+    "currentReachable": false,
+    "evidenceStatus": "historical"
   },
   "dashboard:/autoTag/keywordShow": {
     "target": "react",
-    "playwrightRun": "playwright-run.json",
+    "playwrightRun": null,
     "preservesQueryAndHash": true,
     "desktopScreenshot": "screenshots/dashboard--autoTag__keywordShow--desktop.png",
     "desktopSha256": "a3f5e99ce3483498ec346b82484d3a23329d5afc62ac0b900c7958ed41aaf024",
     "mobileScreenshot": "screenshots/dashboard--autoTag__keywordShow--mobile.png",
-    "mobileSha256": "df1a4327c453991dca27f38149b089890e3e0f52440151df60c3ab9b3a7cfa78"
+    "mobileSha256": "df1a4327c453991dca27f38149b089890e3e0f52440151df60c3ab9b3a7cfa78",
+    "currentReachable": false,
+    "evidenceStatus": "historical"
   },
   "dashboard:/channelCode/index": {
     "target": "react",
-    "playwrightRun": "playwright-run.json",
+    "playwrightRun": null,
     "preservesQueryAndHash": true,
     "desktopScreenshot": "screenshots/dashboard--channelCode__index--desktop.png",
     "desktopSha256": "b2d79fde3ce1381adbd8df0ada2bf141cf10242be7db5f5052650e0a82157a90",
     "mobileScreenshot": "screenshots/dashboard--channelCode__index--mobile.png",
-    "mobileSha256": "bd8b73f9c8e564169824093df3101c77aea37dfafa6007af83bc6e6982217d71"
+    "mobileSha256": "bd8b73f9c8e564169824093df3101c77aea37dfafa6007af83bc6e6982217d71",
+    "currentReachable": false,
+    "evidenceStatus": "historical"
   },
   "dashboard:/channelCode/statistics": {
     "target": "react",
-    "playwrightRun": "playwright-run.json",
+    "playwrightRun": null,
     "preservesQueryAndHash": true,
     "desktopScreenshot": "screenshots/dashboard--channelCode__statistics--desktop.png",
     "desktopSha256": "a1b11b9d587532f805c4f681e2920b027d3c6eba2d93919e6dd2787b8c6ea75c",
     "mobileScreenshot": "screenshots/dashboard--channelCode__statistics--mobile.png",
-    "mobileSha256": "6616895e02b2eb1d2497d6a6bd1d61c062904fd4d02838ce6ae1f0df0c76a374"
+    "mobileSha256": "6616895e02b2eb1d2497d6a6bd1d61c062904fd4d02838ce6ae1f0df0c76a374",
+    "currentReachable": false,
+    "evidenceStatus": "historical"
   },
   "dashboard:/channelCode/store": {
     "target": "react",
-    "playwrightRun": "playwright-run.json",
+    "playwrightRun": null,
     "preservesQueryAndHash": true,
     "desktopScreenshot": "screenshots/dashboard--channelCode__store--desktop.png",
     "desktopSha256": "4909e52736649484d08f8198bbce20e2d702890ca9abb6162faa2158379574af",
     "mobileScreenshot": "screenshots/dashboard--channelCode__store--mobile.png",
-    "mobileSha256": "9c9810739560549a8e9ad92a2611e8462639a36f6c0f830d7f1f167443ae38a8"
+    "mobileSha256": "9c9810739560549a8e9ad92a2611e8462639a36f6c0f830d7f1f167443ae38a8",
+    "currentReachable": false,
+    "evidenceStatus": "historical"
   },
   "dashboard:/chatTool/customer": {
     "target": "react",
-    "playwrightRun": "playwright-run.json",
+    "playwrightRun": null,
     "preservesQueryAndHash": true,
     "desktopScreenshot": "screenshots/dashboard--chatTool__customer--desktop.png",
     "desktopSha256": "55f7d9ebc50d82c8be27dd84f468e40f083c6f24728c5d653c70911f83374b3a",
     "mobileScreenshot": "screenshots/dashboard--chatTool__customer--mobile.png",
-    "mobileSha256": "b982aaad1438255a75191675bb592eb5a542f2aa871d48b93eabc9063b44ec28"
+    "mobileSha256": "b982aaad1438255a75191675bb592eb5a542f2aa871d48b93eabc9063b44ec28",
+    "currentReachable": false,
+    "evidenceStatus": "historical"
   },
   "dashboard:/chatTool/enhance": {
     "target": "react",
-    "playwrightRun": "playwright-run.json",
+    "playwrightRun": null,
     "preservesQueryAndHash": true,
     "desktopScreenshot": "screenshots/dashboard--chatTool__enhance--desktop.png",
     "desktopSha256": "67ddc90ec775a3a41611f88e357ff07ea2a198d6628596260138fb13d1c2ccd0",
     "mobileScreenshot": "screenshots/dashboard--chatTool__enhance--mobile.png",
-    "mobileSha256": "7e10d9f1f23d6d98e8efba3e037d95cf60f37bfbcde127a77492fd0a4ac1ade4"
+    "mobileSha256": "7e10d9f1f23d6d98e8efba3e037d95cf60f37bfbcde127a77492fd0a4ac1ade4",
+    "currentReachable": false,
+    "evidenceStatus": "historical"
   },
   "dashboard:/contactField/index": {
     "target": "react",
-    "playwrightRun": "playwright-run.json",
+    "playwrightRun": null,
     "preservesQueryAndHash": true,
     "desktopScreenshot": "screenshots/dashboard--contactField__index--desktop.png",
     "desktopSha256": "a49c14ef433a02a2a945b74642d9c7cb37f7512d7cf4440432d9ef2534b24f80",
     "mobileScreenshot": "screenshots/dashboard--contactField__index--mobile.png",
-    "mobileSha256": "830782d54fb6fcc1a1d012be3c44bfeb4230c2533ecd40f0733bd6bf87a9e1fd"
+    "mobileSha256": "830782d54fb6fcc1a1d012be3c44bfeb4230c2533ecd40f0733bd6bf87a9e1fd",
+    "currentReachable": false,
+    "evidenceStatus": "historical"
   },
   "dashboard:/contactMessageBatchSend/index": {
     "target": "react",
-    "playwrightRun": "playwright-run.json",
+    "playwrightRun": null,
     "preservesQueryAndHash": true,
     "desktopScreenshot": "screenshots/dashboard--contactMessageBatchSend__index--desktop.png",
     "desktopSha256": "460dc430613d9c05fcadb6cfb2e03750ddae7fcc387e0df16ca21e29f85584ce",
     "mobileScreenshot": "screenshots/dashboard--contactMessageBatchSend__index--mobile.png",
-    "mobileSha256": "bee6c7d3ccc817d496f955604eb8f9bb420a2f62de67423947e6374f4fdf571e"
+    "mobileSha256": "bee6c7d3ccc817d496f955604eb8f9bb420a2f62de67423947e6374f4fdf571e",
+    "currentReachable": false,
+    "evidenceStatus": "historical"
   },
   "dashboard:/contactMessageBatchSend/show": {
     "target": "react",
-    "playwrightRun": "playwright-run.json",
+    "playwrightRun": null,
     "preservesQueryAndHash": true,
     "desktopScreenshot": "screenshots/dashboard--contactMessageBatchSend__show--desktop.png",
     "desktopSha256": "f309d1f61d37c3a6a28f4c682a45e3c5e6dcee63ff8a12bd3590218aa462cf87",
     "mobileScreenshot": "screenshots/dashboard--contactMessageBatchSend__show--mobile.png",
-    "mobileSha256": "87fe8d4140fa460796260688d6efc6588d5be3a20c1d9c002d5d8fec0cf65e53"
+    "mobileSha256": "87fe8d4140fa460796260688d6efc6588d5be3a20c1d9c002d5d8fec0cf65e53",
+    "currentReachable": false,
+    "evidenceStatus": "historical"
   },
   "dashboard:/contactMessageBatchSend/store": {
     "target": "react",
-    "playwrightRun": "playwright-run.json",
+    "playwrightRun": null,
     "preservesQueryAndHash": true,
     "desktopScreenshot": "screenshots/dashboard--contactMessageBatchSend__store--desktop.png",
     "desktopSha256": "dac7d35d31f1e7afb003fb11ce095a62ac13652cbd759fc5111288b6be4aa4ba",
     "mobileScreenshot": "screenshots/dashboard--contactMessageBatchSend__store--mobile.png",
-    "mobileSha256": "675b0f8e2aec798c568af687d6a14a6759a24ef08c8a1459b195f6ee455299f7"
+    "mobileSha256": "675b0f8e2aec798c568af687d6a14a6759a24ef08c8a1459b195f6ee455299f7",
+    "currentReachable": false,
+    "evidenceStatus": "historical"
   },
   "dashboard:/contactTransfer/resignAllotRecord": {
     "target": "react",
-    "playwrightRun": "playwright-run.json",
+    "playwrightRun": null,
     "preservesQueryAndHash": true,
     "desktopScreenshot": "screenshots/dashboard--contactTransfer__resignAllotRecord--desktop.png",
     "desktopSha256": "14a2ae67551d0f9bfd1b00e949bc50c98108e6d1f493b38ead94cbf692a3ed50",
     "mobileScreenshot": "screenshots/dashboard--contactTransfer__resignAllotRecord--mobile.png",
-    "mobileSha256": "8a50cc710e7c64bd27517e58b290987822b96ed369981653826bd9d747f6ea5f"
+    "mobileSha256": "8a50cc710e7c64bd27517e58b290987822b96ed369981653826bd9d747f6ea5f",
+    "currentReachable": false,
+    "evidenceStatus": "historical"
   },
   "dashboard:/contactTransfer/resignIndex": {
     "target": "react",
-    "playwrightRun": "playwright-run.json",
+    "playwrightRun": null,
     "preservesQueryAndHash": true,
     "desktopScreenshot": "screenshots/dashboard--contactTransfer__resignIndex--desktop.png",
     "desktopSha256": "4796685a6455773070b906f14dbe92a81eb0b7080d4cbd5933035c0f71aac4ca",
     "mobileScreenshot": "screenshots/dashboard--contactTransfer__resignIndex--mobile.png",
-    "mobileSha256": "d78925cae9ff12ed415a150b9af65ea23b45dd5ac52d04f1f522ea59ecac4c42"
+    "mobileSha256": "d78925cae9ff12ed415a150b9af65ea23b45dd5ac52d04f1f522ea59ecac4c42",
+    "currentReachable": false,
+    "evidenceStatus": "historical"
   },
   "dashboard:/contactTransfer/workAllotRecord": {
     "target": "react",
-    "playwrightRun": "playwright-run.json",
+    "playwrightRun": null,
     "preservesQueryAndHash": true,
     "desktopScreenshot": "screenshots/dashboard--contactTransfer__workAllotRecord--desktop.png",
     "desktopSha256": "208cd16db4340f8a73f25df7d9e7b6dfdce48dc486ea93b5be7b729032622339",
     "mobileScreenshot": "screenshots/dashboard--contactTransfer__workAllotRecord--mobile.png",
-    "mobileSha256": "49ed89d2cccf259f384ad8927be23f9e4a914670acec3645085f5818ff1fe5e9"
+    "mobileSha256": "49ed89d2cccf259f384ad8927be23f9e4a914670acec3645085f5818ff1fe5e9",
+    "currentReachable": false,
+    "evidenceStatus": "historical"
   },
   "dashboard:/contactTransfer/workIndex": {
     "target": "react",
-    "playwrightRun": "playwright-run.json",
+    "playwrightRun": null,
     "preservesQueryAndHash": true,
     "desktopScreenshot": "screenshots/dashboard--contactTransfer__workIndex--desktop.png",
     "desktopSha256": "1c50239ea28aec9cbea651131107b6515e4a59629d246cea5a6386f1e86cf9e4",
     "mobileScreenshot": "screenshots/dashboard--contactTransfer__workIndex--mobile.png",
-    "mobileSha256": "deb7f8f46ebc38975eda79309834e0c6fa564449df1f0862a343f4e9a728bd9a"
+    "mobileSha256": "deb7f8f46ebc38975eda79309834e0c6fa564449df1f0862a343f4e9a728bd9a",
+    "currentReachable": false,
+    "evidenceStatus": "historical"
   },
   "dashboard:/corp/index": {
     "target": "react",
-    "playwrightRun": "playwright-run.json",
+    "playwrightRun": null,
     "preservesQueryAndHash": true,
     "desktopScreenshot": "screenshots/dashboard--corp__index--desktop.png",
     "desktopSha256": "93b86bf069e6fd04d1a2a5a369b13b59ec037101502af15d6447e620cb5309e7",
     "mobileScreenshot": "screenshots/dashboard--corp__index--mobile.png",
-    "mobileSha256": "ff401f58dbea1b52a5471df35bb31bd175603cc59607405406cbbcab747c7545"
+    "mobileSha256": "ff401f58dbea1b52a5471df35bb31bd175603cc59607405406cbbcab747c7545",
+    "currentReachable": false,
+    "evidenceStatus": "historical"
   },
   "dashboard:/corpData/index": {
     "target": "react",
-    "playwrightRun": "playwright-run.json",
+    "playwrightRun": null,
     "preservesQueryAndHash": true,
     "desktopScreenshot": "screenshots/dashboard--corpData__index--desktop.png",
     "desktopSha256": "b2927cd95d4321cca3e03eea98c45501ee7a724031792dd62e75a21925a7c34a",
     "mobileScreenshot": "screenshots/dashboard--corpData__index--mobile.png",
-    "mobileSha256": "0e6b34a88091337c3c74a762819be88b2ca8dd5061db76d17c7a6fdfecb523d6"
+    "mobileSha256": "0e6b34a88091337c3c74a762819be88b2ca8dd5061db76d17c7a6fdfecb523d6",
+    "currentReachable": false,
+    "evidenceStatus": "historical"
   },
   "dashboard:/department/index": {
     "target": "react",
-    "playwrightRun": "playwright-run.json",
+    "playwrightRun": null,
     "preservesQueryAndHash": true,
     "desktopScreenshot": "screenshots/dashboard--department__index--desktop.png",
     "desktopSha256": "b1072909ae77a9ac4688c29374fe4f4334f07c71ee237dad26722f38be2c47d5",
     "mobileScreenshot": "screenshots/dashboard--department__index--mobile.png",
-    "mobileSha256": "f5b4df76e98fc63454936c423f144c46d75049a91832fcc440c0f32db134f81b"
+    "mobileSha256": "f5b4df76e98fc63454936c423f144c46d75049a91832fcc440c0f32db134f81b",
+    "currentReachable": false,
+    "evidenceStatus": "historical"
   },
   "dashboard:/greeting/index": {
     "target": "react",
-    "playwrightRun": "playwright-run.json",
+    "playwrightRun": null,
     "preservesQueryAndHash": true,
     "desktopScreenshot": "screenshots/dashboard--greeting__index--desktop.png",
     "desktopSha256": "2fa7a9f23764acd15404afe0348676501184d376839f47c8d4c5837f2e24d959",
     "mobileScreenshot": "screenshots/dashboard--greeting__index--mobile.png",
-    "mobileSha256": "8afccb2ec6d8778c23230d0bbbfbc071da76d5cbbcfc162d562db198db907671"
+    "mobileSha256": "8afccb2ec6d8778c23230d0bbbfbc071da76d5cbbcfc162d562db198db907671",
+    "currentReachable": false,
+    "evidenceStatus": "historical"
   },
   "dashboard:/greeting/store": {
     "target": "react",
-    "playwrightRun": "playwright-run.json",
+    "playwrightRun": null,
     "preservesQueryAndHash": true,
     "desktopScreenshot": "screenshots/dashboard--greeting__store--desktop.png",
     "desktopSha256": "41cae3efdc69857df9aefd2c030c39abafbe6ad7caeba8bb74c751811f76d9bd",
     "mobileScreenshot": "screenshots/dashboard--greeting__store--mobile.png",
-    "mobileSha256": "183dbabe29e056066fa027ec7b060e697bf74289a0714a2e1efa378188318be0"
+    "mobileSha256": "183dbabe29e056066fa027ec7b060e697bf74289a0714a2e1efa378188318be0",
+    "currentReachable": false,
+    "evidenceStatus": "historical"
   },
   "dashboard:/lossContact/index": {
     "target": "react",
-    "playwrightRun": "playwright-run.json",
+    "playwrightRun": null,
     "preservesQueryAndHash": true,
     "desktopScreenshot": "screenshots/dashboard--lossContact__index--desktop.png",
     "desktopSha256": "b147a89dabd80cfba6dcd73077c9b74717b1b17565a57499c609c78246e4fa50",
     "mobileScreenshot": "screenshots/dashboard--lossContact__index--mobile.png",
-    "mobileSha256": "1b0fad7d3015b51d2945bbc0c35752064f7ed005e27e0cd7d402f92ed1bf2bab"
+    "mobileSha256": "1b0fad7d3015b51d2945bbc0c35752064f7ed005e27e0cd7d402f92ed1bf2bab",
+    "currentReachable": false,
+    "evidenceStatus": "historical"
   },
   "dashboard:/mediumGroup/index": {
     "target": "react",
-    "playwrightRun": "playwright-run.json",
+    "playwrightRun": null,
     "preservesQueryAndHash": true,
     "desktopScreenshot": "screenshots/dashboard--mediumGroup__index--desktop.png",
     "desktopSha256": "9d87206add263e73fea6693dd0db064126a61722a85c4283f1d05fc9ec67d07b",
     "mobileScreenshot": "screenshots/dashboard--mediumGroup__index--mobile.png",
-    "mobileSha256": "19131f8a589c0799c2005e3fe54fa6a13907f2596a9c4bbd3c7ac3f0af33cce6"
+    "mobileSha256": "19131f8a589c0799c2005e3fe54fa6a13907f2596a9c4bbd3c7ac3f0af33cce6",
+    "currentReachable": false,
+    "evidenceStatus": "historical"
   },
   "dashboard:/menu/index": {
     "target": "react",
-    "playwrightRun": "playwright-run.json",
+    "playwrightRun": null,
     "preservesQueryAndHash": true,
     "desktopScreenshot": "screenshots/dashboard--menu__index--desktop.png",
     "desktopSha256": "f097ff1394831b669ff0eb367cb746d00ff46290168f9439e65cc6684fc1db76",
     "mobileScreenshot": "screenshots/dashboard--menu__index--mobile.png",
-    "mobileSha256": "e02c39a0bd5099ec29ef3ab930fac8c549973f67ef5984f5086e2dbc5ce5a5e6"
+    "mobileSha256": "e02c39a0bd5099ec29ef3ab930fac8c549973f67ef5984f5086e2dbc5ce5a5e6",
+    "currentReachable": false,
+    "evidenceStatus": "historical"
   },
   "dashboard:/officialAccount/create": {
     "target": "react",
-    "playwrightRun": "playwright-run.json",
+    "playwrightRun": null,
     "preservesQueryAndHash": true,
     "desktopScreenshot": "screenshots/dashboard--officialAccount__create--desktop.png",
     "desktopSha256": "d7e8ca0b27b228388d95e0f773475028d7e4bffd576f179255a451537a5da32b",
     "mobileScreenshot": "screenshots/dashboard--officialAccount__create--mobile.png",
-    "mobileSha256": "1ea01642efdbf6bb3b6f245a34af22237c7fa8f9bafd377b37da928c067dfdd7"
+    "mobileSha256": "1ea01642efdbf6bb3b6f245a34af22237c7fa8f9bafd377b37da928c067dfdd7",
+    "currentReachable": false,
+    "evidenceStatus": "historical"
   },
   "dashboard:/officialAccount/index": {
     "target": "react",
-    "playwrightRun": "playwright-run.json",
+    "playwrightRun": null,
     "preservesQueryAndHash": true,
     "desktopScreenshot": "screenshots/dashboard--officialAccount__index--desktop.png",
     "desktopSha256": "bc07e014dfd401e0bc1d3775b3128bd243c6878a1245af5b04dfc77b6d3031b0",
     "mobileScreenshot": "screenshots/dashboard--officialAccount__index--mobile.png",
-    "mobileSha256": "197e0bc8d9e008f4a53648e3e35ed2ade1c33b2b5831fe2379b89156c2e3de55"
+    "mobileSha256": "197e0bc8d9e008f4a53648e3e35ed2ade1c33b2b5831fe2379b89156c2e3de55",
+    "currentReachable": false,
+    "evidenceStatus": "historical"
   },
   "dashboard:/passwordUpdate/index": {
     "target": "react",
-    "playwrightRun": "playwright-run.json",
+    "playwrightRun": null,
     "preservesQueryAndHash": true,
     "desktopScreenshot": "screenshots/dashboard--passwordUpdate__index--desktop.png",
     "desktopSha256": "18d9261d120ee9c65d4e19d4c0a075aae352c450ffb0514c688cfee1d04418bc",
     "mobileScreenshot": "screenshots/dashboard--passwordUpdate__index--mobile.png",
-    "mobileSha256": "4f44f9a0f15ecbd43d1f5795660acb07f2865320934fa0a851dbd6eed04d7dc0"
+    "mobileSha256": "4f44f9a0f15ecbd43d1f5795660acb07f2865320934fa0a851dbd6eed04d7dc0",
+    "currentReachable": false,
+    "evidenceStatus": "historical"
   },
   "dashboard:/role/index": {
     "target": "react",
-    "playwrightRun": "playwright-run.json",
+    "playwrightRun": null,
     "preservesQueryAndHash": true,
     "desktopScreenshot": "screenshots/dashboard--role__index--desktop.png",
     "desktopSha256": "010dbfdd7fb5783791e4a2040f1044a96cc6882c468bdaeb7d8bf65dbdb19b3c",
     "mobileScreenshot": "screenshots/dashboard--role__index--mobile.png",
-    "mobileSha256": "b1cf15a090b75ba55eff345e697e43d427f96cfabc1bed8183ad1faffccf8251"
+    "mobileSha256": "b1cf15a090b75ba55eff345e697e43d427f96cfabc1bed8183ad1faffccf8251",
+    "currentReachable": false,
+    "evidenceStatus": "historical"
   },
   "dashboard:/role/permissionShow": {
     "target": "react",
-    "playwrightRun": "playwright-run.json",
+    "playwrightRun": null,
     "preservesQueryAndHash": true,
     "desktopScreenshot": "screenshots/dashboard--role__permissionShow--desktop.png",
     "desktopSha256": "6a30b6f1b86ff5ef0b21ef4ea8376a0cccc5791b6ebba99d0f0ae22638e83f5c",
     "mobileScreenshot": "screenshots/dashboard--role__permissionShow--mobile.png",
-    "mobileSha256": "82aff6e2cb87e11d3c2f8b8f049d0fb0c85cd37118dc49e888a90e5bdd4cd796"
+    "mobileSha256": "82aff6e2cb87e11d3c2f8b8f049d0fb0c85cd37118dc49e888a90e5bdd4cd796",
+    "currentReachable": false,
+    "evidenceStatus": "historical"
   },
   "dashboard:/roomMessageBatchSend/index": {
     "target": "react",
-    "playwrightRun": "playwright-run.json",
+    "playwrightRun": null,
     "preservesQueryAndHash": true,
     "desktopScreenshot": "screenshots/dashboard--roomMessageBatchSend__index--desktop.png",
     "desktopSha256": "ee2664e9f47582c888275d935aed8b5cbd367a416077833ac61fb304441af08d",
     "mobileScreenshot": "screenshots/dashboard--roomMessageBatchSend__index--mobile.png",
-    "mobileSha256": "9370b6cf1d7f151a56e255b3f6be52f12723b32dd8e9e2feb8b9127df7cbcb75"
+    "mobileSha256": "9370b6cf1d7f151a56e255b3f6be52f12723b32dd8e9e2feb8b9127df7cbcb75",
+    "currentReachable": false,
+    "evidenceStatus": "historical"
   },
   "dashboard:/roomMessageBatchSend/show": {
     "target": "react",
-    "playwrightRun": "playwright-run.json",
+    "playwrightRun": null,
     "preservesQueryAndHash": true,
     "desktopScreenshot": "screenshots/dashboard--roomMessageBatchSend__show--desktop.png",
     "desktopSha256": "b2f979784a05225885952540736a1155a8c77aedb411d99cd24bfe50810b4210",
     "mobileScreenshot": "screenshots/dashboard--roomMessageBatchSend__show--mobile.png",
-    "mobileSha256": "3950f2e55ee75c26df9dc70438e5e7fb8d59189f052bb7f915a4d05f24ea3beb"
+    "mobileSha256": "3950f2e55ee75c26df9dc70438e5e7fb8d59189f052bb7f915a4d05f24ea3beb",
+    "currentReachable": false,
+    "evidenceStatus": "historical"
   },
   "dashboard:/roomMessageBatchSend/store": {
     "target": "react",
-    "playwrightRun": "playwright-run.json",
+    "playwrightRun": null,
     "preservesQueryAndHash": true,
     "desktopScreenshot": "screenshots/dashboard--roomMessageBatchSend__store--desktop.png",
     "desktopSha256": "5382dc1a8b82d6e021242200a0009714b8bc7535b9104144ccf7b007352c5b4a",
     "mobileScreenshot": "screenshots/dashboard--roomMessageBatchSend__store--mobile.png",
-    "mobileSha256": "248f9e093190b92537987edde4e4fad9c70aada2835c49154df43b0b4937ca94"
+    "mobileSha256": "248f9e093190b92537987edde4e4fad9c70aada2835c49154df43b0b4937ca94",
+    "currentReachable": false,
+    "evidenceStatus": "historical"
   },
   "dashboard:/roomTagPull/contactDetail": {
     "target": "react",
-    "playwrightRun": "playwright-run.json",
+    "playwrightRun": null,
     "preservesQueryAndHash": true,
     "desktopScreenshot": "screenshots/dashboard--roomTagPull__contactDetail--desktop.png",
     "desktopSha256": "2f517a11898d6c99a6912ed6aa87c774730eb648baaaeb3137d0f62cad09f22d",
     "mobileScreenshot": "screenshots/dashboard--roomTagPull__contactDetail--mobile.png",
-    "mobileSha256": "8cc093e9f2d34efdab2035817c9aa8dbc3bb5add9b0c3718f1e80b64d022329b"
+    "mobileSha256": "8cc093e9f2d34efdab2035817c9aa8dbc3bb5add9b0c3718f1e80b64d022329b",
+    "currentReachable": false,
+    "evidenceStatus": "historical"
   },
   "dashboard:/roomTagPull/create": {
     "target": "react",
-    "playwrightRun": "playwright-run.json",
+    "playwrightRun": null,
     "preservesQueryAndHash": true,
     "desktopScreenshot": "screenshots/dashboard--roomTagPull__create--desktop.png",
     "desktopSha256": "9b6117ec11aabe5b3f155f37bfc3e1f35f9d96a484fc28896a71b8d27de61924",
     "mobileScreenshot": "screenshots/dashboard--roomTagPull__create--mobile.png",
-    "mobileSha256": "fba340aaa1396008ab7deadda06f8f7ce5f8c49cd6bba32c51100525fe0a076a"
+    "mobileSha256": "fba340aaa1396008ab7deadda06f8f7ce5f8c49cd6bba32c51100525fe0a076a",
+    "currentReachable": false,
+    "evidenceStatus": "historical"
   },
   "dashboard:/roomTagPull/detail": {
     "target": "react",
-    "playwrightRun": "playwright-run.json",
+    "playwrightRun": null,
     "preservesQueryAndHash": true,
     "desktopScreenshot": "screenshots/dashboard--roomTagPull__detail--desktop.png",
     "desktopSha256": "12af2fe872dbce630617acac12b5aef05bf7daccc33a3a909e2801975da4f1d6",
     "mobileScreenshot": "screenshots/dashboard--roomTagPull__detail--mobile.png",
-    "mobileSha256": "14042d3e9c9c2a49420fa58c0a68c7445a0065632395b4cc302d8b1c89250fce"
+    "mobileSha256": "14042d3e9c9c2a49420fa58c0a68c7445a0065632395b4cc302d8b1c89250fce",
+    "currentReachable": false,
+    "evidenceStatus": "historical"
   },
   "dashboard:/roomTagPull/index": {
     "target": "react",
-    "playwrightRun": "playwright-run.json",
+    "playwrightRun": null,
     "preservesQueryAndHash": true,
     "desktopScreenshot": "screenshots/dashboard--roomTagPull__index--desktop.png",
     "desktopSha256": "21dad74cbd7a7108ed1accb44fb75fcabce6a9c107cb98fe1ea9e54109b0724a",
     "mobileScreenshot": "screenshots/dashboard--roomTagPull__index--mobile.png",
-    "mobileSha256": "efdcabaa7f61ecb2456ea81c55cded6323360f7c33567ed36614a3301fdb272f"
+    "mobileSha256": "efdcabaa7f61ecb2456ea81c55cded6323360f7c33567ed36614a3301fdb272f",
+    "currentReachable": false,
+    "evidenceStatus": "historical"
   },
   "dashboard:/roomWelcome/create": {
     "target": "react",
-    "playwrightRun": "playwright-run.json",
+    "playwrightRun": null,
     "preservesQueryAndHash": true,
     "desktopScreenshot": "screenshots/dashboard--roomWelcome__create--desktop.png",
     "desktopSha256": "3fa29c13f4e3e03b8641a4781b0ff6936583110adb86aa7781667b8e98c0586b",
     "mobileScreenshot": "screenshots/dashboard--roomWelcome__create--mobile.png",
-    "mobileSha256": "47ba23ff3afdbf58633e16af7499522b5b4f896e8ffc4f25bdef0dbb56d64530"
+    "mobileSha256": "47ba23ff3afdbf58633e16af7499522b5b4f896e8ffc4f25bdef0dbb56d64530",
+    "currentReachable": false,
+    "evidenceStatus": "historical"
   },
   "dashboard:/roomWelcome/index": {
     "target": "react",
-    "playwrightRun": "playwright-run.json",
+    "playwrightRun": null,
     "preservesQueryAndHash": true,
     "desktopScreenshot": "screenshots/dashboard--roomWelcome__index--desktop.png",
     "desktopSha256": "193d4567f00b7fd09e3395652d144d4ca679b62f6294d48e5e7089ec47763e29",
     "mobileScreenshot": "screenshots/dashboard--roomWelcome__index--mobile.png",
-    "mobileSha256": "3d84b22edc16cb75eba856cffe613282452e0ad22aa032a91f7962b09cb34955"
+    "mobileSha256": "3d84b22edc16cb75eba856cffe613282452e0ad22aa032a91f7962b09cb34955",
+    "currentReachable": false,
+    "evidenceStatus": "historical"
   },
   "dashboard:/statistics/contact": {
     "target": "react",
-    "playwrightRun": "playwright-run.json",
+    "playwrightRun": null,
     "preservesQueryAndHash": true,
     "desktopScreenshot": "screenshots/dashboard--statistics__contact--desktop.png",
     "desktopSha256": "a7b42d3d6bf14b8222a7354b7c4de0b27a8b3232ef413b0abeae71f01b9cd9e4",
     "mobileScreenshot": "screenshots/dashboard--statistics__contact--mobile.png",
-    "mobileSha256": "4e0ba985c03a7a77267e071999c129cbc10bf8ddf8a4345cd493e837d52f9143"
+    "mobileSha256": "4e0ba985c03a7a77267e071999c129cbc10bf8ddf8a4345cd493e837d52f9143",
+    "currentReachable": false,
+    "evidenceStatus": "historical"
   },
   "dashboard:/statistics/employee": {
     "target": "react",
-    "playwrightRun": "playwright-run.json",
+    "playwrightRun": null,
     "preservesQueryAndHash": true,
     "desktopScreenshot": "screenshots/dashboard--statistics__employee--desktop.png",
     "desktopSha256": "2b7fc4e92b1cc209920cf7dba74dcdf26abfdd22580525a4b1e07a4ab1f8ed63",
     "mobileScreenshot": "screenshots/dashboard--statistics__employee--mobile.png",
-    "mobileSha256": "92caae760ba545557cc50054987547a2d67065e657371dde78ca21befdb1fc2a"
+    "mobileSha256": "92caae760ba545557cc50054987547a2d67065e657371dde78ca21befdb1fc2a",
+    "currentReachable": false,
+    "evidenceStatus": "historical"
   },
   "dashboard:/user/index": {
     "target": "react",
-    "playwrightRun": "playwright-run.json",
+    "playwrightRun": null,
     "preservesQueryAndHash": true,
     "desktopScreenshot": "screenshots/dashboard--user__index--desktop.png",
     "desktopSha256": "8847d22f2bb0b07e521f9ba6d615e8ea1bf5eb729aada856f51c55a535164d5c",
     "mobileScreenshot": "screenshots/dashboard--user__index--mobile.png",
-    "mobileSha256": "3b124a15158dfb19aa56e9c75a60c3b1eb8e94da2b6eafd94f560b34b433acc1"
+    "mobileSha256": "3b124a15158dfb19aa56e9c75a60c3b1eb8e94da2b6eafd94f560b34b433acc1",
+    "currentReachable": false,
+    "evidenceStatus": "historical"
   },
   "dashboard:/workContact/contactFieldPivot": {
     "target": "react",
-    "playwrightRun": "playwright-run.json",
+    "playwrightRun": null,
     "preservesQueryAndHash": true,
     "desktopScreenshot": "screenshots/dashboard--workContact__contactFieldPivot--desktop.png",
     "desktopSha256": "7ce3439a912bf498bd81a8eaacd0006f29cda3b0f6ed2dd42b23785d744c2e8d",
     "mobileScreenshot": "screenshots/dashboard--workContact__contactFieldPivot--mobile.png",
-    "mobileSha256": "ceeaf8cb80267050dc0074006c4102d238127f5c3e13a5a67b24f9bdf9bc7305"
+    "mobileSha256": "ceeaf8cb80267050dc0074006c4102d238127f5c3e13a5a67b24f9bdf9bc7305",
+    "currentReachable": false,
+    "evidenceStatus": "historical"
   },
   "dashboard:/workContact/index": {
     "target": "react",
-    "playwrightRun": "playwright-run.json",
+    "playwrightRun": null,
     "preservesQueryAndHash": true,
     "desktopScreenshot": "screenshots/dashboard--workContact__index--desktop.png",
     "desktopSha256": "2d81ff7eb5a6be1d07bccee021d52d21411b321865014d5807a06823aa7052de",
     "mobileScreenshot": "screenshots/dashboard--workContact__index--mobile.png",
-    "mobileSha256": "f0d7863ffa065b5fa84d4aea2ec85c4204b336b72726ff81e913002fe17303ad"
+    "mobileSha256": "f0d7863ffa065b5fa84d4aea2ec85c4204b336b72726ff81e913002fe17303ad",
+    "currentReachable": false,
+    "evidenceStatus": "historical"
   },
   "dashboard:/workContactTag/index": {
     "target": "react",
-    "playwrightRun": "playwright-run.json",
+    "playwrightRun": null,
     "preservesQueryAndHash": true,
     "desktopScreenshot": "screenshots/dashboard--workContactTag__index--desktop.png",
     "desktopSha256": "48b676a4190059fdcc21702b1ce0c47ff15a0eb4635455367b629f9786fc3203",
     "mobileScreenshot": "screenshots/dashboard--workContactTag__index--mobile.png",
-    "mobileSha256": "c33be88818d350014ee6c98d1f93604e151cfd24e272c208a5d5df0ff7d37e39"
+    "mobileSha256": "c33be88818d350014ee6c98d1f93604e151cfd24e272c208a5d5df0ff7d37e39",
+    "currentReachable": false,
+    "evidenceStatus": "historical"
   },
   "dashboard:/workEmployee/index": {
     "target": "react",
-    "playwrightRun": "playwright-run.json",
+    "playwrightRun": null,
     "preservesQueryAndHash": true,
     "desktopScreenshot": "screenshots/dashboard--workEmployee__index--desktop.png",
     "desktopSha256": "53c121041ac411dd7706eda5878322957c5f470575b13bf0ba5b7a493a57ad29",
     "mobileScreenshot": "screenshots/dashboard--workEmployee__index--mobile.png",
-    "mobileSha256": "fb1d8c5e83ba1604c4d502e271acb9166ff08b97c504374817463ed69da1c7c6"
+    "mobileSha256": "fb1d8c5e83ba1604c4d502e271acb9166ff08b97c504374817463ed69da1c7c6",
+    "currentReachable": false,
+    "evidenceStatus": "historical"
   },
   "dashboard:/workFission/create": {
     "target": "react",
-    "playwrightRun": "playwright-run.json",
+    "playwrightRun": null,
     "preservesQueryAndHash": true,
     "desktopScreenshot": "screenshots/dashboard--workFission__create--desktop.png",
     "desktopSha256": "d476740fe61949cd312f39a45bc16835f221c5b70166857fa7e17565558706b3",
     "mobileScreenshot": "screenshots/dashboard--workFission__create--mobile.png",
-    "mobileSha256": "8209792577e6787395bd4a39dbe5ffacb36f0455533f25afb53a0a0a35a13d2c"
+    "mobileSha256": "8209792577e6787395bd4a39dbe5ffacb36f0455533f25afb53a0a0a35a13d2c",
+    "currentReachable": false,
+    "evidenceStatus": "historical"
   },
   "dashboard:/workFission/dataShow": {
     "target": "react",
-    "playwrightRun": "playwright-run.json",
+    "playwrightRun": null,
     "preservesQueryAndHash": true,
     "desktopScreenshot": "screenshots/dashboard--workFission__dataShow--desktop.png",
     "desktopSha256": "e34e57a77a7ed235ae51985ab29d6565b0ebe5130a5c92f57a76969cce80c8bb",
     "mobileScreenshot": "screenshots/dashboard--workFission__dataShow--mobile.png",
-    "mobileSha256": "24d7eb139ec593861a0832f32633492e3d98e6758319779b7ea3cd0f07db23ff"
+    "mobileSha256": "24d7eb139ec593861a0832f32633492e3d98e6758319779b7ea3cd0f07db23ff",
+    "currentReachable": false,
+    "evidenceStatus": "historical"
   },
   "dashboard:/workFission/edit": {
     "target": "react",
-    "playwrightRun": "playwright-run.json",
+    "playwrightRun": null,
     "preservesQueryAndHash": true,
     "desktopScreenshot": "screenshots/dashboard--workFission__edit--desktop.png",
     "desktopSha256": "ae430c68e2e1c210f09b7fe5cc5f37395b5871042b072d86eb6929a05eff93eb",
     "mobileScreenshot": "screenshots/dashboard--workFission__edit--mobile.png",
-    "mobileSha256": "e057f5875fbaa588d78d222ecd1fbd01efc3afdecefdb8d4051c5f2675059402"
+    "mobileSha256": "e057f5875fbaa588d78d222ecd1fbd01efc3afdecefdb8d4051c5f2675059402",
+    "currentReachable": false,
+    "evidenceStatus": "historical"
   },
   "dashboard:/workFission/invite": {
     "target": "react",
-    "playwrightRun": "playwright-run.json",
+    "playwrightRun": null,
     "preservesQueryAndHash": true,
     "desktopScreenshot": "screenshots/dashboard--workFission__invite--desktop.png",
     "desktopSha256": "527aae10d578af9c45e22794241dc22ca7c9f6089e7787164fd4a59fa1b088d6",
     "mobileScreenshot": "screenshots/dashboard--workFission__invite--mobile.png",
-    "mobileSha256": "6983d453ed4951535018f4be72596f4bec1a3867480ee92ea08245ce705555b3"
+    "mobileSha256": "6983d453ed4951535018f4be72596f4bec1a3867480ee92ea08245ce705555b3",
+    "currentReachable": false,
+    "evidenceStatus": "historical"
   },
   "dashboard:/workFission/taskpage": {
     "target": "react",
-    "playwrightRun": "playwright-run.json",
+    "playwrightRun": null,
     "preservesQueryAndHash": true,
     "desktopScreenshot": "screenshots/dashboard--workFission__taskpage--desktop.png",
     "desktopSha256": "b739fd5cc180ecf26a2e172f708b74977928a7b1757d0f8d50e693d51f488461",
     "mobileScreenshot": "screenshots/dashboard--workFission__taskpage--mobile.png",
-    "mobileSha256": "bf1c4f3392ac6a26c90f5c4ea9bc631e2eb842a12b5d468731c1cf5180a7d865"
+    "mobileSha256": "bf1c4f3392ac6a26c90f5c4ea9bc631e2eb842a12b5d468731c1cf5180a7d865",
+    "currentReachable": false,
+    "evidenceStatus": "historical"
   },
   "dashboard:/workRoom/detail": {
     "target": "react",
-    "playwrightRun": "playwright-run.json",
+    "playwrightRun": null,
     "preservesQueryAndHash": true,
     "desktopScreenshot": "screenshots/dashboard--workRoom__detail--desktop.png",
     "desktopSha256": "543080cb714cf2c294433f6b28fb701544a5ee32354cdfcb2f276d26e51c0a67",
     "mobileScreenshot": "screenshots/dashboard--workRoom__detail--mobile.png",
-    "mobileSha256": "802c61249ab839583dbfe57298f5a58be756bae5b1967ac68b20454c22afc68e"
+    "mobileSha256": "802c61249ab839583dbfe57298f5a58be756bae5b1967ac68b20454c22afc68e",
+    "currentReachable": false,
+    "evidenceStatus": "historical"
   },
   "dashboard:/workRoom/index": {
     "target": "react",
-    "playwrightRun": "playwright-run.json",
+    "playwrightRun": null,
     "preservesQueryAndHash": true,
     "desktopScreenshot": "screenshots/dashboard--workRoom__index--desktop.png",
     "desktopSha256": "ca265451eb665dda63dba78fe7db62b1c15f4bb9d7d84fad3e6dbe30ae0c8ae0",
     "mobileScreenshot": "screenshots/dashboard--workRoom__index--mobile.png",
-    "mobileSha256": "9078d946ac7608bf8cd81b7597e309bed267bf23d40f12feb52380910dcf4bad"
+    "mobileSha256": "9078d946ac7608bf8cd81b7597e309bed267bf23d40f12feb52380910dcf4bad",
+    "currentReachable": false,
+    "evidenceStatus": "historical"
   },
   "dashboard:/workRoom/statistics": {
     "target": "react",
-    "playwrightRun": "playwright-run.json",
+    "playwrightRun": null,
     "preservesQueryAndHash": true,
     "desktopScreenshot": "screenshots/dashboard--workRoom__statistics--desktop.png",
     "desktopSha256": "d99faa0749d4a05de070dd781963c4fa244b43edebe6e989d18e92727052e668",
     "mobileScreenshot": "screenshots/dashboard--workRoom__statistics--mobile.png",
-    "mobileSha256": "181be45a3a96431178a7a00694a52fe6d5f34ecbbd4b0226d7e7a0314410f598"
+    "mobileSha256": "181be45a3a96431178a7a00694a52fe6d5f34ecbbd4b0226d7e7a0314410f598",
+    "currentReachable": false,
+    "evidenceStatus": "historical"
   },
   "dashboard:/workRoomAutoPull/index": {
     "target": "react",
-    "playwrightRun": "playwright-run.json",
+    "playwrightRun": null,
     "preservesQueryAndHash": true,
     "desktopScreenshot": "screenshots/dashboard--workRoomAutoPull__index--desktop.png",
     "desktopSha256": "acca5bad343f06da56dff1b16449514b7991a28d20aaa03c345f6bfb3c81f8ca",
     "mobileScreenshot": "screenshots/dashboard--workRoomAutoPull__index--mobile.png",
-    "mobileSha256": "5f9fda2bff1f3f40fe11b3dab6be5bacb81a120fe3c21ce417c6c0b5560f3c5a"
+    "mobileSha256": "5f9fda2bff1f3f40fe11b3dab6be5bacb81a120fe3c21ce417c6c0b5560f3c5a",
+    "currentReachable": false,
+    "evidenceStatus": "historical"
   },
   "dashboard:/workRoomAutoPull/store": {
     "target": "react",
-    "playwrightRun": "playwright-run.json",
+    "playwrightRun": null,
     "preservesQueryAndHash": true,
     "desktopScreenshot": "screenshots/dashboard--workRoomAutoPull__store--desktop.png",
     "desktopSha256": "efef2b24ee5e25cfbd83d09cd97a0f1c4c7971ea36f9a48c41f7d8bc6cfde76a",
     "mobileScreenshot": "screenshots/dashboard--workRoomAutoPull__store--mobile.png",
-    "mobileSha256": "ab3944eb448293ed063a4e3eed13fa679fdd49841b15cda02ddfbda8d41558f5"
+    "mobileSha256": "ab3944eb448293ed063a4e3eed13fa679fdd49841b15cda02ddfbda8d41558f5",
+    "currentReachable": false,
+    "evidenceStatus": "historical"
   },
   "sidebar:/": {
     "target": "react",
+    "currentReachable": true,
+    "evidenceStatus": "current",
     "playwrightRun": "playwright-run.json",
     "preservesQueryAndHash": true,
     "desktopScreenshot": "screenshots/sidebar--root--desktop.png",
-    "desktopSha256": "6672d7eb007e4b9fb8e4d15c678166340e4af407895f40ffb9101fe6c0959f6c",
+    "desktopSha256": "0eb4ffdf66b88abe0003bf8ff888305606e3a41e982faf13907d97a35b0e283f",
     "mobileScreenshot": "screenshots/sidebar--root--mobile.png",
-    "mobileSha256": "f50b76ba01c508c857c8d0316873a393920f6e681cbd1b78361fbd4b5e404eba"
+    "mobileSha256": "705dbb7ffc9c96236fca18ac50d285eab62a32f06851a00571de43f0050a57a8"
   },
   "sidebar:/auth": {
     "target": "react",
+    "currentReachable": true,
+    "evidenceStatus": "current",
     "playwrightRun": "playwright-run.json",
     "preservesQueryAndHash": true,
     "desktopScreenshot": "screenshots/sidebar--auth--desktop.png",
-    "desktopSha256": "89d24ce308800d658b41f004d22908bd1530176887b2baebbde63e9985e7769c",
+    "desktopSha256": "9934c3bdae0eda0c814db73e47124f6edd5643ed4dde5c264d53520f3bbfea81",
     "mobileScreenshot": "screenshots/sidebar--auth--mobile.png",
-    "mobileSha256": "8a05e92b70d51c4bef5198f8419acec33f6905c56e562f128bc87e84d6198eff"
+    "mobileSha256": "72ef47bf3ac3db5e1a412bddf0663cbdeda9996cf8d4852e8ff31f705ff5fd05"
   },
   "sidebar:/codeAuth": {
     "target": "react",
+    "currentReachable": true,
+    "evidenceStatus": "current",
     "playwrightRun": "playwright-run.json",
     "preservesQueryAndHash": true,
     "desktopScreenshot": "screenshots/sidebar--codeAuth--desktop.png",
-    "desktopSha256": "b237f7029cdb57d8cb5d3bee4f2a2c6e40196514261346daf68361d01d7e109a",
+    "desktopSha256": "2a4efd7c92648c2c30c11200da3ca92677ad14f042983642a8d6977943727db4",
     "mobileScreenshot": "screenshots/sidebar--codeAuth--mobile.png",
-    "mobileSha256": "13fed08d8b869241a9f887e3ee377b72b62577c58f1ed90ca455c58c90dd0ea1"
+    "mobileSha256": "980d7fe9607431258aec8b7125e8bafdb71444116528e8bbccf25ac21c59a416"
   },
   "sidebar:/contact": {
     "target": "react",
+    "currentReachable": true,
+    "evidenceStatus": "current",
     "playwrightRun": "playwright-run.json",
     "preservesQueryAndHash": true,
     "desktopScreenshot": "screenshots/sidebar--contact--desktop.png",
-    "desktopSha256": "0261b29067a5f2a8df4590761f43bcd0e48f4b52a50e11c26d329522ea054428",
+    "desktopSha256": "aa3a1c71d5d97995dc439185610b6b419dbfeb270bb317dcab8e19f4b5f6c4a4",
     "mobileScreenshot": "screenshots/sidebar--contact--mobile.png",
-    "mobileSha256": "47bd68f98a5f0a3b7c887dcb0c41d72ae54c1faa2e98f8b794a2f9be1d2628d7"
+    "mobileSha256": "8b889fea21d559d274ac4b39dbb959785bc8840ea8b6f9b9937ed36c5d31dde7"
   },
   "sidebar:/contact/editDetail": {
     "target": "react",
+    "currentReachable": true,
+    "evidenceStatus": "current",
     "playwrightRun": "playwright-run.json",
     "preservesQueryAndHash": true,
     "desktopScreenshot": "screenshots/sidebar--contact__editDetail--desktop.png",
-    "desktopSha256": "11040265fe2087773a3d9aa6e80aaaf284f2775aa1285a3b167c003dbec49d9f",
+    "desktopSha256": "8d480518bf4d20c92e71a097dc82418e1ebe19b0cffbba9cd686c480aac97c0d",
     "mobileScreenshot": "screenshots/sidebar--contact__editDetail--mobile.png",
-    "mobileSha256": "36caf21274c4f6a19a5ae82f42c8ea96d1d1393ffcb6a6639754540fba3f94d0"
+    "mobileSha256": "499164b939744261d8242914014859d5ea9aa2e3465f17b9d37e81a787ab6e40"
   },
   "sidebar:/contact/remark": {
     "target": "react",
+    "currentReachable": true,
+    "evidenceStatus": "current",
     "playwrightRun": "playwright-run.json",
     "preservesQueryAndHash": true,
     "desktopScreenshot": "screenshots/sidebar--contact__remark--desktop.png",
-    "desktopSha256": "a87d1c01017247e50f7c2f7d63d3aff21b64777912c88b4eecd5ffe4de952a39",
+    "desktopSha256": "e70168d7b960db44aa9e42215c6db87ec45c4e9b9504f298bcf4b2e8c236c04a",
     "mobileScreenshot": "screenshots/sidebar--contact__remark--mobile.png",
-    "mobileSha256": "1ff00b8a1cd38b3814f11dbb33ba0cffb9906aa212e1dd7783880a0649d81cf0"
+    "mobileSha256": "53204ce77d66351d0396a69ae4f1266df8111c843b6244da8d62e3f899009948"
   },
   "sidebar:/contact/settingTag": {
     "target": "react",
+    "currentReachable": true,
+    "evidenceStatus": "current",
     "playwrightRun": "playwright-run.json",
     "preservesQueryAndHash": true,
     "desktopScreenshot": "screenshots/sidebar--contact__settingTag--desktop.png",
-    "desktopSha256": "d83b8c444c522b1ecba0a06ec8e94c10c79dbfb15fd8f8831c76ac1a39d2d9ed",
+    "desktopSha256": "ec59263aae909d693410db19fe008b015ff3b2d3160984d97cb8f6f9504c8230",
     "mobileScreenshot": "screenshots/sidebar--contact__settingTag--mobile.png",
-    "mobileSha256": "af6d7ad2399c273fd110bb48dea09d69c0ed1b515ac4af5c058df2acbaf70118"
+    "mobileSha256": "9c6afee5b995bf7478240505253ff7ce365edc7c3e747f4c50d9759df37867d0"
   },
   "sidebar:/contactBatchAdd": {
     "target": "react",
+    "currentReachable": true,
+    "evidenceStatus": "current",
     "playwrightRun": "playwright-run.json",
     "preservesQueryAndHash": true,
     "desktopScreenshot": "screenshots/sidebar--contactBatchAdd--desktop.png",
-    "desktopSha256": "eba908f8a52b2e256a00af96e2aa95440e4123a2742136c5407f02cd7774a842",
+    "desktopSha256": "17868003ac814841cd3fd9f829ac606f50a18df591f5450e04d6f447be4ee472",
     "mobileScreenshot": "screenshots/sidebar--contactBatchAdd--mobile.png",
-    "mobileSha256": "1723f9b5b968d8c9ac1712e8c5dde345fdba1e06234f78043503a709b1b83c56"
+    "mobileSha256": "40fa9209823d8ad62d3b1be06f92948e6e8b19ff4b61e5e449a1ada523855838"
   },
   "sidebar:/contactSop": {
     "target": "react",
+    "currentReachable": true,
+    "evidenceStatus": "current",
     "playwrightRun": "playwright-run.json",
     "preservesQueryAndHash": true,
     "desktopScreenshot": "screenshots/sidebar--contactSop--desktop.png",
-    "desktopSha256": "bb96dd879e09342e1c502250118bdbdf94317a8aa1443c9f391155f10335044a",
+    "desktopSha256": "cbee417e74c9a28b04a71a35ce2f94c8cd0c5c914e8a49aca06b9cf296f32727",
     "mobileScreenshot": "screenshots/sidebar--contactSop--mobile.png",
-    "mobileSha256": "0044dfbbfcd1c8451343acd3c20506f9eea011ae2db512658d6a598ef49e4ecb"
+    "mobileSha256": "b5e67cb2ff7acf4f3c82942af5f513a1cb3e5d18a9e1cd1c9d7d230e289c2db8"
   },
   "sidebar:/login": {
     "target": "react",
+    "currentReachable": true,
+    "evidenceStatus": "current",
     "playwrightRun": "playwright-run.json",
     "preservesQueryAndHash": true,
     "desktopScreenshot": "screenshots/sidebar--login--desktop.png",
-    "desktopSha256": "efd6d13627728aa7d6ae56ed082e863822037ede4d873c7e4edda4cc6fa0efb0",
+    "desktopSha256": "59326334dbe9826d168b55e58c2d27167a3f5894241b7070ecfc764378defd23",
     "mobileScreenshot": "screenshots/sidebar--login--mobile.png",
-    "mobileSha256": "78d3ec2f91d2dc81aafa602702eea51f4b0f8afc579b9c60064b909ec133b60a"
+    "mobileSha256": "5fe2b4fd4a549120dab47f8eb3899e5c6588641e63ad86c8c751ea4bb0f9abd8"
   },
   "sidebar:/medium": {
     "target": "react",
+    "currentReachable": true,
+    "evidenceStatus": "current",
     "playwrightRun": "playwright-run.json",
     "preservesQueryAndHash": true,
     "desktopScreenshot": "screenshots/sidebar--medium--desktop.png",
-    "desktopSha256": "a494e6fa60da1571803b6c58411ecd8e12d6d7a9c7c27db672831260d035b78a",
+    "desktopSha256": "84d80c0a760eaa37669de2c0535040a7342c21fc952464d5951269b97d4b86ab",
     "mobileScreenshot": "screenshots/sidebar--medium--mobile.png",
-    "mobileSha256": "c2f52860788680a145a4c8639ff51c3658dd21e59f6528b0407b97ac448d5893"
+    "mobileSha256": "564da43750bd8093a822e8a1fca1b6c60095cd88c9759a0e6fb2ce2a56ecf3cc"
   },
   "sidebar:/roomSop": {
     "target": "react",
+    "currentReachable": true,
+    "evidenceStatus": "current",
     "playwrightRun": "playwright-run.json",
     "preservesQueryAndHash": true,
     "desktopScreenshot": "screenshots/sidebar--roomSop--desktop.png",
-    "desktopSha256": "8173afba289116ff6352c706b178eb0e7141c10ac665e7370c6cdb7c7115e7a8",
+    "desktopSha256": "31fb3f48456c65bda911fdf2d19efa0a913994521beb961e38dc786cd8a95074",
     "mobileScreenshot": "screenshots/sidebar--roomSop--mobile.png",
-    "mobileSha256": "b68747a0a4034246864ae69e2cbab07ac90b5268d11b5ed69fd97423e5e79b1c"
+    "mobileSha256": "fc8c6871d009322ec6983621fc31d7470ac32de1bf5f370968bd14ac587a4882"
   },
   "operation:/": {
     "target": "react",
+    "currentReachable": true,
+    "evidenceStatus": "current",
     "playwrightRun": "playwright-run.json",
     "preservesQueryAndHash": true,
     "desktopScreenshot": "screenshots/operation--root--desktop.png",
-    "desktopSha256": "3f6ec11a92db3f755615cdd5c2588a90475d36bc5e1c8e2f4a67d839ea6da3f5",
+    "desktopSha256": "23047b1a9e740ee297982064e9bfa6be3fc003b7ed2e8e7507e70be83af0f876",
     "mobileScreenshot": "screenshots/operation--root--mobile.png",
-    "mobileSha256": "191811bd5346c6c2b3d47cb08a99912025194ddc6ff0b32504e29ea474085c92"
+    "mobileSha256": "d8639fbeaaf1ef8f9dc58f10797f119b17123dcf097ba09cfcdb0eba39527d63"
   },
   "operation:/explain": {
     "target": "react",
+    "currentReachable": true,
+    "evidenceStatus": "current",
     "playwrightRun": "playwright-run.json",
     "preservesQueryAndHash": true,
     "desktopScreenshot": "screenshots/operation--explain--desktop.png",
-    "desktopSha256": "a186fbc7658a02440c36b11a75966f7c4748fd14ddf3fa48c49638165184cc67",
+    "desktopSha256": "62fe832a4eeb227567187d7404f0b54fbf110bf0cc42eeec7b2ed25f47ac9682",
     "mobileScreenshot": "screenshots/operation--explain--mobile.png",
-    "mobileSha256": "846b6d0921425132c15ec409d216d9c4710a63f70744cd3f88db46f6dec28dc7"
+    "mobileSha256": "bfff7d26f3f66bf5d462c5fa07eed4b6497fe3c232c7d8d9e605bc1d07fc3a6a"
   },
   "operation:/lottery": {
     "target": "react",
+    "currentReachable": true,
+    "evidenceStatus": "current",
     "playwrightRun": "playwright-run.json",
     "preservesQueryAndHash": true,
     "desktopScreenshot": "screenshots/operation--lottery--desktop.png",
-    "desktopSha256": "bc3826d9afce74d8054877880d077a6df57095d459ad0db8602326550e800b2b",
+    "desktopSha256": "226c5be00ce56d6454879d1d75df8237e22a0ae47db7b30b371e70f6f875fe68",
     "mobileScreenshot": "screenshots/operation--lottery--mobile.png",
-    "mobileSha256": "cd597f530052dbb17220b1d8ea51d81caacfabbde5ecca3c4c6b487383168eb3"
+    "mobileSha256": "d109dcb333ceadc1b071c47881ae50db402020664270a01812cf3bcd92a32789"
   },
   "operation:/roomClockIn": {
     "target": "react",
+    "currentReachable": true,
+    "evidenceStatus": "current",
     "playwrightRun": "playwright-run.json",
     "preservesQueryAndHash": true,
     "desktopScreenshot": "screenshots/operation--roomClockIn--desktop.png",
-    "desktopSha256": "0c2db63ab569b7bda5385577714252b45a55a306f720cce4b15908ed0b52cb9e",
+    "desktopSha256": "29ae2a65b0f0d4049564654c28043674911c089d23c958ef11a816e6a5a0b453",
     "mobileScreenshot": "screenshots/operation--roomClockIn--mobile.png",
-    "mobileSha256": "929aa9eb2f877bc5607d432cd3ba2d3fc8c94c6f9ca3a7ab7336bc7a298df125"
+    "mobileSha256": "c3d57ae84c5a86e4562c60a6c8eb8fdaa6fe1f19972fdd42676bfe852c544c14"
   },
   "operation:/roomFission": {
     "target": "react",
+    "currentReachable": true,
+    "evidenceStatus": "current",
     "playwrightRun": "playwright-run.json",
     "preservesQueryAndHash": true,
     "desktopScreenshot": "screenshots/operation--roomFission--desktop.png",
-    "desktopSha256": "408fc6d8e51b552887486bab2e4553860cb589db53f903ba9239bd20b93f8af3",
+    "desktopSha256": "cfca766ff7082c54adaf4a31088d1c3825c59772b3fe01c244b4007e36659065",
     "mobileScreenshot": "screenshots/operation--roomFission--mobile.png",
-    "mobileSha256": "36e87fa351da4057f4796677c71b80f0a6ef5762ea648761b6a980525833546e"
+    "mobileSha256": "500fbff65f4c8d951473078dadab8310b10d03f0c37ac00f9bdf0f874b15f9e5"
   },
   "operation:/fissionSpeed": {
     "target": "react",
+    "currentReachable": true,
+    "evidenceStatus": "current",
     "playwrightRun": "playwright-run.json",
     "preservesQueryAndHash": true,
     "desktopScreenshot": "screenshots/operation--fissionSpeed--desktop.png",
-    "desktopSha256": "d64023e3f9ebd06147e3e3e05f632f9b2e6c4c76da6eeb98bca72014fc171857",
+    "desktopSha256": "9da8c080d5f3883d3abf011f96d9883fbaca591d1840cfd245684c008f3f02a0",
     "mobileScreenshot": "screenshots/operation--fissionSpeed--mobile.png",
-    "mobileSha256": "690f7c9e4d1c630a095a5767cec652b080a99474bbd913399d7f4fdbb9f62e91"
+    "mobileSha256": "15ff51a778b0b13d1f112e211ffd74efcb9f2359bdd1def6fe33f2bc4b2c4c16"
   },
   "operation:/roomInfinitePull": {
     "target": "react",
+    "currentReachable": true,
+    "evidenceStatus": "current",
     "playwrightRun": "playwright-run.json",
     "preservesQueryAndHash": true,
     "desktopScreenshot": "screenshots/operation--roomInfinitePull--desktop.png",
-    "desktopSha256": "5f11eb1c167553ec4a2a8922b1656d4d70ba3b950b197806f40e992c8933e10d",
+    "desktopSha256": "21261ebc5a85469f927bd6c70b602f538f15cbcdfd0095c366b97c73d0f5cd51",
     "mobileScreenshot": "screenshots/operation--roomInfinitePull--mobile.png",
-    "mobileSha256": "9a1e25612a27497335b2a8e7ea76b9ff6193d08bb66880cb8b0eea58650e6f6d"
+    "mobileSha256": "45145b334794d7956c10fc760795ebab52dbbb0760243cab5b42e5636625842d"
   },
   "operation:/shopCode": {
     "target": "react",
+    "currentReachable": true,
+    "evidenceStatus": "current",
     "playwrightRun": "playwright-run.json",
     "preservesQueryAndHash": true,
     "desktopScreenshot": "screenshots/operation--shopCode--desktop.png",
-    "desktopSha256": "0caec18852140b677caf425621d9c6f4cf8194fd2b36a0c2142fc2629b1666e5",
+    "desktopSha256": "a01e1a3ba72ba7a8b5198a67ef157ccb28363663867ee14e2de690435c81078e",
     "mobileScreenshot": "screenshots/operation--shopCode--mobile.png",
-    "mobileSha256": "087ed674d6277c8e0adbf4d6089471cf642d49d588889eabc38d0eb53c882099"
+    "mobileSha256": "ae30ff27111738f55664f3d02ba0a3ce864705da44b7c550fdc76a17c95bd8e5"
   },
   "operation:/workFission": {
     "target": "react",
+    "currentReachable": true,
+    "evidenceStatus": "current",
     "playwrightRun": "playwright-run.json",
     "preservesQueryAndHash": true,
     "desktopScreenshot": "screenshots/operation--workFission--desktop.png",
-    "desktopSha256": "0d240954652cd12ad053b5e44256c70dc7ebcf80ab1253287318f705ca5af6d4",
+    "desktopSha256": "76358357fd2d06b568d045727b8ab74271c248999ceda0a38df88b8aeb56a6af",
     "mobileScreenshot": "screenshots/operation--workFission--mobile.png",
-    "mobileSha256": "cb632624dc3e75213aabdff49bdd746426d21d84be9176c3fe6355610aab91bf"
+    "mobileSha256": "59256ca836248baa07c243366a65f4c18be383d8fa8c29eed9444c4b93cfd1d6"
   },
   "operation:/speed": {
     "target": "react",
+    "currentReachable": true,
+    "evidenceStatus": "current",
     "playwrightRun": "playwright-run.json",
     "preservesQueryAndHash": true,
     "desktopScreenshot": "screenshots/operation--speed--desktop.png",
-    "desktopSha256": "c7f7bb76cbdc9b983c3b8822528efacc838f4e7808e70de2887d75a367eb6c76",
+    "desktopSha256": "00346c7cd62ed1c9e732dd5c9bb3b7856df31473b80afedf5ecc6a55ac4b42b7",
     "mobileScreenshot": "screenshots/operation--speed--mobile.png",
-    "mobileSha256": "b66711fa47739e748be3486aba2a8ed9d0abfcfe232d660a690d472ddeaa20e7"
+    "mobileSha256": "36921ec7c8416c45942e82126a8bd9a2493ba966f9ed64930de58bc5c04f103f"
+  },
+  "dashboard:/company-setting/website": {
+    "target": "react",
+    "currentReachable": true,
+    "evidenceStatus": "current",
+    "playwrightRun": "playwright-run.json",
+    "preservesQueryAndHash": true,
+    "desktopScreenshot": "screenshots/dashboard--company-setting__website--desktop.png",
+    "desktopSha256": "44c574f0561315956a1adb24f9fe9815c2058b45076d23c34beef68b8a744f41",
+    "mobileScreenshot": "screenshots/dashboard--company-setting__website--mobile.png",
+    "mobileSha256": "9c7249e731c4257c2f2506a3f544ea4e114a0c734df440bfb3dab3a42166d263"
   }
 }

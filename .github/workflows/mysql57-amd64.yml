@@ -1,14 +1,19 @@
 name: mysql57-amd64
 
+permissions:
+  contents: read
+
 on:
   workflow_dispatch:
   push:
     paths:
       - ".github/workflows/mysql57-amd64.yml"
       - "architecture-policy.json"
+      - "Dockerfile"
       - "cmd/mochat-architecture/**"
       - "cmd/mochat-go/**"
       - "cmd/mochat-migrate/**"
+      - "cmd/mochat-ai-insight-0165/**"
       - "cmd/mochat-frontend-e2e/**"
       - "deploy/mysql57/**"
       - "deploy/standalone/**"
@@ -27,8 +32,12 @@ on:
       - "scripts/test_frontend_check.ps1"
       - "scripts/audit_legacy_frontend_inventory.mjs"
       - "scripts/check_frontend_dependency_policy.mjs"
+      - "scripts/check_supply_chain_policy.mjs"
+      - "scripts/check_supply_chain_policy.test.mjs"
       - "scripts/test.sh"
       - "scripts/ci_mysql57_amd64.sh"
+      - "scripts/lib/migration_inventory_smoke.sh"
+      - "scripts/preflight_0165_ai_daily_insight_unification.go"
       - "scripts/audit_architecture_boundaries.sh"
       - "scripts/architecture-size-baseline.txt"
       - "scripts/test_audit_architecture_boundaries.sh"
@@ -41,9 +50,11 @@ on:
     paths:
       - ".github/workflows/mysql57-amd64.yml"
       - "architecture-policy.json"
+      - "Dockerfile"
       - "cmd/mochat-architecture/**"
       - "cmd/mochat-go/**"
       - "cmd/mochat-migrate/**"
+      - "cmd/mochat-ai-insight-0165/**"
       - "cmd/mochat-frontend-e2e/**"
       - "deploy/mysql57/**"
       - "deploy/standalone/**"
@@ -62,8 +73,12 @@ on:
       - "scripts/test_frontend_check.ps1"
       - "scripts/audit_legacy_frontend_inventory.mjs"
       - "scripts/check_frontend_dependency_policy.mjs"
+      - "scripts/check_supply_chain_policy.mjs"
+      - "scripts/check_supply_chain_policy.test.mjs"
       - "scripts/test.sh"
       - "scripts/ci_mysql57_amd64.sh"
+      - "scripts/lib/migration_inventory_smoke.sh"
+      - "scripts/preflight_0165_ai_daily_insight_unification.go"
       - "scripts/audit_architecture_boundaries.sh"
       - "scripts/architecture-size-baseline.txt"
       - "scripts/test_audit_architecture_boundaries.sh"
@@ -80,28 +95,28 @@ jobs:
     timeout-minutes: 45
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Setup Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
-          go-version-file: go.mod
+          go-version: 1.26.7
           cache: true
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
         with:
           version: 11.17.0
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
-          node-version: 24
+          node-version: 24.20.0
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
 
       - name: Cache Playwright Chromium
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ~/.cache/ms-playwright
           key: playwright-chromium-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
@@ -109,11 +124,17 @@ jobs:
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Frontend quick gate
-        run: ./scripts/frontend_check.sh quick
-
       - name: Frontend build gate
         run: ./scripts/frontend_check.sh build
+
+      - name: Supply-chain policy gate
+        run: pnpm check:supply-chain
+
+      - name: Frontend dependency vulnerability gate
+        run: pnpm audit --audit-level high
+
+      - name: Frontend quick gate
+        run: ./scripts/frontend_check.sh quick
 
       - name: Go architecture gate
         run: go run ./cmd/mochat-architecture -root .
@@ -133,10 +154,27 @@ jobs:
       - name: Go vet
         run: go vet ./...
 
+      - name: Go reachable vulnerability gate
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 ./...
+
+      - name: Generate source dependency SBOM
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+        with:
+          path: .
+          format: spdx-json
+          output-file: mochat-go.spdx.json
+          syft-version: v1.51.1
+          dependency-snapshot: false
+          upload-artifact: false
+          upload-release-assets: false
+
+      - name: Checksum source dependency SBOM
+        run: sha256sum mochat-go.spdx.json | tee mochat-go.spdx.json.sha256
+
       - name: Docker info
         run: docker info
 
-      - name: Migration 0098 lifecycle gate
+      - name: Migration registry lifecycle gate
         env:
           MOCHAT_STACK_PROJECT: mochat-go-schema-migrate-ci
           MOCHAT_MYSQL_PORT: "13331"
@@ -157,6 +195,7 @@ jobs:
         env:
           MOCHAT_STACK_PROJECT: mochat-go-scrm-integration
           MOCHAT_MYSQL57_PORT: "13333"
+          MOCHAT_GO_MYSQL_INTEGRATION_DSN: "root:mochat_root@tcp(127.0.0.1:13333)/mysql?parseTime=true&multiStatements=true"
           MOCHAT_MYSQL_DSN: "mochat:mochat_pass@tcp(127.0.0.1:13333)/mochat?parseTime=true&loc=UTC"
           MOCHAT_REQUIRE_MYSQL_INTEGRATION: "1"
         run: |
@@ -184,11 +223,38 @@ jobs:
           done
           test "$status" = "healthy"
 
-          go run ./cmd/mochat-migrate -dsn "$MOCHAT_MYSQL_DSN" -project-root . -action apply
+          # Applying the complete production registry for every isolated fixture is
+          # intentionally expensive on MySQL 5.7; keep the full scope and give the
+          # package-level Go harness enough time to finish.
+          go test ./internal/store ./internal/migration -count=1 -timeout 20m
+
+          inventory_file="$(mktemp)"
+          go run ./cmd/mochat-migrate -project-root . -action inventory | tee "$inventory_file"
+          first_controlled_line="$(awk -F '\t' '$3 == "controlled" { print NR; exit }' "$inventory_file")"
+          first_controlled_version="$(awk -F '\t' '$3 == "controlled" { print $1; exit }' "$inventory_file")"
+          test "$first_controlled_line" -gt 1
+          migration_count="$((first_controlled_line - 1))"
+          latest_version="$(sed -n "${migration_count}p" "$inventory_file" | cut -f 1)"
+          latest_checksum="$(sed -n "${migration_count}p" "$inventory_file" | cut -f 2)"
+          test -n "$latest_version"
+          test "${#latest_checksum}" = "64"
+
+          set +e
+          apply_output="$(go run ./cmd/mochat-migrate -dsn "$MOCHAT_MYSQL_DSN" -project-root . -action apply 2>&1)"
+          apply_status="$?"
+          set -e
+          printf '%s\n' "$apply_output"
+          test "$apply_status" -ne 0
+          printf '%s\n' "$apply_output" | grep -F $'MIGRATION_CONTROLLED_PENDING\t'"$first_controlled_version"
           test "$(
             docker compose -p "$MOCHAT_STACK_PROJECT" -f deploy/mysql57/docker-compose.yml \
               exec -T mysql57 mysql -umochat -pmochat_pass -N -B mochat \
-              -e "SELECT COUNT(*) FROM mochat_go_schema_migrations WHERE version = '0098_scrm_lead_foundation'"
+              -e "SELECT COUNT(*) FROM mochat_go_schema_migrations"
+          )" = "$migration_count"
+          test "$(
+            docker compose -p "$MOCHAT_STACK_PROJECT" -f deploy/mysql57/docker-compose.yml \
+              exec -T mysql57 mysql -umochat -pmochat_pass -N -B mochat \
+              -e "SELECT COUNT(*) FROM mochat_go_schema_migrations WHERE version = '${latest_version}' AND checksum = '${latest_checksum}'"
           )" = "1"
           go test -v -count=1 -tags=integration ./internal/modules/scrm/adapters/mysql
 
@@ -199,9 +265,12 @@ jobs:
         run: ./scripts/frontend_check.sh e2e
 
       - name: Upload MySQL 5.7 evidence
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:
           name: mysql57-amd64-evidence
-          path: docs/phases/phase-pre0-standalone/evidence/ci/mysql57-amd64.log
-          if-no-files-found: error
+          path: |
+            docs/phases/phase-pre0-standalone/evidence/ci/mysql57-amd64.log
+            mochat-go.spdx.json
+            mochat-go.spdx.json.sha256
+          if-no-files-found: warn

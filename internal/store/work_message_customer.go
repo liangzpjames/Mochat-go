@@ -530,9 +530,16 @@ func customerConversationBaseSQLWithSource(filter dashboard.WorkMessageCustomerC
 	case dashboard.WorkMessageCustomerConversationModeDirect:
 		baseSQL := `SELECT ` + projections + `
 			FROM (
-				SELECT wm.*, ROW_NUMBER() OVER (PARTITION BY wm.work_employee_id, wm.to_user_id ORDER BY wm.msg_data_time DESC, wm.seq DESC, wm.table_index DESC, wm.id DESC) AS rn
+				SELECT wm.*
 				FROM (` + archiveSQL + `) wm
 				WHERE wm.to_user_type = 1 AND wm.to_user_id = ?
+				  AND NOT EXISTS (
+					SELECT 1 FROM (` + archiveSQL + `) newer
+					WHERE newer.work_employee_id = wm.work_employee_id
+					  AND newer.to_user_type = wm.to_user_type
+					  AND newer.to_user_id = wm.to_user_id
+					  AND ` + workMessageNewerRowPredicate("newer", "wm") + `
+				  )
 			) latest
 			JOIN (
 				SELECT wm.work_employee_id, wm.to_user_id, CONCAT(wm.work_employee_id, ':1:', wm.to_user_id) AS conversation_id, COUNT(*) AS message_total
@@ -540,10 +547,10 @@ func customerConversationBaseSQLWithSource(filter dashboard.WorkMessageCustomerC
 				WHERE wm.to_user_type = 1 AND wm.to_user_id = ?
 				GROUP BY wm.work_employee_id, wm.to_user_id
 			) grouped ON grouped.work_employee_id=latest.work_employee_id AND grouped.to_user_id=latest.to_user_id
-			` + joins + `
-			WHERE latest.rn=1`
+			` + joins
 		args := append([]any{}, archiveArgs...)
 		args = append(args, filter.CustomerID)
+		args = append(args, archiveArgs...)
 		args = append(args, archiveArgs...)
 		args = append(args, filter.CustomerID)
 		args = append(args, joinArgs...)
@@ -557,11 +564,17 @@ func customerConversationBaseSQLWithSource(filter dashboard.WorkMessageCustomerC
 			WHERE membership.contact_id = ?)`
 		baseSQL := `SELECT ` + projections + `
 			FROM (
-				SELECT wm.*, customer_room.current_member,
-					ROW_NUMBER() OVER (PARTITION BY wm.work_employee_id, wm.to_user_id ORDER BY wm.msg_data_time DESC, wm.seq DESC, wm.table_index DESC, wm.id DESC) AS rn
+				SELECT wm.*, customer_room.current_member
 				FROM (` + archiveSQL + `) wm
 				JOIN ` + customerRooms + ` customer_room ON customer_room.room_id=wm.to_user_id
 				WHERE wm.to_user_type = 2
+				  AND NOT EXISTS (
+					SELECT 1 FROM (` + archiveSQL + `) newer
+					WHERE newer.work_employee_id = wm.work_employee_id
+					  AND newer.to_user_type = wm.to_user_type
+					  AND newer.to_user_id = wm.to_user_id
+					  AND ` + workMessageNewerRowPredicate("newer", "wm") + `
+				  )
 			) latest
 			JOIN (
 				SELECT wm.work_employee_id, wm.to_user_id, CONCAT(wm.work_employee_id, ':2:', wm.to_user_id) AS conversation_id, COUNT(*) AS message_total
@@ -570,10 +583,10 @@ func customerConversationBaseSQLWithSource(filter dashboard.WorkMessageCustomerC
 				WHERE wm.to_user_type = 2
 				GROUP BY wm.work_employee_id, wm.to_user_id
 			) grouped ON grouped.work_employee_id=latest.work_employee_id AND grouped.to_user_id=latest.to_user_id
-			` + joins + `
-			WHERE latest.rn=1`
+			` + joins
 		args := append([]any{}, archiveArgs...)
 		args = append(args, filter.CorpID, filter.CorpID, filter.CustomerID)
+		args = append(args, archiveArgs...)
 		args = append(args, archiveArgs...)
 		args = append(args, filter.CorpID, filter.CorpID, filter.CustomerID)
 		args = append(args, joinArgs...)

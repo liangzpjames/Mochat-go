@@ -4,8 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"time"
 
+	mysqldriver "github.com/go-sql-driver/mysql"
 	"github.com/google/uuid"
 	"jiyi/mochat-go/internal/modules/scrm/domain"
 )
@@ -52,24 +54,70 @@ func NewSQLOrderRepository(db *sql.DB) (*SQLOrderRepository, error) {
 	return &SQLOrderRepository{db: db}, nil
 }
 
-func (r *SQLOrderRepository) CreateContext(ctx context.Context, order domain.Order, actorID int64) (domain.Order, error) {
+func (r *SQLOrderRepository) CreateIdempotentContext(ctx context.Context, command domain.OrderCreateCommand) (domain.OrderCreateReceipt, error) {
+	if command.Order.TenantID <= 0 || command.Order.CorpID <= 0 || command.ActorID <= 0 || command.IdempotencyKey == "" || len(command.IdempotencyKey) > 128 || len(command.RequestHash) != 64 || command.ResponseStatus < 200 || command.ResponseStatus > 599 || len(command.ResponseBody) == 0 {
+		return domain.OrderCreateReceipt{}, errors.New("invalid idempotent order create command")
+	}
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
-		return domain.Order{}, err
+		return domain.OrderCreateReceipt{}, err
 	}
 	defer tx.Rollback()
 	now := time.Now().UTC()
-	_, err = tx.ExecContext(ctx, `INSERT INTO mochat_go_scrm_orders (id,tenant_id,corp_id,contact_id,opportunity_id,title,note,amount_cents,currency,status,version,idempotency_key,created_by,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, order.ID, order.TenantID, order.CorpID, order.ContactID, order.OpportunityID, order.Title, order.Note, order.AmountCents, order.Currency, order.Status, order.Version, order.ID, actorID, now, now)
+	_, err = tx.ExecContext(ctx, `INSERT INTO mochat_go_scrm_order_idempotency_receipts (tenant_id,corp_id,idempotency_key,request_hash,order_id,response_status,response_body,created_at) VALUES (?,?,?,?,?,?,?,?)`, command.Order.TenantID, command.Order.CorpID, command.IdempotencyKey, command.RequestHash, command.Order.ID, command.ResponseStatus, command.ResponseBody, now)
 	if err != nil {
-		return domain.Order{}, err
+		if !isMySQLDuplicateKey(err) {
+			return domain.OrderCreateReceipt{}, fmt.Errorf("claim order idempotency receipt: %w", err)
+		}
+		if err := tx.Rollback(); err != nil {
+			return domain.OrderCreateReceipt{}, fmt.Errorf("release duplicate order claim: %w", err)
+		}
+		return replayOrderReceipt(ctx, r.db, command)
 	}
-	if err := r.audit(ctx, tx, order, "created", 0, order.Version, actorID); err != nil {
-		return domain.Order{}, err
+	_, err = tx.ExecContext(ctx, `INSERT INTO mochat_go_scrm_orders (id,tenant_id,corp_id,contact_id,opportunity_id,title,note,amount_cents,currency,status,version,idempotency_key,created_by,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, command.Order.ID, command.Order.TenantID, command.Order.CorpID, command.Order.ContactID, command.Order.OpportunityID, command.Order.Title, command.Order.Note, command.Order.AmountCents, command.Order.Currency, command.Order.Status, command.Order.Version, command.IdempotencyKey, command.ActorID, now, now)
+	if err != nil {
+		return domain.OrderCreateReceipt{}, fmt.Errorf("insert order: %w", err)
+	}
+	if err := r.audit(ctx, tx, command.Order, "created", 0, command.Order.Version, command.ActorID); err != nil {
+		return domain.OrderCreateReceipt{}, err
 	}
 	if err := tx.Commit(); err != nil {
-		return domain.Order{}, err
+		return domain.OrderCreateReceipt{}, err
 	}
-	return order, nil
+	return domain.OrderCreateReceipt{OrderID: command.Order.ID, RequestHash: command.RequestHash, ResponseStatus: command.ResponseStatus, ResponseBody: append([]byte(nil), command.ResponseBody...)}, nil
+}
+
+func replayOrderReceipt(ctx context.Context, db *sql.DB, command domain.OrderCreateCommand) (domain.OrderCreateReceipt, error) {
+	tx, err := db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return domain.OrderCreateReceipt{}, err
+	}
+	defer tx.Rollback()
+	var (
+		requestHash    string
+		orderID        string
+		responseStatus int
+		responseBody   []byte
+	)
+	err = tx.QueryRowContext(ctx, `SELECT request_hash,order_id,response_status,response_body FROM mochat_go_scrm_order_idempotency_receipts WHERE tenant_id=? AND corp_id=? AND idempotency_key=?`, command.Order.TenantID, command.Order.CorpID, command.IdempotencyKey).Scan(&requestHash, &orderID, &responseStatus, &responseBody)
+	if err != nil {
+		return domain.OrderCreateReceipt{}, fmt.Errorf("read order idempotency receipt: %w", err)
+	}
+	if requestHash != command.RequestHash {
+		return domain.OrderCreateReceipt{}, domain.ErrOrderIdempotencyConflict
+	}
+	if orderID == "" || responseStatus == 0 || len(responseBody) == 0 {
+		return domain.OrderCreateReceipt{}, errors.New("order idempotency receipt is incomplete")
+	}
+	if err := tx.Commit(); err != nil {
+		return domain.OrderCreateReceipt{}, err
+	}
+	return domain.OrderCreateReceipt{OrderID: orderID, RequestHash: requestHash, ResponseStatus: responseStatus, ResponseBody: append([]byte(nil), responseBody...), Replayed: true}, nil
+}
+
+func isMySQLDuplicateKey(err error) bool {
+	var mysqlError *mysqldriver.MySQLError
+	return errors.As(err, &mysqlError) && mysqlError.Number == 1062
 }
 
 func (r *SQLOrderRepository) ListContext(ctx context.Context, tenantID, corpID int64, page, pageSize int) ([]domain.Order, int, error) {
@@ -137,15 +185,4 @@ func (r *SQLOrderRepository) audit(ctx context.Context, executor orderExecutor, 
 	}
 	_, err := executor.ExecContext(ctx, `INSERT INTO mochat_go_scrm_order_audit (id,tenant_id,corp_id,order_id,action,actor_id,from_version,to_version,payload_json,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)`, uuid.NewString(), o.TenantID, o.CorpID, o.ID, action, actor, from, to, `{}`, time.Now().UTC())
 	return err
-}
-
-func (r *SQLOrderRepository) Create(o domain.Order) (domain.Order, error) {
-	return r.CreateContext(context.Background(), o, 0)
-}
-func (r *SQLOrderRepository) List(t, c int64) []domain.Order {
-	v, _, _ := r.ListContext(context.Background(), t, c, 1, 200)
-	return v
-}
-func (r *SQLOrderRepository) Transition(id string, t int64, s domain.OrderStatus, v int64) (domain.Order, error) {
-	return r.TransitionContext(context.Background(), id, t, 0, s, v, 0)
 }

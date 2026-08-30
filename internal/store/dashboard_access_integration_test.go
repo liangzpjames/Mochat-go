@@ -6,13 +6,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
-	"time"
 
-	_ "github.com/go-sql-driver/mysql"
-	mysqldriver "github.com/go-sql-driver/mysql"
 	"jiyi/mochat-go/internal/dashboard"
-	"jiyi/mochat-go/internal/migration"
+	"jiyi/mochat-go/internal/integrationtestdb"
+	migrationtestharness "jiyi/mochat-go/internal/migration/testharness"
 )
 
 // TestDashboardAccessIntegration creates a throwaway schema from an admin DSN, applies the
@@ -75,10 +74,21 @@ func TestDashboardAccessIntegration(t *testing.T) {
 	if err := store.DeleteDashboardRole(ctx, dashboard.DeleteDashboardRoleCommand{TenantID: 1, ActorUserID: 100, ActorName: "task9 actor", RoleID: created.ID, ExpectedVersion: updated.Version, RequestID: "task9-role-delete"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.DeleteDashboardRole(ctx, dashboard.DeleteDashboardRoleCommand{TenantID: 1, ActorUserID: 100, ActorName: "task9 actor", RoleID: fixture.RoleID, ExpectedVersion: 1, RequestID: "task9-member-delete"}); err != dashboard.ErrDashboardAccessRoleHasMembers { t.Fatalf("member role delete err=%v", err) }
-	var longRequest string; for i := 0; i < 120; i++ { longRequest += "x" }
-	if _, err := store.UpdateDashboardRole(ctx, dashboard.UpdateDashboardRoleCommand{TenantID: 1, ActorUserID: 100, ActorName: "task9 actor", RoleID: fixture.OtherRoleID, Name: "must rollback", ExpectedVersion: 1, RequestID: longRequest}); err == nil { t.Fatal("oversized audit request unexpectedly committed") }
-	var unchanged string; if err := db.QueryRowContext(ctx, `SELECT name FROM mc_rbac_role WHERE tenant_id=? AND id=?`, fixture.TenantID, fixture.OtherRoleID).Scan(&unchanged); err != nil || unchanged != "role-b" { t.Fatalf("audit failure did not rollback role name=%q err=%v", unchanged, err) }
+	if err := store.DeleteDashboardRole(ctx, dashboard.DeleteDashboardRoleCommand{TenantID: 1, ActorUserID: 100, ActorName: "task9 actor", RoleID: fixture.RoleID, ExpectedVersion: 1, RequestID: "task9-member-delete"}); err != dashboard.ErrDashboardAccessRoleHasMembers {
+		t.Fatalf("member role delete err=%v", err)
+	}
+	// Migration 0176 intentionally widens audit request IDs to 128 characters so
+	// callback reconciliation can preserve every valid Idempotency-Key byte.
+	// Keep the rollback contract at the current database boundary, not the old
+	// 96-character limit.
+	longRequest := strings.Repeat("x", 129)
+	if _, err := store.UpdateDashboardRole(ctx, dashboard.UpdateDashboardRoleCommand{TenantID: 1, ActorUserID: 100, ActorName: "task9 actor", RoleID: fixture.OtherRoleID, Name: "must rollback", ExpectedVersion: 1, RequestID: longRequest}); err == nil {
+		t.Fatal("oversized audit request unexpectedly committed")
+	}
+	var unchanged string
+	if err := db.QueryRowContext(ctx, `SELECT name FROM mc_rbac_role WHERE tenant_id=? AND id=?`, fixture.TenantID, fixture.OtherRoleID).Scan(&unchanged); err != nil || unchanged != "role-b" {
+		t.Fatalf("audit failure did not rollback role name=%q err=%v", unchanged, err)
+	}
 	profile, err := dashboard.NewDashboardAccessService(store).Resolve(ctx, fixture.TargetUserID, fixture.CorpID)
 	if err != nil {
 		t.Fatal(err)
@@ -160,81 +170,53 @@ func assertDashboard0127Applied(t *testing.T, db *sql.DB) {
 
 func openDashboardIntegrationDB(t *testing.T) *sql.DB {
 	t.Helper()
-	dsn := os.Getenv("MOCHAT_GO_MYSQL_INTEGRATION_DSN")
+	dsn := strings.TrimSpace(os.Getenv("MOCHAT_GO_MYSQL_INTEGRATION_DSN"))
 	if dsn == "" {
-		t.Skip("SKIP: MOCHAT_GO_MYSQL_INTEGRATION_DSN is not set; isolated MariaDB DSN is required")
+		t.Skip("SKIP: MOCHAT_GO_MYSQL_INTEGRATION_DSN is not set; isolated MariaDB/MySQL DSN is required")
 	}
-	cfg, err := mysqldriver.ParseDSN(dsn)
+	isolated := integrationtestdb.NewIsolated(t, dsn)
+	db := isolated.DB
+	root := filepath.Join("..", "..")
+	evidence, err := migrationtestharness.NewControlledEvidence(fmt.Sprintf("dashboard-access-%d", currentStoreIntegrationSequence.Add(1)))
 	if err != nil {
 		t.Fatal(err)
 	}
-	adminCfg := *cfg
-	adminCfg.DBName = ""
-	admin, err := sql.Open("mysql", adminCfg.FormatDSN())
-	if err != nil {
-		t.Fatal(err)
-	}
-	schema := fmt.Sprintf("mochat_dashboard_access_%d", time.Now().UnixNano())
-	if _, err := admin.Exec("CREATE DATABASE `" + schema + "` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"); err != nil {
-		_ = admin.Close()
-		t.Fatalf("create isolated schema: %v", err)
-	}
-	t.Cleanup(func() { _, _ = admin.Exec("DROP DATABASE IF EXISTS `" + schema + "`"); _ = admin.Close() })
-	cfg.DBName = schema
-	db, err := sql.Open("mysql", cfg.FormatDSN())
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
-	if err := db.PingContext(context.Background()); err != nil {
+	if err := migrationtestharness.ApplyThrough(context.Background(), db, root, "0126_phase3_final_providers", evidence); err != nil {
 		t.Fatal(err)
 	}
 	createDashboardAccessFixture(t, db)
+	if err := migrationtestharness.ApplyThrough(context.Background(), db, root, "0127_dashboard_page_rbac", evidence); err != nil {
+		t.Fatal(err)
+	}
+	if err := migrationtestharness.ApplyLatest(context.Background(), db, root, evidence); err != nil {
+		t.Fatal(err)
+	}
 	return db
 }
 
 func createDashboardAccessFixture(t *testing.T, db *sql.DB) {
 	t.Helper()
 	statements := []string{
-		`CREATE TABLE mc_user (id int(10) unsigned NOT NULL, tenant_id int(11) NOT NULL, name varchar(100) NOT NULL DEFAULT '', phone varchar(32) NOT NULL DEFAULT '', status tinyint NOT NULL DEFAULT 1, isSuperAdmin tinyint(1) DEFAULT 0, created_at timestamp NULL, updated_at timestamp NULL, deleted_at timestamp NULL, PRIMARY KEY(id)) ENGINE=InnoDB`,
-		`CREATE TABLE mc_rbac_role (id int(11) NOT NULL AUTO_INCREMENT, tenant_id int(11) NOT NULL, name varchar(100) NOT NULL DEFAULT '', remarks varchar(255) NOT NULL DEFAULT '', status tinyint NOT NULL DEFAULT 1, operate_id int NOT NULL DEFAULT 0, operate_name varchar(100) NOT NULL DEFAULT '', data_permission json DEFAULT NULL, created_at timestamp NULL, updated_at timestamp NULL, deleted_at timestamp NULL, PRIMARY KEY(id)) ENGINE=InnoDB`,
-		`CREATE TABLE mc_rbac_user_role (id int NOT NULL AUTO_INCREMENT, user_id int NOT NULL, role_id int NOT NULL, created_at timestamp NULL, updated_at timestamp NULL, deleted_at timestamp NULL, PRIMARY KEY(id)) ENGINE=InnoDB`,
-		`CREATE TABLE mc_rbac_menu (id int NOT NULL, link_url varchar(255) NOT NULL, data_permission tinyint NOT NULL DEFAULT 1, deleted_at timestamp NULL, PRIMARY KEY(id)) ENGINE=InnoDB`,
-		`CREATE TABLE mc_rbac_role_menu (id int NOT NULL AUTO_INCREMENT, role_id int NOT NULL, menu_id int NOT NULL, created_at timestamp NULL, updated_at timestamp NULL, PRIMARY KEY(id)) ENGINE=InnoDB`,
-		`CREATE TABLE mochat_go_saas_tenant_packages (id int unsigned NOT NULL, tenant_id int unsigned NOT NULL, starts_at timestamp NULL, expires_at timestamp NULL, status tinyint NOT NULL, deleted_at timestamp NULL, PRIMARY KEY(id)) ENGINE=InnoDB`,
-		`CREATE TABLE mochat_go_saas_subscriptions (id bigint unsigned NOT NULL, tenant_id int unsigned NOT NULL, deleted_at timestamp NULL, PRIMARY KEY(id)) ENGINE=InnoDB`,
-		`CREATE TABLE mc_corp (id int NOT NULL, tenant_id int NOT NULL, deleted_at timestamp NULL, PRIMARY KEY(id)) ENGINE=InnoDB`,
-		`CREATE TABLE mc_work_employee (id int NOT NULL, corp_id int NOT NULL, log_user_id int NOT NULL, deleted_at timestamp NULL, PRIMARY KEY(id)) ENGINE=InnoDB`,
-		`CREATE TABLE mc_work_employee_department (employee_id int NOT NULL, department_id int NOT NULL, deleted_at timestamp NULL) ENGINE=InnoDB`,
-		`CREATE TABLE mc_work_department (id int NOT NULL, corp_id int NOT NULL, path varchar(255) NOT NULL, deleted_at timestamp NULL, PRIMARY KEY(id)) ENGINE=InnoDB`,
-		`INSERT INTO mc_user(id,tenant_id,name,phone,status,isSuperAdmin) VALUES (100,1,'actor','100',1,1),(101,1,'target','101',1,0),(201,2,'other','201',1,0)`,
-		`INSERT INTO mc_rbac_role(id,tenant_id,name,remarks,status,data_permission) VALUES (10,1,'role-a','',1,'[]'),(11,1,'role-b','',1,'[]')`,
+		`INSERT INTO mc_tenant(id,name,status) VALUES (1,'tenant-1',1),(2,'tenant-2',1)`,
+		`INSERT INTO mc_user(id,tenant_id,name,phone,password,status,isSuperAdmin) VALUES (100,1,'actor','13800000100','!fixture',1,1),(101,1,'target','13800000101','!fixture',1,0),(201,2,'other','13800000201','!fixture',1,0)`,
+		`INSERT INTO mc_rbac_role(id,tenant_id,name,remarks,status,operate_id,operate_name,data_permission) VALUES (10,1,'role-a','',1,100,'actor','[]'),(11,1,'role-b','',1,100,'actor','[]')`,
 		`INSERT INTO mc_rbac_user_role(user_id,role_id) VALUES (101,10)`,
-		`INSERT INTO mc_rbac_menu(id,link_url) VALUES (30,'/dashboard/channelCode/index#GET'),(31,'/dashboard/workContact/index@read')`,
-		`INSERT INTO mc_rbac_role_menu(role_id,menu_id) VALUES (10,30),(10,31)`,
-		`INSERT INTO mochat_go_saas_tenant_packages VALUES (1,1,NULL,NULL,1,NULL),(2,2,NULL,NULL,1,NULL)`,
-		`INSERT INTO mochat_go_saas_subscriptions VALUES (1,1,NULL),(2,2,NULL)`,
-		`INSERT INTO mc_corp VALUES (7,1,NULL),(8,2,NULL)`,
-		`INSERT INTO mc_work_employee VALUES (700,7,101,NULL),(701,8,201,NULL)`,
-		`INSERT INTO mc_work_department VALUES (70,7,'/70/',NULL)`,
-		`INSERT INTO mc_work_employee_department VALUES (700,70,NULL)`,
+		`INSERT INTO mc_rbac_menu(id,parent_id,link_url,data_permission) VALUES (900030,0,'/dashboard/channelCode/index#GET',1),(900031,0,'/dashboard/workContact/index@read',1)`,
+		`INSERT INTO mc_rbac_role_menu(role_id,menu_id) VALUES (10,900030),(10,900031)`,
+		`INSERT INTO mochat_go_saas_subscriptions(id,tenant_id,status) VALUES (1,1,'active'),(2,2,'active')`,
+		`INSERT INTO mc_corp(id,tenant_id,name,wx_corpid) VALUES (7,1,'corp-1','wx-corp-1'),(8,2,'corp-2','wx-corp-2')`,
+		`INSERT INTO mc_work_employee(id,corp_id,log_user_id,name,status) VALUES (700,7,101,'target',1),(701,8,201,'other',1)`,
+		`INSERT INTO mc_work_department(id,corp_id,name,wx_parentid,path) VALUES (70,7,'dept-70',0,'/70/')`,
+		`INSERT INTO mc_work_employee_department(employee_id,department_id) VALUES (700,70)`,
 	}
 	for _, statement := range statements {
 		if _, err := db.Exec(statement); err != nil {
 			t.Fatalf("fixture: %v", err)
 		}
 	}
-	body, err := os.ReadFile(filepath.Join("..", "..", "deploy", "standalone", "migrations", "0127_dashboard_page_rbac.up.sql"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	migrationStatements, err := migration.SplitSQLStatements(string(body))
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, statement := range migrationStatements {
-		if _, err := db.Exec(statement); err != nil {
-			t.Fatalf("0127: %v", err)
+	for tenantID, packageID := range map[int]int{1: 1, 2: 2} {
+		if _, err := db.Exec(`INSERT INTO mochat_go_saas_tenant_packages(id,tenant_id,package_code,package_name,status,limits_json) VALUES (?,?,?,'fixture',1,?)`, packageID, tenantID, fmt.Sprintf("fixture-%d", tenantID), contactBatchLimitsJSON()); err != nil {
+			t.Fatal(err)
 		}
 	}
 }

@@ -3,19 +3,11 @@ package migration
 import (
 	"context"
 	"database/sql"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
-	"sync/atomic"
 	"testing"
-
-	mysqldriver "github.com/go-sql-driver/mysql"
 )
-
-var identitySingleCorpSchemaSequence atomic.Int64
-
-const identitySingleCorpSchemaPrefix = "mochat_identity_single_corp_migration"
 
 func TestIdentityRealmsSingleCorpMigrationContract(t *testing.T) {
 	root := filepath.Join("..", "..")
@@ -236,9 +228,7 @@ func TestIdentityRealmsSingleCorpIntegration(t *testing.T) {
 	t.Run("preflight rejects an unknown tenant dependency before DDL", func(t *testing.T) {
 		db := newIdentitySingleCorpMigrationDB(t)
 		createIdentitySingleCorpBaseFixture(t, db)
-		if _, err := db.Exec(`CREATE TABLE identity_dependency_probe (tenant_id int(10) unsigned NOT NULL, CONSTRAINT fk_unknown_tenant_dependency FOREIGN KEY (tenant_id) REFERENCES mc_tenant (id)) ENGINE=InnoDB`); err != nil {
-			t.Fatal(err)
-		}
+		createIdentityUnknownTenantDependencyProbe(t, db)
 		err := execIdentitySingleCorpMigration(t, db, "0129_identity_realms_single_corp_schema.up.sql", true)
 		if !strings.Contains(strings.ToLower(err.Error()), "unknown tenant dependency") {
 			t.Fatalf("error=%v", err)
@@ -264,9 +254,7 @@ func TestIdentityRealmsSingleCorpIntegration(t *testing.T) {
 	t.Run("fresh compose-like schema allows the legacy mc_corp credential index", func(t *testing.T) {
 		db := newIdentitySingleCorpMigrationDB(t)
 		createIdentitySingleCorpBaseFixture(t, db)
-		if _, err := db.Exec("ALTER TABLE mc_corp ADD INDEX idx_mc_corp_wecom_credential_key (wecom_credentials_key_id, tenant_id, id)"); err != nil {
-			t.Fatal(err)
-		}
+		assertIdentityIndexExists(t, db, "mc_corp", "idx_mc_corp_wecom_credential_key")
 		execIdentitySingleCorpMigration(t, db, "0129_identity_realms_single_corp_schema.up.sql", false)
 		assertIdentityTableExists(t, db, "mochat_go_saas_admin_users")
 		assertIdentityIndexExists(t, db, "mc_corp", "idx_mc_corp_wecom_credential_key")
@@ -325,91 +313,45 @@ func TestIdentityRealmsSingleCorpIntegration(t *testing.T) {
 		if _, err := db.Exec(`ALTER TABLE mc_user MODIFY tenant_id int(10) unsigned NOT NULL DEFAULT 1`); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := db.Exec(`CREATE TABLE mochat_go_dashboard_identities (user_id int(10) unsigned NOT NULL PRIMARY KEY) ENGINE=InnoDB`); err != nil {
-			t.Fatal(err)
-		}
+		createIdentityPartialDashboardIdentityProbe(t, db)
 		execIdentitySingleCorpMigration(t, db, "0129_identity_realms_single_corp_schema.down.sql", false)
 		assertIdentityTableMissing(t, db, "mochat_go_dashboard_identities")
 		assertIdentityColumnType(t, db, "mc_user", "tenant_id", "int(11)")
 	})
 }
 
+func createIdentityUnknownTenantDependencyProbe(t *testing.T, db *sql.DB) {
+	t.Helper()
+	if _, err := db.Exec(`CREATE TABLE identity_dependency_probe (tenant_id int(10) unsigned NOT NULL, CONSTRAINT fk_unknown_tenant_dependency FOREIGN KEY (tenant_id) REFERENCES mc_tenant (id)) ENGINE=InnoDB`); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func createIdentityPartialDashboardIdentityProbe(t *testing.T, db *sql.DB) {
+	t.Helper()
+	if _, err := db.Exec(`CREATE TABLE mochat_go_dashboard_identities (user_id int(10) unsigned NOT NULL PRIMARY KEY) ENGINE=InnoDB`); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func newIdentitySingleCorpMigrationDB(t *testing.T) *sql.DB {
 	t.Helper()
-	dsn := os.Getenv("MOCHAT_GO_MYSQL_INTEGRATION_DSN")
-	if dsn == "" {
-		t.Skip("MOCHAT_GO_MYSQL_INTEGRATION_DSN is required for Identity Realms Single Corp MariaDB migration tests")
-	}
-	cfg, err := mysqldriver.ParseDSN(dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	adminCfg := *cfg
-	adminCfg.DBName = ""
-	admin, err := sql.Open("mysql", adminCfg.FormatDSN())
-	if err != nil {
-		t.Fatal(err)
-	}
-	schema := fmt.Sprintf("%s_%d_%d", identitySingleCorpSchemaPrefix, os.Getpid(), identitySingleCorpSchemaSequence.Add(1))
-	var schemaExists int
-	if err := admin.QueryRow("SELECT COUNT(*) FROM information_schema.schemata WHERE schema_name = ?", schema).Scan(&schemaExists); err != nil {
-		_ = admin.Close()
-		t.Fatalf("check isolated schema collision: %v", err)
-	}
-	if schemaExists != 0 {
-		_ = admin.Close()
-		t.Fatalf("isolated schema already exists: %s", schema)
-	}
-	if _, err := admin.Exec("CREATE DATABASE `" + schema + "` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"); err != nil {
-		_ = admin.Close()
-		t.Fatalf("create isolated migration schema: %v", err)
-	}
-	t.Cleanup(func() {
-		_, _ = admin.Exec("DROP DATABASE IF EXISTS `" + schema + "`")
-		var leftovers int
-		if err := admin.QueryRow("SELECT COUNT(*) FROM information_schema.schemata WHERE schema_name = ?", schema).Scan(&leftovers); err != nil {
-			t.Errorf("check isolated schema cleanup: %v", err)
-		} else if leftovers != 0 {
-			t.Errorf("isolated schema %s still exists after cleanup", schema)
-		}
-		_ = admin.Close()
-	})
-	testCfg := *cfg
-	testCfg.DBName = schema
-	db, err := sql.Open("mysql", testCfg.FormatDSN())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := db.PingContext(context.Background()); err != nil {
-		_ = db.Close()
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
-	return db
+	return newMigrationIntegrationDBThrough(t, "0128_dashboard_page_rbac_legacy_scope_fix")
 }
 
 func createIdentitySingleCorpBaseFixture(t *testing.T, db *sql.DB) {
 	t.Helper()
 	statements := []string{
-		`CREATE TABLE mc_tenant (id int(10) unsigned NOT NULL AUTO_INCREMENT, name varchar(255) NOT NULL DEFAULT '', status tinyint NOT NULL DEFAULT 1, deleted_at timestamp NULL, PRIMARY KEY (id)) ENGINE=InnoDB`,
-		`CREATE TABLE mc_corp (id int(10) unsigned NOT NULL AUTO_INCREMENT, tenant_id int(11) DEFAULT 0, name varchar(255) NOT NULL DEFAULT '', wx_corpid varchar(255) NOT NULL DEFAULT '', employee_secret varchar(255) NOT NULL DEFAULT '', contact_secret varchar(255) NOT NULL DEFAULT '', token varchar(255) NOT NULL DEFAULT '', encoding_aes_key varchar(255) NOT NULL DEFAULT '', chat_secret varchar(255) NOT NULL DEFAULT '', wecom_credentials_ciphertext text COLLATE utf8mb4_bin NULL, wecom_credentials_key_id varchar(64) NOT NULL DEFAULT '', created_at timestamp NULL, updated_at timestamp NULL, deleted_at timestamp NULL, PRIMARY KEY (id)) ENGINE=InnoDB`,
-		`CREATE TABLE mc_user (id int(10) unsigned NOT NULL AUTO_INCREMENT, tenant_id int(11) NOT NULL DEFAULT 1, phone char(11) NOT NULL DEFAULT '', password varchar(255) NOT NULL DEFAULT '', name varchar(255) NOT NULL DEFAULT '', status tinyint unsigned NOT NULL DEFAULT 1, deleted_at timestamp NULL, isSuperAdmin tinyint NOT NULL DEFAULT 0, PRIMARY KEY (id)) ENGINE=InnoDB`,
-		`CREATE TABLE mc_rbac_role (id int(11) NOT NULL AUTO_INCREMENT, tenant_id int(11) NOT NULL, data_permission json DEFAULT NULL, deleted_at timestamp NULL, PRIMARY KEY (id)) ENGINE=InnoDB`,
-		`CREATE TABLE mc_rbac_user_role (id int(11) NOT NULL AUTO_INCREMENT, user_id int(11) NOT NULL, role_id int(11) NOT NULL, deleted_at timestamp NULL, PRIMARY KEY (id)) ENGINE=InnoDB`,
-		`CREATE TABLE mc_work_agent (id int(10) unsigned NOT NULL AUTO_INCREMENT, corp_id int(11) NOT NULL, wx_agent_id varchar(255) NOT NULL DEFAULT '', wx_secret varchar(255) NOT NULL DEFAULT '', wecom_credentials_ciphertext text COLLATE utf8mb4_bin NULL, wecom_credentials_key_id varchar(64) NOT NULL DEFAULT '', PRIMARY KEY (id)) ENGINE=InnoDB`,
 		`INSERT INTO mc_tenant (id, name, status) VALUES (1, 'Tenant 1', 1), (2, 'Tenant 2', 1)`,
 		`INSERT INTO mc_corp (id, tenant_id, name) VALUES (100, 1, 'Corp 1'), (200, 2, 'Corp 2')`,
 		`INSERT INTO mc_user (id, tenant_id, phone, status, deleted_at) VALUES (10, 1, '13800000001', 1, NULL)`,
-		`INSERT INTO mc_rbac_role (id, tenant_id) VALUES (20, 1)`,
+		`INSERT INTO mc_rbac_role (id, tenant_id, operate_id, operate_name) VALUES (20, 1, 10, 'Tester')`,
 	}
 	for _, statement := range statements {
 		if _, err := db.Exec(statement); err != nil {
 			t.Fatalf("fixture statement failed: %v", err)
 		}
 	}
-	loadRealDashboardPageRBACDDL(t, db)
-	loadSaaSAdminRBACDDL(t, db)
-	loadSaaSAdminHistoryDDL(t, db)
 	for _, statement := range []string{
 		`INSERT INTO mochat_go_dashboard_permissions (id, code, permission_type, path, name) VALUES (900, 'dashboard.test', 'page', '/test', 'Test')`,
 		`INSERT INTO mochat_go_dashboard_permission_resources (id, permission_id, resource_type, http_method, path_pattern) VALUES (901, 900, 'api', 'GET', '/dashboard/test')`,
@@ -421,55 +363,6 @@ func createIdentitySingleCorpBaseFixture(t *testing.T, db *sql.DB) {
 		if _, err := db.Exec(statement); err != nil {
 			t.Fatalf("0127 complete fixture statement failed: %v", err)
 		}
-	}
-}
-
-func loadSaaSAdminRBACDDL(t *testing.T, db *sql.DB) {
-	t.Helper()
-	body, err := os.ReadFile(filepath.Join("..", "..", "deploy", "standalone", "migrations", "0045_saas_admin_rbac.up.sql"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := execSQLScript(context.Background(), db, string(body)); err != nil {
-		t.Fatalf("load real SaaS RBAC DDL: %v", err)
-	}
-}
-
-func loadSaaSAdminHistoryDDL(t *testing.T, db *sql.DB) {
-	t.Helper()
-	for _, name := range []string{
-		"0033_saas_admin_operation_logs.up.sql",
-		"0035_saas_admin_tasks.up.sql",
-		"0046_saas_admin_approvals.up.sql",
-		"0047_saas_admin_approval_governance.up.sql",
-		"0048_saas_admin_system_health.up.sql",
-		"0062_saas_audit_integrity.up.sql",
-		"0063_saas_audit_anchor_signatures.up.sql",
-	} {
-		body, err := os.ReadFile(filepath.Join("..", "..", "deploy", "standalone", "migrations", name))
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := execSQLScript(context.Background(), db, string(body)); err != nil {
-			t.Fatalf("load SaaS admin history DDL %s: %v", name, err)
-		}
-	}
-}
-
-func loadRealDashboardPageRBACDDL(t *testing.T, db *sql.DB) {
-	t.Helper()
-	body, err := os.ReadFile(filepath.Join("..", "..", "deploy", "standalone", "migrations", "0127_dashboard_page_rbac.up.sql"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	script := string(body)
-	start := strings.Index(script, "ALTER TABLE `mc_user`")
-	end := strings.Index(script, "INSERT INTO `mochat_go_dashboard_permissions`")
-	if start < 0 || end <= start {
-		t.Fatal("0127 DDL boundaries not found")
-	}
-	if err := execSQLScript(context.Background(), db, script[start:end]); err != nil {
-		t.Fatalf("load real 0127 DDL: %v", err)
 	}
 }
 

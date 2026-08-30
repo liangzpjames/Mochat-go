@@ -8,15 +8,10 @@ import (
 	"time"
 
 	"jiyi/mochat-go/internal/modules/scrm/ports"
-	"jiyi/mochat-go/internal/mysqlconn"
 )
 
 func TestOpportunityRepositoryListUsesPersistedStageID(t *testing.T) {
-	dsn := mysqlIntegrationDSN(t)
-	db, err := mysqlconn.Open(dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
+	db := mysqlIntegrationDB(t)
 	namespace := newIntegrationNamespace()
 	corpID := namespace.tenantID + 10
 	t.Cleanup(func() {
@@ -24,12 +19,11 @@ func TestOpportunityRepositoryListUsesPersistedStageID(t *testing.T) {
 			"DELETE FROM mochat_go_scrm_opportunities WHERE tenant_id = ? AND corp_id = ?",
 			namespace.tenantID, corpID,
 		)
-		_ = db.Close()
 	})
 
 	const opportunityID = "opportunity-stage-id"
 	now := time.Now().UTC()
-	_, err = db.ExecContext(context.Background(), `
+	_, err := db.ExecContext(context.Background(), `
 		INSERT INTO mochat_go_scrm_opportunities
 			(id, tenant_id, corp_id, contact_id, stage_id, status, lost_reason, version, amount, start_date, end_date, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, 'open', '', 1, 0, ?, ?, ?, ?)`,

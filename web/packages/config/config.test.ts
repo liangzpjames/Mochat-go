@@ -27,7 +27,7 @@ describe('@mochat/config exports', () => {
       typescript: '5.9.3',
       'typescript-eslint': '8.55.0',
       vite: '6.4.3',
-      vitest: '2.1.9',
+      vitest: '3.2.6',
     });
   });
 

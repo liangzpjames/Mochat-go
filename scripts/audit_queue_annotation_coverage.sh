@@ -63,7 +63,7 @@ with open(manifest_path, encoding="utf-8") as fh:
     manifest = json.load(fh)
 
 expected = [
-    ("callback", "api-server/app/core/corp/src/QueueService/WeWorkCallback.php", "wework-callback", "WeWorkCallbackQueueDescriptor", "MOCHAT_GO_ENABLE_WEWORK_CALLBACK_WORKER", "scripts/smoke_wework_callback_worker.sh", "internal/dashboard/wework_callback_worker.go", "NewWeWorkCallbackWorker"),
+    ("callback", "api-server/app/core/corp/src/QueueService/WeWorkCallback.php", "wework-callback", "durable-inbox", "MOCHAT_GO_ENABLE_WEWORK_CALLBACK_WORKER", "scripts/smoke_wework_callback_worker.sh", "internal/dashboard/wework_callback_worker.go", "NewWeWorkCallbackWorker"),
     ("employee", "api-server/app/core/work-employee/src/QueueService/EmployeeApply.php", "employee-apply", "EmployeeApplyQueueDescriptor", "MOCHAT_GO_ENABLE_EMPLOYEE_APPLY_WORKER", "scripts/smoke_employee_apply_worker.sh", "internal/dashboard/employee_apply_worker.go", "NewEmployeeApplyWorker"),
     ("welcome", "api-server/app/core/work-contact/src/QueueService/SendWelcome.php", "contact-welcome", "ContactWelcomeQueueDescriptor", "MOCHAT_GO_ENABLE_CONTACT_WELCOME_WORKER", "scripts/smoke_wework_callback_worker.sh", "internal/dashboard/contact_welcome_worker.go", "NewContactWelcomeWorker"),
     ("file", "api-server/app/core/common/src/QueueService/AsyncFileUpload.php", "async-file-upload", "AsyncFileUploadQueueDescriptor", "MOCHAT_GO_ENABLE_ASYNC_FILE_UPLOAD_WORKER", "scripts/smoke_async_file_upload_worker.sh", "internal/dashboard/async_file_upload_worker.go", "NewAsyncFileUploadWorker"),
@@ -101,6 +101,8 @@ registry = read("internal/dashboard/queue_registry.go")
 config = read("internal/config/config.go")
 config_test = read("internal/config/config_test.go")
 store = read("internal/store/redis.go")
+callback_inbox = read("internal/dashboard/wework_callback_inbox.go")
+callback_inbox_store = read("internal/store/wework_callback_inbox.go")
 main = read("cmd/mochat-go/main.go")
 docs = read("docs/phases/phase-pre0-standalone/reports/standalone-gap.md")
 
@@ -123,16 +125,26 @@ for pool, php_file, queue, descriptor, env, smoke, worker, start_symbol in expec
     by_queue[queue]["annotation_count"] += 1
 
 for queue, meta in sorted(by_queue.items()):
-    if queue not in registry_names:
-        failures.append(f"Go queue constant missing: {queue}")
-    if meta["descriptor"] not in registry:
-        failures.append(f"Go queue descriptor missing: {meta['descriptor']}")
-    if meta["descriptor"] not in registry_body_text:
-        failures.append(f"Go queue descriptor not registered: {meta['descriptor']}")
-    if f'"mochat-go:{queue}"' not in registry:
-        failures.append(f"Go queue source key missing: mochat-go:{queue}")
-    if meta["descriptor"] not in store:
-        failures.append(f"Redis store does not reference descriptor: {meta['descriptor']}")
+    if queue == "wework-callback":
+        if "type WeWorkCallbackInbox interface" not in callback_inbox:
+            failures.append("durable callback inbox contract missing: WeWorkCallbackInbox")
+        if "LegacyWeWorkCallbackBacklog" not in callback_inbox or "PreflightLegacyWeWorkCallbackBacklog" not in store:
+            failures.append("legacy callback cutover contract missing: LegacyWeWorkCallbackBacklog")
+        if "AcceptWeWorkCallback" not in callback_inbox_store or "ClaimWeWorkCallback" not in callback_inbox_store:
+            failures.append("MySQL durable callback inbox implementation missing")
+        if '"mochat-go:wework-callback"' not in store:
+            failures.append("legacy callback cutover source key missing: mochat-go:wework-callback")
+    else:
+        if queue not in registry_names:
+            failures.append(f"Go queue constant missing: {queue}")
+        if meta["descriptor"] not in registry:
+            failures.append(f"Go queue descriptor missing: {meta['descriptor']}")
+        if meta["descriptor"] not in registry_body_text:
+            failures.append(f"Go queue descriptor not registered: {meta['descriptor']}")
+        if f'"mochat-go:{queue}"' not in registry:
+            failures.append(f"Go queue source key missing: mochat-go:{queue}")
+        if meta["descriptor"] not in store:
+            failures.append(f"Redis store does not reference descriptor: {meta['descriptor']}")
     if meta["env"] != "MOCHAT_GO_ENABLE_CONTACT_WELCOME_WORKER":
         if meta["env"] not in config:
             failures.append(f"config env missing: {meta['env']}")

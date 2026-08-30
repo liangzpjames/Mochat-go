@@ -1,4 +1,4 @@
-FROM node:24-alpine AS frontend-build
+FROM node:24.20.0-alpine@sha256:e67514e5d0f6c46656005e1b693b2ec9d52e80b641307de684d4a015ba7a4eaf AS frontend-build
 
 ARG NPM_REGISTRY=https://registry.npmmirror.com
 ENV COREPACK_NPM_REGISTRY=${NPM_REGISTRY}
@@ -17,7 +17,7 @@ RUN pnpm config set registry "${NPM_REGISTRY}" \
 	&& pnpm --filter @mochat/operation build \
 	&& pnpm --filter @mochat/saas-admin build
 
-FROM golang:1.26-alpine AS build
+FROM golang:1.26.7-alpine@sha256:28d89ee9cc0ff9fec75c82ca201e6bf7fdf9a679d4b7b24dfa04f2bb766bb468 AS build
 
 ARG GOPROXY=https://goproxy.cn,direct
 ENV GOPROXY=${GOPROXY}
@@ -44,13 +44,17 @@ RUN SOURCE_FINGERPRINT="$(python3 scripts/source_fingerprint.py | python3 -c 'im
 	&& BUILD_LDFLAGS="-X jiyi/mochat-go/internal/buildinfo.SourceFingerprint=${SOURCE_FINGERPRINT}" \
 	&& CGO_ENABLED=0 GOOS=linux go build -ldflags "$BUILD_LDFLAGS" -o /out/mochat-go ./cmd/mochat-go \
 	&& CGO_ENABLED=0 GOOS=linux go build -ldflags "$BUILD_LDFLAGS" -o /out/mochat-migrate ./cmd/mochat-migrate \
+	&& CGO_ENABLED=0 GOOS=linux go build -ldflags "$BUILD_LDFLAGS" -o /out/mochat-callback-legacy-cutover ./cmd/mochat-callback-legacy-cutover \
 	&& CGO_ENABLED=0 GOOS=linux go build -ldflags "$BUILD_LDFLAGS" -o /out/mochat-bootstrap ./cmd/mochat-bootstrap \
 	&& CGO_ENABLED=0 GOOS=linux go build -ldflags "$BUILD_LDFLAGS" -o /out/mochat-saas-maintenance ./cmd/mochat-saas-maintenance \
+	&& CGO_ENABLED=0 GOOS=linux go build -ldflags "$BUILD_LDFLAGS" -o /out/mochat-identity-preflight ./cmd/mochat-identity-preflight \
+	&& CGO_ENABLED=0 GOOS=linux go build -ldflags "$BUILD_LDFLAGS" -o /out/mochat-identity-migrate ./cmd/mochat-identity-migrate \
 	&& CGO_ENABLED=0 GOOS=linux go build -ldflags "$BUILD_LDFLAGS" -o /out/mochat-archive-simulator ./cmd/mochat-archive-simulator \
 	&& CGO_ENABLED=0 GOOS=linux go build -ldflags "$BUILD_LDFLAGS" -o /out/mochat-archive-bridge ./cmd/mochat-archive-bridge \
-	&& CGO_ENABLED=0 GOOS=linux go build -ldflags "$BUILD_LDFLAGS" -o /out/mochat-archive-acceptance ./cmd/mochat-archive-acceptance
+	&& CGO_ENABLED=0 GOOS=linux go build -ldflags "$BUILD_LDFLAGS" -o /out/mochat-archive-acceptance ./cmd/mochat-archive-acceptance \
+	&& CGO_ENABLED=0 GOOS=linux go build -ldflags "$BUILD_LDFLAGS" -o /out/mochat-ai-insight-0165 ./cmd/mochat-ai-insight-0165
 
-FROM alpine:3.22
+FROM alpine:3.22.5@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce
 
 RUN sed -i 's#https\?://dl-cdn.alpinelinux.org#https://mirrors.aliyun.com#g' /etc/apk/repositories \
 	&& apk add --no-cache mariadb-client tzdata \
@@ -61,11 +65,15 @@ WORKDIR /app
 
 COPY --from=build /out/mochat-go /usr/local/bin/mochat-go
 COPY --from=build /out/mochat-migrate /usr/local/bin/mochat-migrate
+COPY --from=build /out/mochat-callback-legacy-cutover /usr/local/bin/mochat-callback-legacy-cutover
 COPY --from=build /out/mochat-bootstrap /usr/local/bin/mochat-bootstrap
 COPY --from=build /out/mochat-saas-maintenance /usr/local/bin/mochat-saas-maintenance
+COPY --from=build /out/mochat-identity-preflight /usr/local/bin/mochat-identity-preflight
+COPY --from=build /out/mochat-identity-migrate /usr/local/bin/mochat-identity-migrate
 COPY --from=build /out/mochat-archive-simulator /usr/local/bin/mochat-archive-simulator
 COPY --from=build /out/mochat-archive-bridge /usr/local/bin/mochat-archive-bridge
 COPY --from=build /out/mochat-archive-acceptance /usr/local/bin/mochat-archive-acceptance
+COPY --from=build /out/mochat-ai-insight-0165 /usr/local/bin/mochat-ai-insight-0165
 COPY --from=build /src/web ./web
 COPY --from=frontend-build /src/web/apps/dashboard/dist ./web/apps/dashboard/dist
 COPY --from=frontend-build /src/web/apps/sidebar/dist ./web/apps/sidebar/dist

@@ -37,6 +37,7 @@ type MySQLStore struct {
 	weChatOpenCredentialCipher    *wechatopencredentials.Manager
 	aiProviderCredentialCipher    *aiproviderconfig.Manager
 	aiProviderOutboundGuard       *outboundhttp.Guard
+	callbackRecoveryCommit        func(*sql.Tx) error
 }
 
 type corpDataQueryExecutor interface {
@@ -2048,7 +2049,7 @@ func (s *MySQLStore) CorpDetailByID(ctx context.Context, corpID int) (dashboard.
 }
 
 func (s *MySQLStore) WeWorkCallbackCorpByID(ctx context.Context, corpID int) (dashboard.WeWorkCallbackCorp, bool, error) {
-	item, found, err := s.loadCorpCredentialByID(ctx, s.db, corpID, false)
+	item, found, err := s.loadAuthoritativeWeWorkCallbackCorpByID(ctx, corpID)
 	if err != nil || !found {
 		return dashboard.WeWorkCallbackCorp{}, found, err
 	}
@@ -2056,11 +2057,11 @@ func (s *MySQLStore) WeWorkCallbackCorpByID(ctx context.Context, corpID int) (da
 	if err != nil {
 		return dashboard.WeWorkCallbackCorp{}, false, err
 	}
-	return dashboard.WeWorkCallbackCorp{ID: item.ID, WxCorpID: item.WXCorpID, Token: credential.CallbackToken, EncodingAESKey: credential.EncodingAESKey}, true, nil
+	return dashboard.WeWorkCallbackCorp{TenantID: item.TenantID, ID: item.ID, WxCorpID: item.WXCorpID, Token: credential.CallbackToken, EncodingAESKey: credential.EncodingAESKey}, true, nil
 }
 
 func (s *MySQLStore) WeWorkCallbackCorpByWXID(ctx context.Context, wxCorpID string) (dashboard.WeWorkCallbackCorp, bool, error) {
-	item, found, err := s.loadCorpCredentialByWXCorpID(ctx, wxCorpID)
+	item, found, err := s.loadAuthoritativeWeWorkCallbackCorpByWXID(ctx, wxCorpID)
 	if err != nil || !found {
 		return dashboard.WeWorkCallbackCorp{}, found, err
 	}
@@ -2068,7 +2069,7 @@ func (s *MySQLStore) WeWorkCallbackCorpByWXID(ctx context.Context, wxCorpID stri
 	if err != nil {
 		return dashboard.WeWorkCallbackCorp{}, false, err
 	}
-	return dashboard.WeWorkCallbackCorp{ID: item.ID, WxCorpID: item.WXCorpID, Token: credential.CallbackToken, EncodingAESKey: credential.EncodingAESKey}, true, nil
+	return dashboard.WeWorkCallbackCorp{TenantID: item.TenantID, ID: item.ID, WxCorpID: item.WXCorpID, Token: credential.CallbackToken, EncodingAESKey: credential.EncodingAESKey}, true, nil
 }
 
 func (s *MySQLStore) CorpList(ctx context.Context, filter dashboard.CorpListFilter) (dashboard.CorpListPage, error) {
@@ -2220,7 +2221,7 @@ type corpDataSummaryRow struct {
 	LastMonthAddRoomMemberNum int
 	MonthLossContactNum       int
 	LastMonthLossContactNum   int
-	UpdateTime                sql.NullTime
+	UpdateTime                corpTime
 }
 
 func corpDataSummaryQuerySpecs(scope dashboard.CorpDataScope, now time.Time) []corpDataSummaryQuerySpec {
@@ -8210,35 +8211,9 @@ func (s *MySQLStore) RoomWelcomeCorpCredentialByID(ctx context.Context, corpID i
 	}
 	secret, err := s.decodeCorpCredential(item)
 	if err != nil {
-		if simulationSecret, ok := s.localContactTransferSimulationSecret(ctx, item.ID, item.WXCorpID); ok {
-			return dashboard.RoomWelcomeCorpCredential{CorpID: item.ID, WXCorpID: item.WXCorpID, ContactSecret: simulationSecret}, true, nil
-		}
 		return dashboard.RoomWelcomeCorpCredential{}, false, err
 	}
 	return dashboard.RoomWelcomeCorpCredential{CorpID: item.ID, WXCorpID: item.WXCorpID, ContactSecret: secret.ContactSecret}, true, nil
-}
-
-// localContactTransferSimulationSecret is deliberately restricted to the
-// seeded development fixture. Production credentials remain encrypted-only;
-// this fallback exists solely so the local wwSIM enterprise can exercise the
-// transfer workflow without provisioning a real WeCom encryption key.
-func (s *MySQLStore) localContactTransferSimulationSecret(ctx context.Context, corpID int, wxCorpID string) (string, bool) {
-	if s == nil || s.db == nil || !strings.HasPrefix(strings.TrimSpace(wxCorpID), "wwSIM") {
-		return "", false
-	}
-	var secret string
-	if err := s.db.QueryRowContext(ctx, `
-		SELECT COALESCE(contact_secret, '')
-		FROM mc_corp
-		WHERE id = ? AND deleted_at IS NULL
-	`, corpID).Scan(&secret); err != nil {
-		return "", false
-	}
-	secret = strings.TrimSpace(secret)
-	if !strings.HasPrefix(secret, "SIM-") {
-		return "", false
-	}
-	return secret, true
 }
 
 func (s *MySQLStore) RoomWelcomeCorpCredentialByWXCorpID(ctx context.Context, wxCorpID string) (dashboard.RoomWelcomeCorpCredential, bool, error) {
@@ -17591,6 +17566,21 @@ func (s *MySQLStore) HandleWorkFissionAddContact(ctx context.Context, event dash
 	}
 	reminder := workFissionEmployeeReminder(activity, event, completed)
 	customerPush := workFissionCustomerPush(activity, parent, event, completed)
+	if execution, ok := dashboard.WeWorkCallbackExecutionFromContext(ctx); ok {
+		if execution.CorpID != event.CorpID {
+			return dashboard.WorkFissionAddContactResult{}, false, errors.New("wework callback side effect corp scope mismatch")
+		}
+		if reminder != nil {
+			if err := insertWeWorkCallbackSideEffectIntent(ctx, tx, execution, dashboard.WeWorkCallbackActionFissionEmployeeReminder, reminder); err != nil {
+				return dashboard.WorkFissionAddContactResult{}, false, err
+			}
+		}
+		if customerPush != nil {
+			if err := insertWeWorkCallbackSideEffectIntent(ctx, tx, execution, dashboard.WeWorkCallbackActionFissionCustomerPush, customerPush); err != nil {
+				return dashboard.WorkFissionAddContactResult{}, false, err
+			}
+		}
+	}
 	if err := tx.Commit(); err != nil {
 		return dashboard.WorkFissionAddContactResult{}, false, err
 	}

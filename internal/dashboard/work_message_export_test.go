@@ -1,10 +1,96 @@
 package dashboard
 
 import (
+	"context"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 )
+
+type fakeWorkMessageExportDownloadStore struct {
+	*fakeAutoTagStore
+	artifact WorkMessageExportArtifact
+	events   *[]string
+}
+
+func (s *fakeWorkMessageExportDownloadStore) WorkMessageExportCandidates(context.Context, WorkMessageExportCandidateFilter) (WorkMessageExportCandidatesPage, error) {
+	return WorkMessageExportCandidatesPage{}, nil
+}
+func (s *fakeWorkMessageExportDownloadStore) WorkMessageExportTasks(context.Context, WorkMessageExportTaskQuery) (WorkMessageExportTaskPage, error) {
+	return WorkMessageExportTaskPage{}, nil
+}
+func (s *fakeWorkMessageExportDownloadStore) CreateWorkMessageExportTask(context.Context, WorkMessageExportTaskInput) (WorkMessageExportCreateResult, error) {
+	return WorkMessageExportCreateResult{}, nil
+}
+func (s *fakeWorkMessageExportDownloadStore) WorkMessageExportArtifact(context.Context, int, int, int, int64) (WorkMessageExportArtifact, error) {
+	*s.events = append(*s.events, "artifact")
+	return s.artifact, nil
+}
+
+type orderedDeadlineRecorder struct {
+	*httptest.ResponseRecorder
+	events *[]string
+}
+
+func (w *orderedDeadlineRecorder) SetWriteDeadline(deadline time.Time) error {
+	if deadline.IsZero() {
+		*w.events = append(*w.events, "deadline")
+	}
+	return nil
+}
+
+func (w *orderedDeadlineRecorder) Write(body []byte) (int, error) {
+	*w.events = append(*w.events, "body")
+	return w.ResponseRecorder.Write(body)
+}
+
+func (w *orderedDeadlineRecorder) WriteString(body string) (int, error) {
+	*w.events = append(*w.events, "body")
+	return w.ResponseRecorder.WriteString(body)
+}
+
+func (w *orderedDeadlineRecorder) ReadFrom(reader io.Reader) (int64, error) {
+	*w.events = append(*w.events, "body")
+	body, err := io.ReadAll(reader)
+	if err != nil {
+		return 0, err
+	}
+	written, err := w.ResponseRecorder.Write(body)
+	return int64(written), err
+}
+
+func TestWorkMessageExportDownloadClearsDeadlineAfterArtifactBeforeBody(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "export.zip")
+	if err := os.WriteFile(path, []byte("zip-body"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	events := []string{}
+	store := &fakeWorkMessageExportDownloadStore{
+		fakeAutoTagStore: &fakeAutoTagStore{user: User{ID: 1, TenantID: 10, IsSuperAdmin: 1}},
+		artifact:         WorkMessageExportArtifact{Path: path, Filename: "export.zip", ContentType: "application/zip"},
+		events:           &events,
+	}
+	handler := NewAutoTagHandler(store, staticAdminCache("7-99"), HeaderUserIDResolver{}, nil)
+	req := withAutoTagTestPrincipal(httptest.NewRequest(http.MethodGet, "/dashboard/workMessage/exportDownload?taskId=9", nil), 1, 10, 7)
+	recorder := &orderedDeadlineRecorder{ResponseRecorder: httptest.NewRecorder(), events: &events}
+	handler.WorkMessageExportDownload(recorder, req)
+	if strings.Join(events, ",") != "artifact,deadline,body" || recorder.Code != http.StatusOK {
+		t.Fatalf("events=%v status=%d body=%q", events, recorder.Code, recorder.Body.String())
+	}
+
+	unauthorizedEvents := []string{}
+	unauthorized := &orderedDeadlineRecorder{ResponseRecorder: httptest.NewRecorder(), events: &unauthorizedEvents}
+	handler.WorkMessageExportDownload(unauthorized, httptest.NewRequest(http.MethodGet, "/dashboard/workMessage/exportDownload?taskId=9", nil))
+	if strings.Contains(strings.Join(unauthorizedEvents, ","), "deadline") {
+		t.Fatalf("unauthorized response cleared deadline: %v", unauthorizedEvents)
+	}
+}
 
 func TestValidateWorkMessageExportRequestRejectsUnsafeRangesAndCounts(t *testing.T) {
 	now := time.Date(2026, 8, 20, 12, 0, 0, 0, time.UTC)

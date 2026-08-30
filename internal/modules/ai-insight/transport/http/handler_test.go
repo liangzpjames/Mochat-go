@@ -86,7 +86,7 @@ func TestInsightUnauthorizedForbiddenAndUnknownPage(t *testing.T) {
 }
 
 func TestInsightPageOpenNeverCallsModel(t *testing.T) {
-	handler := NewInsightHandlerWithStore(insightResolver{principal: Principal{UserID: 7, TenantID: 1, CorpID: 2}}, nil, nil)
+	handler := NewInsightHandler(insightResolver{principal: Principal{UserID: 7, TenantID: 1, CorpID: 2}}, nil)
 	rec := insightRequest(handler, "emotion")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("code = %d, want 200", rec.Code)

@@ -118,6 +118,42 @@ test('0161 overlay rejects a migration missing either protected filter route', (
   );
 });
 
+test('typed route registry is the source of exact dashboard auth exemptions', () => {
+  const policy = extractGoDashboardRoutePolicy(`
+var pageMappedDashboardRouteContracts = []string{
+  "GET /dashboard/reports/{kind}",
+}
+var denyOnlyDashboardRouteContracts = []string{
+  "POST /dashboard/ai-insight/run",
+}
+`, `
+var dashboardRouteRegistry = []DashboardRoute{
+  {Method: "GET", Path: "/dashboard/public", AuthKind: DashboardRouteAuthPublic},
+  {Method: "POST", Path: "/dashboard/login", AuthKind: DashboardRouteAuthIdentity},
+  {Method: "GET", Path: "/dashboard/saasAdmin/settings", AuthKind: DashboardRouteAuthSaaS},
+  {Method: "GET", Path: "/dashboard/reports/{kind}", AuthKind: DashboardRouteAuthPrincipal},
+}
+`);
+  assert.deepEqual(policy.exactExempt, [
+    'GET /dashboard/public',
+    'POST /dashboard/login',
+    'GET /dashboard/saasAdmin/settings',
+  ]);
+  assert.deepEqual(policy.denyOnly, ['POST /dashboard/ai-insight/run']);
+});
+
+test('0176 seeds callback side-effect recovery resources through the normal permission overlay', async () => {
+  const up = await readFile(
+    'deploy/standalone/migrations/0176_wework_callback_side_effect_reconciliation.up.sql',
+    'utf8',
+  );
+  assert.deepEqual(extractMigrationPermissionResourceMappings(up), [
+    'dashboard.company_setting.website\tGET /dashboard/company/callback-side-effects\t0',
+    'dashboard.company_setting.website\tGET /dashboard/company/callback-side-effects/{eventKey}/{actionKey}\t0',
+    'dashboard.company_setting.website\tPOST /dashboard/company/callback-side-effects/{eventKey}/{actionKey}/reconcile\t0',
+  ]);
+});
+
 test('0162 makes company profile grantable and owns only the Provider status resource key', async () => {
   const [up, down] = await Promise.all([
     readFile('deploy/standalone/migrations/0162_company_profile_grantable.up.sql', 'utf8'),
@@ -425,6 +461,22 @@ const ReportsPath = "/dashboard/reports/{kind}"`,
     file: 'cmd/mochat-go/scrm.go',
     line: 4,
   }]);
+});
+
+test('extracts runtime template matches for dynamic dashboard path segments', () => {
+  const routes = extractBackendRegisteredAPIs([{
+    file: 'internal/server/server.go',
+    body: `package server
+func (s *Server) dispatch(w http.ResponseWriter, r *http.Request) {
+  switch {
+  case r.Method == http.MethodGet && dashboardRouteTemplateMatches(r.URL.Path, "/dashboard/company/callback-side-effects/{eventKey}/{actionKey}"):
+    s.companyProfile.ServeHTTP(w, r)
+  }
+}`,
+  }]);
+  assert.deepEqual(routes.map((route) => route.contract), [
+    'GET /dashboard/company/callback-side-effects/{eventKey}/{actionKey}',
+  ]);
 });
 
 test('production shell follows the single-company profile API instead of the removed corp selector', async () => {

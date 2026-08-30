@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"log/slog"
 	"strings"
 	"testing"
 
@@ -52,6 +53,46 @@ func TestRunMigrationCommandLogsControlledFailure(t *testing.T) {
 	}
 	if strings.Contains(text, "password") || strings.Contains(text, "db:3306") {
 		t.Fatalf("migration failure leaked DSN: %s", text)
+	}
+}
+
+func TestRunMigrationCommandEmitsStableControlledPendingCode(t *testing.T) {
+	var output bytes.Buffer
+	runner := &fakeMigrationRunner{err: migration.ControlledMigrationBlocked("0130_identity_realms_single_corp_backfill")}
+	err := runMigrationCommand(context.Background(), migrationCommandOptions{Action: "up"}, runner, slog.New(slog.NewTextHandler(io.Discard, nil)), &output)
+	if err == nil {
+		t.Fatal("expected controlled migration failure")
+	}
+	if got := output.String(); got != "MIGRATION_CONTROLLED_PENDING\t0130_identity_realms_single_corp_backfill\n" {
+		t.Fatalf("controlled output = %q", got)
+	}
+}
+
+func TestWriteMigrationInventoryEmitsStableTSV(t *testing.T) {
+	items := []migration.InventoryItem{
+		{Version: "0001_initial_schema", Checksum: "aaa", Kind: migration.MigrationAutomatic, Description: "initial schema"},
+		{Version: "0130_identity", Checksum: "bbb", Kind: migration.MigrationControlled, Description: "identity"},
+	}
+	var output bytes.Buffer
+	writeMigrationInventory(&output, items)
+	if got, want := output.String(), "0001_initial_schema\taaa\tautomatic\tinitial schema\n0130_identity\tbbb\tcontrolled\tidentity\n"; got != want {
+		t.Fatalf("inventory output = %q, want %q", got, want)
+	}
+}
+
+func TestRunMigrationCommandStatusFailsClosedOnChecksumMismatch(t *testing.T) {
+	var output bytes.Buffer
+	runner := &fakeMigrationRunner{status: []migration.StatusItem{{
+		Migration: migration.Migration{Version: "0173_scrm_order_idempotency"},
+		Checksum:  "current-checksum",
+		State:     "checksum_mismatch",
+	}}}
+	err := runMigrationCommand(context.Background(), migrationCommandOptions{Action: "status"}, runner, slog.New(slog.NewTextHandler(io.Discard, nil)), &output)
+	if err == nil || !strings.Contains(err.Error(), "checksum_mismatch") {
+		t.Fatalf("status error = %v", err)
+	}
+	if !strings.Contains(output.String(), "0173_scrm_order_idempotency\tchecksum_mismatch\tcurrent-checksum") {
+		t.Fatalf("status output = %q", output.String())
 	}
 }
 

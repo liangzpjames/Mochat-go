@@ -12,7 +12,7 @@ import (
 	"sort"
 	"strings"
 
-	"jiyi/mochat-go/internal/migration"
+	"jiyi/mochat-go/internal/sqlscript"
 	"jiyi/mochat-go/internal/wecomcredentials"
 )
 
@@ -810,12 +810,12 @@ func ApplyBackfill(ctx context.Context, db *sql.DB, options DatabaseOptions, upP
 	if err := StageValidatedBatchOnConn(ctx, conn, options); err != nil {
 		return BackfillResult{}, phaseWrap("stage", "contract", err)
 	}
-	statements, err := migration.SplitSQLStatements(string(body))
+	statements, err := sqlscript.Split(string(body))
 	if err != nil {
 		return BackfillResult{}, phaseFailure("backfill", "script_parse")
 	}
 	for index, statement := range statements {
-		if _, err := conn.ExecContext(ctx, statement); err != nil {
+		if err := sqlscript.ExecuteStatement(ctx, conn, statement); err != nil {
 			return BackfillResult{}, phaseFailureWithCause(statementPhase(statement), statementLabel(statement), index, err)
 		}
 	}

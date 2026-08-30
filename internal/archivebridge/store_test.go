@@ -1,6 +1,9 @@
 package archivebridge
 
-import "testing"
+import (
+	"fmt"
+	"testing"
+)
 
 func TestStoreRejectsConflictingAndInvalidBindings(t *testing.T) {
 	store := NewStore()
@@ -18,5 +21,12 @@ func TestStoreRejectsConflictingAndInvalidBindings(t *testing.T) {
 	}
 	if _, err := store.Resolve(Binding{TenantID: 1, CorpID: 2, WXCorpID: "ww-other", IntegrationMode: ModeSelfBuilt}); ErrorCode(err) != "ARCHIVE_BINDING_MISMATCH" {
 		t.Fatalf("binding mismatch error=%v", err)
+	}
+}
+
+func TestErrorCodeFindsWrappedBridgeError(t *testing.T) {
+	err := fmt.Errorf("register production driver: %w", &BridgeError{Code: "ARCHIVE_DRIVER_UNAVAILABLE"})
+	if code := ErrorCode(err); code != "ARCHIVE_DRIVER_UNAVAILABLE" {
+		t.Fatalf("code=%q err=%v", code, err)
 	}
 }

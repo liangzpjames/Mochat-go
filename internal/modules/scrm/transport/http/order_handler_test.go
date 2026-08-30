@@ -4,12 +4,27 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"jiyi/mochat-go/internal/modules/scrm/domain"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 )
+
+type fixedOrderIDGenerator struct{ id string }
+
+func (g fixedOrderIDGenerator) NewID() (string, error) { return g.id, nil }
+
+type sequenceOrderIDGenerator struct{}
+
+var testOrderIDSequence atomic.Int64
+
+func (sequenceOrderIDGenerator) NewID() (string, error) {
+	return fmt.Sprintf("test-order-%d", testOrderIDSequence.Add(1)), nil
+}
 
 func TestOrderHandlerRoutesListPathToListContext(t *testing.T) {
 	repo := &routingOrderRepository{
@@ -111,8 +126,9 @@ func TestOrderHandlerReturnsInternalServerErrorWhenAuditQueryFails(t *testing.T)
 
 func TestOrderHandlerCreatesAndListsScopedOrder(t *testing.T) {
 	r := NewMemoryOrderRepository()
-	h := NewOrderHandler(r, routingPrincipalResolver{corpID: 1})
+	h := NewOrderHandler(r, routingPrincipalResolver{corpID: 1}, fixedOrderIDGenerator{id: "generated-order-id"})
 	req := httptest.NewRequest("POST", "/scrm/orders", strings.NewReader(`{"id":"o1","tenantId":1,"corpId":1,"contactId":"c1","opportunityId":"opp1","title":"年度续费","note":"客户确认","amountCents":100,"status":"pending"}`))
+	req.Header.Set("Idempotency-Key", "explicit-order")
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	if rec.Code != 200 {
@@ -130,6 +146,7 @@ func TestOrderHandlerCreatesAndListsScopedOrder(t *testing.T) {
 		t.Fatal("not persisted")
 	}
 	autoReq := httptest.NewRequest("POST", "/scrm/orders", strings.NewReader(`{"tenantId":1,"corpId":1,"contactId":"c1","title":"auto id","amountCents":50,"status":"pending"}`))
+	autoReq.Header.Set("Idempotency-Key", "auto-order")
 	autoRec := httptest.NewRecorder()
 	h.ServeHTTP(autoRec, autoReq)
 	if autoRec.Code != 200 {
@@ -140,27 +157,172 @@ func TestOrderHandlerCreatesAndListsScopedOrder(t *testing.T) {
 	if err := json.Unmarshal(autoResponse.Data, &autoCreated); err != nil {
 		t.Fatalf("decode auto order: %v", err)
 	}
-	if autoCreated.ID == "" || strings.HasPrefix(autoCreated.ID, "P35-ORDER-") {
-		t.Fatalf("auto id = %q, want server-side non-acceptance id", autoCreated.ID)
+	if autoCreated.ID != "generated-order-id" {
+		t.Fatalf("auto id = %q, want injected generator ID", autoCreated.ID)
 	}
 	if len(r.List(7, 1)) != 2 {
 		t.Fatal("auto order not persisted")
 	}
-	generated, err := domain.NewOrder(domain.NewOrderInput{TenantID: 1, CorpID: 1, ContactID: "c", Title: "auto id", AmountCents: 1, Status: domain.OrderPending})
-	if err != nil {
-		t.Fatalf("NewOrder without id failed: %v", err)
+}
+
+func TestOrderHandlerRequiresIdempotencyKeyForCreate(t *testing.T) {
+	h := NewOrderHandler(NewMemoryOrderRepository(), routingPrincipalResolver{corpID: 1})
+	rec := httptest.NewRecorder()
+
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/scrm/orders", strings.NewReader(`{"contactId":"c1","title":"renewal","amountCents":100,"status":"pending"}`)))
+
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, body = %q, want 422", rec.Code, rec.Body.String())
 	}
-	if generated.ID == "" || strings.HasPrefix(generated.ID, "P35-ORDER-") {
-		t.Fatalf("generated id = %q, want server-side non-acceptance id", generated.ID)
+}
+
+func TestOrderHandlerReplaysExactFirstResponseAfterClientLosesIt(t *testing.T) {
+	repo := NewMemoryOrderRepository()
+	h := NewOrderHandler(repo, routingPrincipalResolver{corpID: 1}, sequenceOrderIDGenerator{})
+	first := createOrderRequest("retry-key", `{"contactId":"c1","title":"renewal","amountCents":100,"status":"pending"}`)
+	firstResponse := httptest.NewRecorder()
+	h.ServeHTTP(firstResponse, first)
+
+	retryResponse := httptest.NewRecorder()
+	h.ServeHTTP(retryResponse, createOrderRequest("retry-key", `{"status":"pending","amountCents":100,"title":"renewal","contactId":"c1"}`))
+
+	if firstResponse.Code != http.StatusOK || retryResponse.Code != firstResponse.Code {
+		t.Fatalf("statuses = first:%d retry:%d", firstResponse.Code, retryResponse.Code)
+	}
+	if retryResponse.Body.String() != firstResponse.Body.String() {
+		t.Fatalf("retry body = %q, want exact first body %q", retryResponse.Body.String(), firstResponse.Body.String())
+	}
+	if got := len(repo.List(7, 1)); got != 1 {
+		t.Fatalf("orders = %d, want 1", got)
+	}
+}
+
+func TestOrderHandlerTreatsIdempotencyKeyAsOpaqueBytes(t *testing.T) {
+	repo := NewMemoryOrderRepository()
+	h := NewOrderHandler(repo, routingPrincipalResolver{corpID: 1}, sequenceOrderIDGenerator{})
+	keys := []string{
+		"opaque-key",
+		"opaque-key ",
+		"opaque-key\u00a0",
+		"opaque-key\u3000",
+		"Opaque-Key",
+	}
+	for _, key := range keys {
+		response := httptest.NewRecorder()
+		h.ServeHTTP(response, createOrderRequest(key, `{"contactId":"c1","title":"renewal","amountCents":100,"status":"pending"}`))
+		if response.Code != http.StatusOK {
+			t.Fatalf("key %q status = %d, body = %q", key, response.Code, response.Body.String())
+		}
+	}
+	if got := len(repo.List(7, 1)); got != len(keys) {
+		t.Fatalf("orders = %d, want %d distinct opaque keys", got, len(keys))
+	}
+	first := httptest.NewRecorder()
+	replayKey := "exact-key \u00a0\u3000"
+	h.ServeHTTP(first, createOrderRequest(replayKey, `{"contactId":"c1","title":"exact replay","amountCents":200,"status":"pending"}`))
+	retry := httptest.NewRecorder()
+	h.ServeHTTP(retry, createOrderRequest(replayKey, `{"status":"pending","amountCents":200,"title":"exact replay","contactId":"c1"}`))
+	if first.Code != http.StatusOK || retry.Code != first.Code || retry.Body.String() != first.Body.String() {
+		t.Fatalf("exact opaque replay = first:%d/%q retry:%d/%q", first.Code, first.Body.String(), retry.Code, retry.Body.String())
+	}
+}
+
+func TestOrderHandlerRejectsSameKeyWithDifferentPayload(t *testing.T) {
+	h := NewOrderHandler(NewMemoryOrderRepository(), routingPrincipalResolver{corpID: 1}, sequenceOrderIDGenerator{})
+	first := httptest.NewRecorder()
+	h.ServeHTTP(first, createOrderRequest("conflict-key", `{"contactId":"c1","title":"renewal","amountCents":100,"status":"pending"}`))
+	conflict := httptest.NewRecorder()
+	h.ServeHTTP(conflict, createOrderRequest("conflict-key", `{"contactId":"c1","title":"renewal","amountCents":200,"status":"pending"}`))
+
+	if first.Code != http.StatusOK || conflict.Code != http.StatusConflict {
+		t.Fatalf("statuses = first:%d conflict:%d, conflict body = %q", first.Code, conflict.Code, conflict.Body.String())
+	}
+}
+
+func TestOrderHandlerTreatsClientOrderIDAsPartOfTheIdempotencyPayload(t *testing.T) {
+	h := NewOrderHandler(NewMemoryOrderRepository(), routingPrincipalResolver{corpID: 1})
+	first := httptest.NewRecorder()
+	h.ServeHTTP(first, createOrderRequest("client-id-key", `{"id":"client-order-1","contactId":"c1","title":"renewal","amountCents":100,"status":"pending"}`))
+	conflict := httptest.NewRecorder()
+	h.ServeHTTP(conflict, createOrderRequest("client-id-key", `{"id":"client-order-2","contactId":"c1","title":"renewal","amountCents":100,"status":"pending"}`))
+
+	if first.Code != http.StatusOK || conflict.Code != http.StatusConflict {
+		t.Fatalf("statuses = first:%d conflict:%d, conflict body = %q", first.Code, conflict.Code, conflict.Body.String())
+	}
+}
+
+func TestOrderHandlerSerializesThirtyTwoConcurrentCreatesWithSameKey(t *testing.T) {
+	repo := NewMemoryOrderRepository()
+	h := NewOrderHandler(repo, routingPrincipalResolver{corpID: 1}, sequenceOrderIDGenerator{})
+	responses := make([]*httptest.ResponseRecorder, 32)
+	start := make(chan struct{})
+	var wait sync.WaitGroup
+	for index := range responses {
+		wait.Add(1)
+		go func(index int) {
+			defer wait.Done()
+			<-start
+			responses[index] = httptest.NewRecorder()
+			h.ServeHTTP(responses[index], createOrderRequest("concurrent-key", `{"contactId":"c1","title":"renewal","amountCents":100,"status":"pending"}`))
+		}(index)
+	}
+	close(start)
+	wait.Wait()
+
+	wantBody := responses[0].Body.String()
+	for index, response := range responses {
+		if response.Code != http.StatusOK || response.Body.String() != wantBody {
+			t.Fatalf("response[%d] = status:%d body:%q, want status 200 body %q", index, response.Code, response.Body.String(), wantBody)
+		}
+	}
+	if got := len(repo.List(7, 1)); got != 1 {
+		t.Fatalf("orders = %d, want 1", got)
+	}
+}
+
+func TestOrderHandlerScopesSameIdempotencyKeyByTenantAndCorp(t *testing.T) {
+	repo := NewMemoryOrderRepository()
+	for _, principal := range []Principal{
+		{TenantID: 7, CorpID: 1, UserID: 11},
+		{TenantID: 7, CorpID: 2, UserID: 11},
+		{TenantID: 8, CorpID: 1, UserID: 11},
+	} {
+		h := NewOrderHandler(repo, fixedOrderPrincipalResolver{principal: principal}, sequenceOrderIDGenerator{})
+		response := httptest.NewRecorder()
+		h.ServeHTTP(response, createOrderRequest("shared-key", `{"contactId":"c1","title":"renewal","amountCents":100,"status":"pending"}`))
+		if response.Code != http.StatusOK {
+			t.Fatalf("scope %d/%d status = %d, body = %q", principal.TenantID, principal.CorpID, response.Code, response.Body.String())
+		}
+	}
+	if len(repo.List(7, 1)) != 1 || len(repo.List(7, 2)) != 1 || len(repo.List(8, 1)) != 1 {
+		t.Fatalf("scope counts = 7/1:%d 7/2:%d 8/1:%d", len(repo.List(7, 1)), len(repo.List(7, 2)), len(repo.List(8, 1)))
+	}
+}
+
+func createOrderRequest(key, body string) *http.Request {
+	request := httptest.NewRequest(http.MethodPost, "/scrm/orders", strings.NewReader(body))
+	request.Header.Set("Idempotency-Key", key)
+	return request
+}
+
+func seedMemoryOrder(t *testing.T, repo *MemoryOrderRepository, order domain.Order) {
+	t.Helper()
+	hash, err := domain.OrderCreateRequestHash(order, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := encodeOrderCreateResponse(order)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.CreateIdempotentContext(context.Background(), domain.OrderCreateCommand{Order: order, ActorID: 1, IdempotencyKey: "fixture-" + order.ID, RequestHash: hash, ResponseStatus: http.StatusOK, ResponseBody: body}); err != nil {
+		t.Fatal(err)
 	}
 }
 
 func TestOrderHandlerTransitionUsesDashboardEnvelope(t *testing.T) {
 	repo := NewMemoryOrderRepository()
-	_, err := repo.Create(domain.Order{ID: "o-transition", TenantID: 7, CorpID: 1536612155, ContactID: "c1", Status: domain.OrderPending, Version: 1})
-	if err != nil {
-		t.Fatal(err)
-	}
+	seedMemoryOrder(t, repo, domain.Order{ID: "o-transition", TenantID: 7, CorpID: 1536612155, ContactID: "c1", Status: domain.OrderPending, Version: 1})
 	h := NewOrderHandler(repo, routingPrincipalResolver{})
 	req := httptest.NewRequest(http.MethodPatch, "/dashboard/scrm/orders/o-transition/transition?corpId=1536612155", strings.NewReader(`{"status":"paid","version":1}`))
 	rec := httptest.NewRecorder()
@@ -201,6 +363,12 @@ func (r routingPrincipalResolver) Resolve(*http.Request) (Principal, error) {
 	return Principal{TenantID: 7, UserID: 11, CorpID: corpID}, nil
 }
 
+type fixedOrderPrincipalResolver struct{ principal Principal }
+
+func (r fixedOrderPrincipalResolver) Resolve(*http.Request) (Principal, error) {
+	return r.principal, nil
+}
+
 type routingOrderRepository struct {
 	listItems    []domain.Order
 	listTotal    int
@@ -215,20 +383,8 @@ type routingOrderRepository struct {
 	gotDetailID  string
 }
 
-func (r *routingOrderRepository) Create(order domain.Order) (domain.Order, error) {
-	return order, nil
-}
-
-func (r *routingOrderRepository) List(int64, int64) []domain.Order {
-	panic("legacy List must not be used when ListContext is available")
-}
-
-func (r *routingOrderRepository) Transition(string, int64, domain.OrderStatus, int64) (domain.Order, error) {
-	return domain.Order{}, nil
-}
-
-func (r *routingOrderRepository) CreateContext(context.Context, domain.Order, int64) (domain.Order, error) {
-	return domain.Order{}, nil
+func (r *routingOrderRepository) CreateIdempotentContext(_ context.Context, command domain.OrderCreateCommand) (domain.OrderCreateReceipt, error) {
+	return domain.OrderCreateReceipt{OrderID: command.Order.ID, RequestHash: command.RequestHash, ResponseStatus: command.ResponseStatus, ResponseBody: command.ResponseBody}, nil
 }
 
 func (r *routingOrderRepository) ListContext(_ context.Context, _ int64, _ int64, page, pageSize int) ([]domain.Order, int, error) {

@@ -13,8 +13,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	pdf "github.com/ledongthuc/pdf"
-
+	documentadapter "jiyi/mochat-go/internal/modules/ai-settings/adapters/document"
 	"jiyi/mochat-go/internal/modules/ai-settings/ports"
 )
 
@@ -147,23 +146,7 @@ func extractDOCXText(reader io.Reader) (string, error) {
 }
 
 func parsePDF(path string) (string, error) {
-	file, reader, err := pdf.Open(path)
-	if err != nil {
-		return "", ports.ErrDocumentUnreadable
-	}
-	defer file.Close()
-	plain, err := reader.GetPlainText()
-	if err != nil {
-		return "", ports.ErrDocumentUnreadable
-	}
-	content, err := io.ReadAll(io.LimitReader(plain, int64(MaxDocumentRunes*4)+1))
-	if err != nil || !utf8.Valid(content) {
-		return "", ports.ErrDocumentUnreadable
-	}
-	if len(content) > MaxDocumentRunes*4 {
-		return "", ports.ErrDocumentTextTooLarge
-	}
-	return string(content), nil
+	return documentadapter.ParsePDF(path, int64(MaxDocumentRunes*4))
 }
 
 func normalizeExtractedText(value string) string {

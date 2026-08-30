@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { test } from 'node:test';
@@ -120,6 +120,31 @@ test('non-browser gate accepts integration evidence while final gate remains bro
   assert.throws(
     () => validateFinalPhase32Manifest(manifest, functionMatrix()),
     /Phase 3\.2 incomplete routes \(0\/8\)/,
+  );
+});
+
+test('Phase 3.2 browser assertions follow the current reachable page semantics', () => {
+  const source = readFileSync(new URL('../web/e2e/tests/phase3-2-dashboard.spec.ts', import.meta.url), 'utf8');
+
+  assert.match(source, /getByLabel\('开始日期'\)\.fill\('2026-07-01'\)/);
+  assert.match(source, /getByLabel\('结束日期'\)\.fill\('2026-08-01'\)/);
+  assert.match(source, /getByRole\('region', \{ name: '查询概览' \}\)/);
+  assert.match(source, /getByRole\('heading', \{ name: '敏感词', exact: true \}\)/);
+  assert.match(source, /getByLabel\('新敏感词'\)\.fill\('账号密码'\)/);
+  assert.match(source, /getByLabel\('新词所属词组'\)\.selectOption\('1'\)/);
+  assert.match(source, /getByRole\('button', \{ name: '保存敏感词' \}\)\.click\(\)/);
+  assert.doesNotMatch(source, /高级范围筛选|heading'.*全局消息|敏感词管理|敏感词名称|敏感词分组/);
+});
+
+test('package gate validates integration evidence before running the full browser suite', () => {
+  const packageJSON = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+  const command = packageJSON.scripts['check:phase3-2-dashboard'];
+
+  assert.match(command, /check_phase3_2_dashboard_completion\.mjs --non-browser/);
+  assert.doesNotMatch(command, /check_phase3_2_dashboard_completion\.mjs --final/);
+  assert.ok(
+    command.indexOf('--non-browser') < command.indexOf('playwright test tests/phase3-2-dashboard.spec.ts'),
+    'the browser suite must run after the non-browser contract gate',
   );
 });
 

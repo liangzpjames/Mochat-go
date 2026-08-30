@@ -35,6 +35,19 @@ func (s *MySQLStore) EnqueueArchiveSync(ctx context.Context, template archivepro
 	if !archiveSyncTemplateValid(template) {
 		return archiveprovider.SyncRun{}, errors.New("archive sync template invalid")
 	}
+	for attempt := 0; attempt < 3; attempt++ {
+		run, err := s.enqueueArchiveSyncOnce(ctx, template, retryFailed)
+		if err == nil || !isMySQLRetryableTransactionError(err) || ctx.Err() != nil || attempt == 2 {
+			return run, err
+		}
+		if err := waitForMySQLTransactionRetry(ctx, attempt); err != nil {
+			return archiveprovider.SyncRun{}, err
+		}
+	}
+	return archiveprovider.SyncRun{}, errors.New("archive sync enqueue retry exhausted")
+}
+
+func (s *MySQLStore) enqueueArchiveSyncOnce(ctx context.Context, template archiveprovider.SyncRun, retryFailed bool) (archiveprovider.SyncRun, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return archiveprovider.SyncRun{}, err

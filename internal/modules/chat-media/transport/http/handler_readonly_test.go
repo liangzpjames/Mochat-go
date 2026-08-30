@@ -20,7 +20,8 @@ func TestMediaHandlerRejectsManualWriteMethods(t *testing.T) {
 
 func TestMediaListPassesSynchronizedRecordingFilters(t *testing.T) {
 	store := &filterCaptureStore{}
-	handler, err := NewMediaHandler(store, t.TempDir(), fakeResolver{}, fakeAuthorizer{})
+	storage, err := newTestAudioStorage(t)
+	handler, err := NewMediaHandler(store, storage, fakeResolver{}, fakeAuthorizer{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -36,7 +37,8 @@ func TestMediaListPassesSynchronizedRecordingFilters(t *testing.T) {
 }
 
 func TestMediaListRejectsInvalidSynchronizedDateRange(t *testing.T) {
-	handler, err := NewMediaHandler(&filterCaptureStore{}, t.TempDir(), fakeResolver{}, fakeAuthorizer{})
+	storage, err := newTestAudioStorage(t)
+	handler, err := NewMediaHandler(&filterCaptureStore{}, storage, fakeResolver{}, fakeAuthorizer{})
 	if err != nil {
 		t.Fatal(err)
 	}

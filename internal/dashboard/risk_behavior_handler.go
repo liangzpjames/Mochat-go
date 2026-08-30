@@ -147,6 +147,10 @@ func (h *RiskBehaviorHandler) CreateRule(w http.ResponseWriter, r *http.Request)
 	}
 	rule.TenantID = int64(tenant)
 	rule.CorpID = int64(corp)
+	if err := ValidateRiskRule(rule); err != nil {
+		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, err.Error(), nil)
+		return
+	}
 	id, err := writer.CreateRiskRule(r.Context(), rule)
 	if err != nil {
 		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, err.Error(), nil)
@@ -156,7 +160,7 @@ func (h *RiskBehaviorHandler) CreateRule(w http.ResponseWriter, r *http.Request)
 }
 
 func (h *RiskBehaviorHandler) UpdateRule(w http.ResponseWriter, r *http.Request) {
-	_, corp, ok := h.resolve(w, r, "/ai-insight/v2/risk#manage")
+	tenant, corp, ok := h.resolve(w, r, "/ai-insight/v2/risk#manage")
 	if !ok {
 		return
 	}
@@ -170,7 +174,12 @@ func (h *RiskBehaviorHandler) UpdateRule(w http.ResponseWriter, r *http.Request)
 		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "规则参数无效", nil)
 		return
 	}
+	rule.TenantID = int64(tenant)
 	rule.CorpID = int64(corp)
+	if err := ValidateRiskRule(rule); err != nil {
+		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, err.Error(), nil)
+		return
+	}
 	updated, err := writer.UpdateRiskRule(r.Context(), rule)
 	if err != nil {
 		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, err.Error(), nil)
@@ -184,7 +193,7 @@ func (h *RiskBehaviorHandler) UpdateRule(w http.ResponseWriter, r *http.Request)
 }
 
 func (h *RiskBehaviorHandler) RuleStatus(w http.ResponseWriter, r *http.Request) {
-	_, corp, ok := h.resolve(w, r, "/ai-insight/v2/risk#manage")
+	tenant, corp, ok := h.resolve(w, r, "/ai-insight/v2/risk#manage")
 	if !ok {
 		return
 	}
@@ -201,7 +210,7 @@ func (h *RiskBehaviorHandler) RuleStatus(w http.ResponseWriter, r *http.Request)
 		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, "规则参数无效", nil)
 		return
 	}
-	updated, err := writer.SetRiskRuleStatus(r.Context(), corp, input.ID, input.Status)
+	updated, err := writer.SetRiskRuleStatus(r.Context(), tenant, corp, input.ID, input.Status)
 	if err != nil {
 		writeEnvelope(w, http.StatusBadRequest, http.StatusBadRequest, err.Error(), nil)
 		return
@@ -214,7 +223,7 @@ func (h *RiskBehaviorHandler) RuleStatus(w http.ResponseWriter, r *http.Request)
 }
 
 func (h *RiskBehaviorHandler) DeleteRule(w http.ResponseWriter, r *http.Request) {
-	_, corp, ok := h.resolve(w, r, "/ai-insight/v2/risk#manage")
+	tenant, corp, ok := h.resolve(w, r, "/ai-insight/v2/risk#manage")
 	if !ok {
 		return
 	}
@@ -224,7 +233,7 @@ func (h *RiskBehaviorHandler) DeleteRule(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	id, _ := strconv.ParseInt(r.URL.Query().Get("id"), 10, 64)
-	deleted, err := writer.DeleteRiskRule(r.Context(), corp, id)
+	deleted, err := writer.DeleteRiskRule(r.Context(), tenant, corp, id)
 	if err != nil {
 		writeEnvelope(w, http.StatusConflict, http.StatusConflict, err.Error(), nil)
 		return

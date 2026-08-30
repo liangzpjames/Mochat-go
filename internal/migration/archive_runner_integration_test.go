@@ -1,75 +1,23 @@
-package migration
+package migration_test
 
 import (
 	"context"
 	"database/sql"
-	"fmt"
-	"os"
-	"path/filepath"
-	"strings"
-	"sync/atomic"
 	"testing"
-
-	"github.com/go-sql-driver/mysql"
 )
 
-var archiveRunnerSchemaSequence atomic.Int64
-
 func TestArchiveSourceMigrationRunnerApplyDownApplyPinsOneConnection(t *testing.T) {
-	dsn := strings.TrimSpace(os.Getenv("MOCHAT_GO_MYSQL_INTEGRATION_DSN"))
-	if dsn == "" {
-		t.Skip("SKIP: MOCHAT_GO_MYSQL_INTEGRATION_DSN is not set; isolated MariaDB DSN is required")
-	}
-	cfg, err := mysql.ParseDSN(dsn)
-	if err != nil {
+	db, root := newExternalMigrationIntegrationDBThrough(t, "0137_reconcile_ai_settings_schema", "archive-runner-0137")
+	if _, err := db.Exec(`INSERT INTO mc_tenant (id,name,status) VALUES (11,'Archive runner tenant',1)`); err != nil {
 		t.Fatal(err)
 	}
-	adminCfg := *cfg
-	adminCfg.DBName = ""
-	admin, err := sql.Open("mysql", adminCfg.FormatDSN())
-	if err != nil {
+	if _, err := db.Exec(`INSERT INTO mc_corp (id,tenant_id,name) VALUES (27,11,'Archive runner corp')`); err != nil {
 		t.Fatal(err)
 	}
-	if err := admin.PingContext(context.Background()); err != nil {
-		admin.Close()
+	if _, err := db.Exec(`INSERT INTO mochat_go_tenant_corp_bindings (tenant_id,corp_id,status,version) VALUES (11,27,1,1)`); err != nil {
 		t.Fatal(err)
 	}
-	schema := fmt.Sprintf("mochat_archive_runner_%d_%d", os.Getpid(), archiveRunnerSchemaSequence.Add(1))
-	if _, err := admin.Exec("CREATE DATABASE `" + schema + "` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"); err != nil {
-		admin.Close()
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		_, _ = admin.Exec("DROP DATABASE IF EXISTS `" + schema + "`")
-		_ = admin.Close()
-	})
-	testCfg := *cfg
-	testCfg.DBName = schema
-	db, err := sql.Open("mysql", testCfg.FormatDSN())
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
-	if err := db.PingContext(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec(`CREATE TABLE mc_corp (id INT(10) UNSIGNED NOT NULL AUTO_INCREMENT, tenant_id INT(10) UNSIGNED NOT NULL, deleted_at DATETIME NULL, PRIMARY KEY (id), UNIQUE KEY uk_runner_corp_scope (tenant_id,id)) ENGINE=InnoDB`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec(`INSERT INTO mc_corp (id,tenant_id) VALUES (27,11)`); err != nil {
-		t.Fatal(err)
-	}
-	root := filepath.Join("..", "..")
-	migration := Migration{
-		Version:     "0138_archive_source_sync",
-		Description: "archive source sync",
-		Path:        filepath.Join(root, "deploy", "standalone", "migrations", "0138_archive_source_sync.up.sql"),
-		DownPath:    filepath.Join(root, "deploy", "standalone", "migrations", "0138_archive_source_sync.down.sql"),
-	}
-	runner, err := NewRunner(db, []Migration{migration})
-	if err != nil {
-		t.Fatal(err)
-	}
+	runner := newExternalMigrationRunnerThrough(t, db, root, "0138_archive_source_sync")
 	if _, err := runner.Apply(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -106,8 +54,17 @@ func TestArchiveSourceMigrationRunnerApplyDownApplyPinsOneConnection(t *testing.
 	assertArchiveRunnerTables(t, db, true)
 	if statuses, err := runner.Apply(context.Background()); err != nil {
 		t.Fatal(err)
-	} else if len(statuses) != 1 || statuses[0].State != "applied" {
-		t.Fatalf("repeat apply statuses=%#v", statuses)
+	} else {
+		found := false
+		for _, status := range statuses {
+			if status.Migration.Version == "0138_archive_source_sync" && status.State == "applied" {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("repeat apply missing applied 0138 status: %#v", statuses)
+		}
 	}
 	if err := db.QueryRow(`SELECT COUNT(*) FROM mochat_go_schema_migrations WHERE version='0138_archive_source_sync'`).Scan(&applied); err != nil {
 		t.Fatal(err)
