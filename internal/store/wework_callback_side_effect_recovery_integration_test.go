@@ -150,8 +150,8 @@ func TestCallbackSideEffectRecoveryFailsClosedForLeaseQuarantineUnknownActionAnd
 		expiresAt  *time.Time
 		want       error
 	}{
-		{name: "future processing without token", key: strings.Repeat("0", 64), status: "processing", expiresAt: timePointer(time.Now().Add(5 * time.Minute)), want: companyprofile.ErrCallbackLeaseActive},
-		{name: "expired processing without token", key: strings.Repeat("2", 64), status: "processing", expiresAt: timePointer(time.Now().Add(-5 * time.Minute)), want: companyprofile.ErrInboxStateConflict},
+		{name: "future processing without token", key: strings.Repeat("0", 64), status: "processing", expiresAt: timePointer(time.Now().UTC().Add(5 * time.Minute)), want: companyprofile.ErrCallbackLeaseActive},
+		{name: "expired processing without token", key: strings.Repeat("2", 64), status: "processing", expiresAt: timePointer(time.Now().UTC().Add(-5 * time.Minute)), want: companyprofile.ErrInboxStateConflict},
 		{name: "completed", key: strings.Repeat("3", 64), status: "completed", want: companyprofile.ErrInboxStateConflict},
 	} {
 		seedCallbackRecoveryGuard(t, db, tc.key, tc.status, tc.leaseToken, tc.expiresAt)
@@ -160,7 +160,7 @@ func TestCallbackSideEffectRecoveryFailsClosedForLeaseQuarantineUnknownActionAnd
 		}
 	}
 	expiredKey := strings.Repeat("4", 64)
-	seedCallbackRecoveryGuard(t, db, expiredKey, "processing", strings.Repeat("f", 64), timePointer(time.Now().Add(-5*time.Minute)))
+	seedCallbackRecoveryGuard(t, db, expiredKey, "processing", strings.Repeat("f", 64), timePointer(time.Now().UTC().Add(-5*time.Minute)))
 	if result, err := store.ReconcileCallbackSideEffect(context.Background(), principal, expiredKey, "fission.customer_push", "request-expired-processing", input); err != nil || !result.InboxReplayScheduled {
 		t.Fatalf("structurally complete expired processing result=%+v err=%v", result, err)
 	}
@@ -432,9 +432,13 @@ func activateCallbackRecoveryBinding(t *testing.T, db *sql.DB) {
 
 func seedCallbackRecoveryGuard(t *testing.T, db *sql.DB, eventKey, status, leaseToken string, leaseExpiresAt *time.Time) {
 	t.Helper()
+	var leaseExpiresValue any
+	if leaseExpiresAt != nil {
+		leaseExpiresValue = callbackRecoveryUTCValue(*leaseExpiresAt)
+	}
 	if _, err := db.Exec(`INSERT INTO mochat_go_wework_callback_inbox
 		(tenant_id,corp_id,event_key,payload_fingerprint,event_path,event_json,status,attempt,lease_token,lease_fence,lease_expires_at,received_at)
-		VALUES (1,100,?,?,'event.test','{}',?,3,?,4,?,UTC_TIMESTAMP(6))`, eventKey, strings.Repeat("c", 64), status, leaseToken, leaseExpiresAt); err != nil {
+		VALUES (1,100,?,?,'event.test','{}',?,3,?,4,?,UTC_TIMESTAMP(6))`, eventKey, strings.Repeat("c", 64), status, leaseToken, leaseExpiresValue); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(`INSERT INTO mochat_go_wework_callback_side_effects

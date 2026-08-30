@@ -26,11 +26,12 @@ type callbackSideEffectCursor struct {
 }
 
 type callbackSideEffectLocked struct {
-	ActionKey      string
-	PayloadHash    string
-	Status         string
-	Version        uint64
-	ReconcileAfter sql.NullTime
+	ActionKey            string
+	PayloadHash          string
+	Status               string
+	Version              uint64
+	ReconcileAfterValid  bool
+	ReconcileAfterFuture bool
 }
 
 var callbackSideEffectCursorEventKeyPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
@@ -47,6 +48,7 @@ func (s *MySQLStore) ListCallbackSideEffects(ctx context.Context, principal dash
 		limit = 50
 	}
 	query := `SELECT se.event_key,se.action_key,se.payload_hash,se.status,se.version,se.unknown_at,se.reconcile_after,
+		COALESCE(se.reconcile_after<=UTC_TIMESTAMP(6),FALSE),
 		inbox.status,inbox.attempt,inbox.last_error
 		FROM mochat_go_wework_callback_side_effects se
 		INNER JOIN mochat_go_wework_callback_inbox inbox
@@ -62,8 +64,9 @@ func (s *MySQLStore) ListCallbackSideEffects(ctx context.Context, principal dash
 		if err != nil {
 			return companyprofile.CallbackSideEffectPage{}, companyprofile.ErrInvalidRequest
 		}
+		cursorClock := callbackRecoveryUTCValue(cursorTime)
 		query += ` AND (se.unknown_at<? OR (se.unknown_at=? AND se.event_key<?) OR (se.unknown_at=? AND se.event_key=? AND se.action_key<?))`
-		args = append(args, cursorTime, cursorTime, cursor.EventKey, cursorTime, cursor.EventKey, cursor.ActionKey)
+		args = append(args, cursorClock, cursorClock, cursor.EventKey, cursorClock, cursor.EventKey, cursor.ActionKey)
 	}
 	query += ` ORDER BY se.unknown_at DESC,se.event_key DESC,se.action_key DESC LIMIT ?`
 	args = append(args, limit+1)
@@ -76,13 +79,15 @@ func (s *MySQLStore) ListCallbackSideEffects(ctx context.Context, principal dash
 	for rows.Next() {
 		var item companyprofile.CallbackSideEffectSummary
 		var unknownAt, reconcileAfter sql.NullTime
+		var reconcileReady bool
 		var lastError string
-		if err := rows.Scan(&item.EventKey, &item.ActionKey, &item.PayloadHash, &item.Status, &item.Version, &unknownAt, &reconcileAfter, &item.InboxStatus, &item.Attempt, &lastError); err != nil {
+		if err := rows.Scan(&item.EventKey, &item.ActionKey, &item.PayloadHash, &item.Status, &item.Version, &unknownAt, &reconcileAfter, &reconcileReady, &item.InboxStatus, &item.Attempt, &lastError); err != nil {
 			return companyprofile.CallbackSideEffectPage{}, err
 		}
+		unknownAt, reconcileAfter = callbackRecoveryUTCTime(unknownAt), callbackRecoveryUTCTime(reconcileAfter)
 		item.UnknownAt = nullableTimePointer(unknownAt)
 		item.ReconcileAfter = nullableTimePointer(reconcileAfter)
-		item.Actionable = knownCallbackRecoveryAction(item.ActionKey) && reconcileAfter.Valid && !reconcileAfter.Time.After(time.Now().UTC())
+		item.Actionable = knownCallbackRecoveryAction(item.ActionKey) && reconcileReady
 		item.LastErrorCode = callbackRecoveryErrorCode(lastError)
 		items = append(items, item)
 	}
@@ -118,7 +123,8 @@ func (s *MySQLStore) GetCallbackSideEffect(ctx context.Context, principal dashbo
 		return companyprofile.CallbackSideEffectDetail{}, err
 	}
 	detail.LastErrorCode = callbackRecoveryErrorCode(lastError)
-	rows, err := s.db.QueryContext(ctx, `SELECT action_key,payload_hash,status,version,unknown_at,reconcile_after
+	rows, err := s.db.QueryContext(ctx, `SELECT action_key,payload_hash,status,version,unknown_at,reconcile_after,
+		COALESCE(reconcile_after<=UTC_TIMESTAMP(6),FALSE)
 		FROM mochat_go_wework_callback_side_effects WHERE tenant_id=? AND corp_id=? AND event_key=? ORDER BY action_key ASC`, principal.TenantID, principal.CorpID, eventKey)
 	if err != nil {
 		return companyprofile.CallbackSideEffectDetail{}, err
@@ -128,12 +134,14 @@ func (s *MySQLStore) GetCallbackSideEffect(ctx context.Context, principal dashbo
 	for rows.Next() {
 		var item companyprofile.CallbackSideEffectSummary
 		var unknownAt, reconcileAfter sql.NullTime
-		if err := rows.Scan(&item.ActionKey, &item.PayloadHash, &item.Status, &item.Version, &unknownAt, &reconcileAfter); err != nil {
+		var reconcileReady bool
+		if err := rows.Scan(&item.ActionKey, &item.PayloadHash, &item.Status, &item.Version, &unknownAt, &reconcileAfter, &reconcileReady); err != nil {
 			return companyprofile.CallbackSideEffectDetail{}, err
 		}
+		unknownAt, reconcileAfter = callbackRecoveryUTCTime(unknownAt), callbackRecoveryUTCTime(reconcileAfter)
 		item.EventKey, item.InboxStatus, item.Attempt = eventKey, detail.InboxStatus, detail.Attempt
 		item.UnknownAt, item.ReconcileAfter = nullableTimePointer(unknownAt), nullableTimePointer(reconcileAfter)
-		item.Actionable = item.Status == "unknown" && knownCallbackRecoveryAction(item.ActionKey) && reconcileAfter.Valid && !reconcileAfter.Time.After(time.Now().UTC())
+		item.Actionable = item.Status == "unknown" && knownCallbackRecoveryAction(item.ActionKey) && reconcileReady
 		detail.Actions = append(detail.Actions, item)
 		if item.ActionKey == actionKey {
 			targetFound = true
@@ -186,16 +194,18 @@ func (s *MySQLStore) ReconcileCallbackSideEffect(ctx context.Context, principal 
 	}
 	var inboxStatus, leaseToken string
 	var inboxFence uint64
-	var leaseExpires sql.NullTime
-	if err := tx.QueryRowContext(ctx, `SELECT status,lease_token,lease_fence,lease_expires_at
+	var leaseExpiresValid, leaseActive bool
+	if err := tx.QueryRowContext(ctx, `SELECT status,lease_token,lease_fence,lease_expires_at IS NOT NULL,
+		COALESCE(lease_expires_at>UTC_TIMESTAMP(6),FALSE)
 		FROM mochat_go_wework_callback_inbox WHERE tenant_id=? AND corp_id=? AND event_key=? FOR UPDATE`, principal.TenantID, principal.CorpID, eventKey).
-		Scan(&inboxStatus, &leaseToken, &inboxFence, &leaseExpires); err != nil {
+		Scan(&inboxStatus, &leaseToken, &inboxFence, &leaseExpiresValid, &leaseActive); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return companyprofile.CallbackSideEffectReconcileResult{}, companyprofile.ErrRecoveryTargetNotFound
 		}
 		return companyprofile.CallbackSideEffectReconcileResult{}, err
 	}
-	rows, err := tx.QueryContext(ctx, `SELECT action_key,payload_hash,status,version,reconcile_after
+	rows, err := tx.QueryContext(ctx, `SELECT action_key,payload_hash,status,version,reconcile_after IS NOT NULL,
+		COALESCE(reconcile_after>UTC_TIMESTAMP(6),FALSE)
 		FROM mochat_go_wework_callback_side_effects WHERE tenant_id=? AND corp_id=? AND event_key=? ORDER BY action_key ASC FOR UPDATE`, principal.TenantID, principal.CorpID, eventKey)
 	if err != nil {
 		return companyprofile.CallbackSideEffectReconcileResult{}, err
@@ -203,7 +213,7 @@ func (s *MySQLStore) ReconcileCallbackSideEffect(ctx context.Context, principal 
 	locked := make([]callbackSideEffectLocked, 0, 2)
 	for rows.Next() {
 		var item callbackSideEffectLocked
-		if err := rows.Scan(&item.ActionKey, &item.PayloadHash, &item.Status, &item.Version, &item.ReconcileAfter); err != nil {
+		if err := rows.Scan(&item.ActionKey, &item.PayloadHash, &item.Status, &item.Version, &item.ReconcileAfterValid, &item.ReconcileAfterFuture); err != nil {
 			_ = rows.Close()
 			return companyprofile.CallbackSideEffectReconcileResult{}, err
 		}
@@ -218,14 +228,13 @@ func (s *MySQLStore) ReconcileCallbackSideEffect(ctx context.Context, principal 
 	if input.ExpectedInboxLeaseFence != inboxFence {
 		return companyprofile.CallbackSideEffectReconcileResult{}, companyprofile.ErrLeaseFenceConflict
 	}
-	now := time.Now().UTC()
 	switch inboxStatus {
 	case "dead", "pending":
 	case "processing":
-		if leaseExpires.Valid && leaseExpires.Time.After(now) {
+		if leaseActive {
 			return companyprofile.CallbackSideEffectReconcileResult{}, companyprofile.ErrCallbackLeaseActive
 		}
-		if leaseToken == "" || !leaseExpires.Valid {
+		if leaseToken == "" || !leaseExpiresValid {
 			return companyprofile.CallbackSideEffectReconcileResult{}, companyprofile.ErrInboxStateConflict
 		}
 	default:
@@ -253,7 +262,7 @@ func (s *MySQLStore) ReconcileCallbackSideEffect(ctx context.Context, principal 
 	if target.Status != "unknown" {
 		return companyprofile.CallbackSideEffectReconcileResult{}, companyprofile.ErrSideEffectConflict
 	}
-	if !target.ReconcileAfter.Valid || target.ReconcileAfter.Time.After(time.Now().UTC()) {
+	if !target.ReconcileAfterValid || target.ReconcileAfterFuture {
 		return companyprofile.CallbackSideEffectReconcileResult{}, companyprofile.ErrQuarantineActive
 	}
 	newStatus := "sent"
@@ -412,6 +421,22 @@ func decodeCallbackSideEffectCursor(value string) (callbackSideEffectCursor, err
 		return callbackSideEffectCursor{}, errors.New("invalid callback side effect cursor")
 	}
 	return cursor, nil
+}
+
+// Callback recovery timestamps are written with UTC_TIMESTAMP into timezone-
+// free DATETIME columns. Reinterpret the scanned wall clock as UTC so a DSN
+// using loc=Local cannot shift API timestamps or cursor boundaries.
+func callbackRecoveryUTCTime(value sql.NullTime) sql.NullTime {
+	if !value.Valid {
+		return value
+	}
+	clock := value.Time
+	value.Time = time.Date(clock.Year(), clock.Month(), clock.Day(), clock.Hour(), clock.Minute(), clock.Second(), clock.Nanosecond(), time.UTC)
+	return value
+}
+
+func callbackRecoveryUTCValue(value time.Time) string {
+	return value.UTC().Format("2006-01-02 15:04:05.999999")
 }
 
 func nullableTimePointer(value sql.NullTime) *time.Time {
