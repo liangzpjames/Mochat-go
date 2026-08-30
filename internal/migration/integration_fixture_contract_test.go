@@ -226,6 +226,48 @@ func (fixtureProbe) createIdentityUnknownTenantDependencyProbe() {
 			t.Fatalf("same-name method inherited package helper allowlist: %v", issues)
 		}
 	})
+
+	t.Run("ledger helper Exec receives constant table argument", func(t *testing.T) {
+		sources := map[string][]byte{
+			"ledger_exec_parameter_integration_test.go": []byte(`package migration
+func deleteLedger(table string) {
+	db.Exec("DELETE FROM " + table + " WHERE version=?", "0139_wecom_capability_ledger")
+}
+func newMigrationIntegrationDBThrough() {
+	deleteLedger("mochat_go_schema_migrations")
+}`),
+		}
+		issues := auditMigrationFixtureSources(sources)
+		if !migrationIssuesContain(issues, "deleteLedger", "exact controlled version") {
+			t.Fatalf("ledger Exec helper parameter mutation was not rejected: %v", issues)
+		}
+	})
+
+	t.Run("parent receiver call governs exact method", func(t *testing.T) {
+		for _, tc := range []struct {
+			name string
+			call string
+		}{
+			{name: "typed local variable", call: "probe := fixtureProbe{}\n\tprobe.createIdentityUnknownTenantDependencyProbe()"},
+			{name: "composite literal receiver", call: "(fixtureProbe{}).createIdentityUnknownTenantDependencyProbe()"},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				source := `package migration
+type fixtureProbe struct{}
+func (fixtureProbe) createIdentityUnknownTenantDependencyProbe() {
+	db.Exec("CREATE TABLE identity_dependency_probe (id bigint)")
+}
+func TestIdentityParent() {
+	newMigrationIntegrationDBThrough(nil, "0128")
+	` + tc.call + `
+}`
+				issues := auditMigrationFixtureSources(map[string][]byte{"identity_realms_single_corp_integration_test.go": []byte(source)})
+				if !migrationIssuesContain(issues, "fixtureProbe.createIdentityUnknownTenantDependencyProbe", "CREATE TABLE") {
+					t.Fatalf("receiver method escaped governed closure: %v", issues)
+				}
+			})
+		}
+	})
 }
 
 func auditMigrationFixtureSources(sources map[string][]byte) []string {

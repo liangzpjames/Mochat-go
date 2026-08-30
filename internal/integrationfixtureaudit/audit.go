@@ -34,16 +34,17 @@ type Config struct {
 }
 
 type parsedFunction struct {
-	path        string
-	pkg         string
-	name        string
-	receiver    string
-	receiverVar string
-	declaration *ast.FuncDecl
-	calls       map[string]bool
-	callAliases map[string]string
-	globals     map[string]string
-	directRoot  bool
+	path          string
+	pkg           string
+	name          string
+	receiver      string
+	receiverVar   string
+	declaration   *ast.FuncDecl
+	calls         map[string]bool
+	callAliases   map[string]string
+	receiverTypes map[string]string
+	globals       map[string]string
+	directRoot    bool
 }
 
 func (function parsedFunction) referenceName() string {
@@ -174,6 +175,7 @@ func Audit(sources map[string][]byte, config Config) []string {
 					addIssue(fmt.Sprintf("%s bypasses the production registry through %s", ref, name))
 				}
 				auditLedgerCall(ref, typed, locals, functionReturns, stringFunctions, function.pkg, config.AllowedLedgerDelete, addIssue)
+				auditInvokedLedgerHelper(canonical, typed.Args, locals, functionReturns, stringFunctions, function.pkg, config.AllowedLedgerDelete, addIssue, 0)
 			case *ast.CompositeLit:
 				if isMigrationSlice(typed.Type) {
 					addIssue(fmt.Sprintf("%s handwrites a migration slice", ref))
@@ -231,6 +233,7 @@ func parseFunctions(sources map[string][]byte, rootNames map[string]bool) ([]par
 				calls:       map[string]bool{},
 				globals:     resolveFileStringValues(file),
 			}
+			parsed.receiverTypes = resolveLocalReceiverTypes(function)
 			parsed.callAliases = resolveCallAliases(function, parsed)
 			if parsed.receiver == "" && rootNames[parsed.name] {
 				parsed.directRoot = true
@@ -360,6 +363,56 @@ func auditLedgerCall(ref string, call *ast.CallExpr, locals, functionReturns map
 		}
 	}
 	auditLedgerText(ref, strings.Join(values, " "), allowedDeletes, addIssue)
+}
+
+func auditInvokedLedgerHelper(canonical string, arguments []ast.Expr, callerLocals, functionReturns map[string]string, stringFunctions map[string]parsedFunction, pkg string, allowedDeletes map[string]string, addIssue func(string), depth int) {
+	if depth > 16 || canonical == "" || strings.Contains(canonical, ".") {
+		return
+	}
+	callee, found := stringFunctions[pkg+":"+canonical]
+	if !found {
+		return
+	}
+	locals := copyStringMap(callee.globals)
+	argumentIndex := 0
+	if callee.declaration.Type.Params != nil {
+		for _, field := range callee.declaration.Type.Params.List {
+			for _, name := range field.Names {
+				if argumentIndex >= len(arguments) {
+					break
+				}
+				if value, ok := resolveStringExpressionDeep(arguments[argumentIndex], callerLocals, functionReturns, stringFunctions, callee.pkg, depth+1); ok {
+					locals[name.Name] = value
+				}
+				argumentIndex++
+			}
+		}
+	}
+	ref := Ref(callee.path, callee.referenceName())
+	ast.Inspect(callee.declaration.Body, func(node ast.Node) bool {
+		switch typed := node.(type) {
+		case *ast.AssignStmt:
+			for valueIndex, expression := range typed.Rhs {
+				if valueIndex >= len(typed.Lhs) {
+					break
+				}
+				name, ok := typed.Lhs[valueIndex].(*ast.Ident)
+				if !ok {
+					continue
+				}
+				if value, ok := resolveStringExpressionDeep(expression, locals, functionReturns, stringFunctions, callee.pkg, depth+1); ok {
+					locals[name.Name] = value
+				}
+			}
+		case *ast.DeclStmt:
+			resolveLocalStringDeclarationDeep(typed.Decl, locals, functionReturns, stringFunctions, callee.pkg)
+		case *ast.CallExpr:
+			canonicalCallName := canonicalCall(typed.Fun, callee.callAliases, callee)
+			auditLedgerCall(ref, typed, locals, functionReturns, stringFunctions, callee.pkg, allowedDeletes, addIssue)
+			auditInvokedLedgerHelper(canonicalCallName, typed.Args, locals, functionReturns, stringFunctions, callee.pkg, allowedDeletes, addIssue, depth+1)
+		}
+		return true
+	})
 }
 
 func auditLedgerText(ref, text string, allowedDeletes map[string]string, addIssue func(string)) {
@@ -789,7 +842,10 @@ func canonicalCall(expression ast.Expr, aliases map[string]string, function pars
 		}
 		return typed.Name
 	case *ast.SelectorExpr:
-		prefix := selectorExpressionName(typed.X)
+		prefix := receiverExpressionType(typed.X, function.receiverTypes)
+		if prefix == "" {
+			prefix = selectorExpressionName(typed.X)
+		}
 		if prefix == function.receiverVar && function.receiver != "" {
 			prefix = function.receiver
 		}
@@ -799,6 +855,70 @@ func canonicalCall(expression ast.Expr, aliases map[string]string, function pars
 		return prefix + "." + typed.Sel.Name
 	case *ast.ParenExpr:
 		return canonicalCall(typed.X, aliases, function)
+	default:
+		return ""
+	}
+}
+
+func resolveLocalReceiverTypes(function *ast.FuncDecl) map[string]string {
+	types := map[string]string{}
+	ast.Inspect(function.Body, func(node ast.Node) bool {
+		switch typed := node.(type) {
+		case *ast.AssignStmt:
+			for index, expression := range typed.Rhs {
+				if index >= len(typed.Lhs) {
+					break
+				}
+				name, ok := typed.Lhs[index].(*ast.Ident)
+				if !ok {
+					continue
+				}
+				if receiverType := receiverExpressionType(expression, types); receiverType != "" {
+					types[name.Name] = receiverType
+				}
+			}
+		case *ast.DeclStmt:
+			general, ok := typed.Decl.(*ast.GenDecl)
+			if !ok {
+				break
+			}
+			for _, specification := range general.Specs {
+				valueSpec, ok := specification.(*ast.ValueSpec)
+				if !ok {
+					continue
+				}
+				declaredType := typeExpressionName(valueSpec.Type)
+				for index, name := range valueSpec.Names {
+					receiverType := declaredType
+					if index < len(valueSpec.Values) {
+						if inferred := receiverExpressionType(valueSpec.Values[index], types); inferred != "" {
+							receiverType = inferred
+						}
+					}
+					if receiverType != "" {
+						types[name.Name] = receiverType
+					}
+				}
+			}
+		}
+		return true
+	})
+	return types
+}
+
+func receiverExpressionType(expression ast.Expr, receiverTypes map[string]string) string {
+	switch typed := expression.(type) {
+	case *ast.Ident:
+		return receiverTypes[typed.Name]
+	case *ast.CompositeLit:
+		return typeExpressionName(typed.Type)
+	case *ast.UnaryExpr:
+		if typed.Op == token.AND {
+			return receiverExpressionType(typed.X, receiverTypes)
+		}
+		return ""
+	case *ast.ParenExpr:
+		return receiverExpressionType(typed.X, receiverTypes)
 	default:
 		return ""
 	}
