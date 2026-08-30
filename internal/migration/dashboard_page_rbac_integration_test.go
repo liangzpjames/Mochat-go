@@ -3,17 +3,11 @@ package migration
 import (
 	"context"
 	"database/sql"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
-	"sync/atomic"
 	"testing"
-
-	mysqldriver "github.com/go-sql-driver/mysql"
 )
-
-var dashboardRBACSchemaSequence atomic.Int64
 
 func TestDashboardPageRBACIntegration(t *testing.T) {
 	t.Run("apply down apply and legacy api mapping", func(t *testing.T) {
@@ -126,7 +120,7 @@ func TestDashboardPageRBACIntegration(t *testing.T) {
 		if _, err := db.Exec(`ALTER TABLE mc_user ADD COLUMN dashboard_access_version bigint(20) unsigned NOT NULL DEFAULT 1, ADD UNIQUE INDEX uni_dashboard_user_tenant_id_id (tenant_id,id)`); err != nil {
 			t.Fatal(err)
 		}
-		execDashboardRBACMigration(t, db, "0127_dashboard_page_rbac.down.sql", false)
+		recoverDashboardRBACPartialState(t, db)
 		assertDashboardRBACRemoved(t, db)
 	})
 
@@ -148,69 +142,28 @@ func TestDashboardPageRBACIntegration(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
-		execDashboardRBACMigration(t, db, "0127_dashboard_page_rbac.down.sql", false)
+		recoverDashboardRBACPartialState(t, db)
 		assertDashboardRBACRemoved(t, db)
 	})
 }
 
 func newDashboardRBACMigrationDB(t *testing.T) *sql.DB {
 	t.Helper()
-	dsn := os.Getenv("MOCHAT_GO_MYSQL_INTEGRATION_DSN")
-	if dsn == "" {
-		t.Skip("MOCHAT_GO_MYSQL_INTEGRATION_DSN is required for Dashboard RBAC MariaDB migration tests")
-	}
-	cfg, err := mysqldriver.ParseDSN(dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	adminCfg := *cfg
-	adminCfg.DBName = ""
-	admin, err := sql.Open("mysql", adminCfg.FormatDSN())
-	if err != nil {
-		t.Fatal(err)
-	}
-	schema := fmt.Sprintf("mochat_dashboard_rbac_%d_%d", os.Getpid(), dashboardRBACSchemaSequence.Add(1))
-	if _, err := admin.Exec("CREATE DATABASE `" + schema + "` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"); err != nil {
-		admin.Close()
-		t.Fatalf("create isolated migration schema: %v", err)
-	}
-	t.Cleanup(func() {
-		_, _ = admin.Exec("DROP DATABASE IF EXISTS `" + schema + "`")
-		_ = admin.Close()
-	})
-	testCfg := *cfg
-	testCfg.DBName = schema
-	db, err := sql.Open("mysql", testCfg.FormatDSN())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := db.PingContext(context.Background()); err != nil {
-		db.Close()
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
-	return db
+	return newMigrationIntegrationDBThrough(t, "0126_phase3_final_providers")
 }
 
 func createDashboardRBACLegacyFixture(t *testing.T, db *sql.DB) {
 	t.Helper()
 	statements := []string{
-		`CREATE TABLE mc_user (id int(10) unsigned NOT NULL, tenant_id int(11) NOT NULL, deleted_at timestamp NULL, isSuperAdmin tinyint(1) DEFAULT 0, PRIMARY KEY(id)) ENGINE=InnoDB`,
-		`CREATE TABLE mc_rbac_role (id int(11) NOT NULL, tenant_id int(11) NOT NULL, data_permission json DEFAULT NULL, deleted_at timestamp NULL, PRIMARY KEY(id)) ENGINE=InnoDB`,
-		`CREATE TABLE mc_rbac_user_role (id int(11) NOT NULL AUTO_INCREMENT, user_id int(11) NOT NULL, role_id int(11) NOT NULL, created_at timestamp NULL, updated_at timestamp NULL, deleted_at timestamp NULL, PRIMARY KEY(id)) ENGINE=InnoDB`,
-		`CREATE TABLE mc_rbac_menu (id int(11) NOT NULL, link_url varchar(255) NOT NULL, data_permission tinyint(1) NOT NULL DEFAULT 1, deleted_at timestamp NULL, PRIMARY KEY(id)) ENGINE=InnoDB`,
-		`CREATE TABLE mc_rbac_role_menu (id int(11) NOT NULL AUTO_INCREMENT, role_id int(11) NOT NULL, menu_id int(11) NOT NULL, created_at timestamp NULL, updated_at timestamp NULL, PRIMARY KEY(id)) ENGINE=InnoDB`,
-		`CREATE TABLE mochat_go_saas_tenant_packages (id int(10) unsigned NOT NULL, tenant_id int(10) unsigned NOT NULL, starts_at timestamp NULL, expires_at timestamp NULL, status tinyint(4) NOT NULL, deleted_at timestamp NULL, PRIMARY KEY(id)) ENGINE=InnoDB`,
-		`CREATE TABLE mochat_go_saas_subscriptions (id bigint(20) unsigned NOT NULL, tenant_id int(10) unsigned NOT NULL, deleted_at timestamp NULL, PRIMARY KEY(id)) ENGINE=InnoDB`,
 		`INSERT INTO mc_user (id,tenant_id,isSuperAdmin,deleted_at) VALUES (10,1,0,NULL)`,
-		`INSERT INTO mc_rbac_role (id,tenant_id,data_permission,deleted_at) VALUES
-			(20,1,NULL,NULL),
-			(21,1,'[{"corpId":1,"permissionType":2}]',NULL),
-			(22,1,'[{"corpId":1,"permissionType":1}]',NULL),
-			(23,1,'[{"corpId":1,"permissionType":1},{"corpId":2,"permissionType":2}]',NULL)`,
+		`INSERT INTO mc_rbac_role (id,tenant_id,operate_id,operate_name,data_permission,deleted_at) VALUES
+			(20,1,10,'Fixture actor',NULL,NULL),
+			(21,1,10,'Fixture actor','[{"corpId":1,"permissionType":2}]',NULL),
+			(22,1,10,'Fixture actor','[{"corpId":1,"permissionType":1}]',NULL),
+			(23,1,10,'Fixture actor','[{"corpId":1,"permissionType":1},{"corpId":2,"permissionType":2}]',NULL)`,
 		`INSERT INTO mc_rbac_user_role (user_id,role_id,created_at,updated_at,deleted_at) VALUES (10,20,NOW(),NOW(),NULL)`,
-		`INSERT INTO mc_rbac_menu (id,link_url,data_permission,deleted_at) VALUES (30,'/dashboard/channelCode/index#GET',1,NULL),(31,'/dashboard/workContact/index@read',1,NULL),(32,'/dashboard/user/index#GET',1,NULL),(33,'/dashboard/channelCode/index#GET',2,NULL)`,
-		`INSERT INTO mc_rbac_role_menu (role_id,menu_id,created_at,updated_at) VALUES (20,30,NOW(),NOW()),(20,31,NOW(),NOW()),(20,32,NOW(),NOW()),(21,30,NOW(),NOW()),(22,33,NOW(),NOW()),(23,30,NOW(),NOW())`,
+		`INSERT INTO mc_rbac_menu (id,parent_id,link_url,data_permission,deleted_at) VALUES (300030,0,'/dashboard/channelCode/index#GET',1,NULL),(300031,0,'/dashboard/workContact/index@read',1,NULL),(300032,0,'/dashboard/user/index#GET',1,NULL),(300033,0,'/dashboard/channelCode/index#GET',2,NULL)`,
+		`INSERT INTO mc_rbac_role_menu (role_id,menu_id,created_at,updated_at) VALUES (20,300030,NOW(),NOW()),(20,300031,NOW(),NOW()),(20,300032,NOW(),NOW()),(21,300030,NOW(),NOW()),(22,300033,NOW(),NOW()),(23,300030,NOW(),NOW())`,
 		`INSERT INTO mochat_go_saas_tenant_packages (id,tenant_id,starts_at,expires_at,status,deleted_at) VALUES (1,1,NULL,NULL,1,NULL)`,
 		`INSERT INTO mochat_go_saas_subscriptions (id,tenant_id,deleted_at) VALUES (1,1,NULL)`,
 	}
@@ -223,11 +176,14 @@ func createDashboardRBACLegacyFixture(t *testing.T, db *sql.DB) {
 
 func execDashboardRBACMigration(t *testing.T, db *sql.DB, name string, wantError bool) error {
 	t.Helper()
-	body, err := os.ReadFile(filepath.Join("..", "..", "deploy", "standalone", "migrations", name))
-	if err != nil {
-		t.Fatal(err)
+	version := strings.TrimSuffix(strings.TrimSuffix(name, ".up.sql"), ".down.sql")
+	runner := newMigrationRunnerThrough(t, db, version)
+	var err error
+	if strings.HasSuffix(name, ".down.sql") {
+		_, err = runner.RollbackLast(context.Background())
+	} else {
+		_, err = runner.Apply(context.Background())
 	}
-	err = execSQLScript(context.Background(), db, string(body))
 	if wantError && err == nil {
 		t.Fatalf("%s unexpectedly succeeded", name)
 	}
@@ -235,6 +191,25 @@ func execDashboardRBACMigration(t *testing.T, db *sql.DB, name string, wantError
 		t.Fatalf("%s: %v", name, err)
 	}
 	return err
+}
+
+func recoverDashboardRBACPartialState(t *testing.T, db *sql.DB) {
+	t.Helper()
+	target := DefaultMigrations(filepath.Join("..", ".."))
+	for _, candidate := range target {
+		if candidate.Version != "0127_dashboard_page_rbac" {
+			continue
+		}
+		body, err := os.ReadFile(candidate.DownPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := execSQLScript(context.Background(), db, string(body)); err != nil {
+			t.Fatalf("recover partial 0127 state: %v", err)
+		}
+		return
+	}
+	t.Fatal("production migration registry does not contain 0127_dashboard_page_rbac")
 }
 
 func assertDashboardRBACPreflightLeftNoDDL(t *testing.T, db *sql.DB) {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"database/sql"
+	"encoding/base64"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -15,32 +16,48 @@ import (
 	mysqldriver "github.com/go-sql-driver/mysql"
 
 	"jiyi/mochat-go/internal/identitymigration"
+	"jiyi/mochat-go/internal/wecomcredentials"
 )
 
 func TestIdentityRealmsSingleCorpBackfillRealMariaDB(t *testing.T) {
-	db := newIdentitySingleCorpMigrationDB(t)
-	createIdentitySingleCorpBaseFixture(t, db)
-	if _, err := db.Exec(`INSERT INTO mc_tenant (id, name, status, deleted_at) VALUES (3, 'Tenant without corp', 1, NULL)`); err != nil {
-		t.Fatal(err)
+	db := newMigrationIntegrationDBThrough(t, "0128_dashboard_page_rbac_legacy_scope_fix")
+	for _, statement := range []string{
+		`INSERT INTO mc_tenant (id,name,status) VALUES (1,'Tenant 1',1),(2,'Tenant 2',1),(3,'Tenant without corp',1)`,
+		`INSERT INTO mc_corp (id,tenant_id,name) VALUES (100,1,'Corp 1'),(200,2,'Corp 2')`,
+		`INSERT INTO mc_user (id,tenant_id,phone,password,name,status,deleted_at,isSuperAdmin) VALUES
+			(10,1,'13800000001','','Legacy user',1,NULL,0),
+			(11,1,'13800000002','legacy-dashboard-hash','Legacy platform admin',1,NULL,1),
+			(13,2,'13800000013','legacy-business-hash','Business user',1,NULL,0)`,
+		`INSERT INTO mc_rbac_role (id,tenant_id,operate_id,operate_name) VALUES (20,1,10,'Legacy actor')`,
+	} {
+		if _, err := db.Exec(statement); err != nil {
+			t.Fatalf("seed 0128 identity scenario: %v", err)
+		}
 	}
-	if _, err := db.Exec(`INSERT INTO mc_user (id, tenant_id, phone, password, name, status, deleted_at, isSuperAdmin) VALUES (11, 1, '13800000002', 'legacy-dashboard-hash', 'Legacy platform admin', 1, NULL, 1)`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec(`INSERT INTO mc_user (id, tenant_id, phone, password, name, status, deleted_at, isSuperAdmin) VALUES (13, 2, '13800000013', 'legacy-business-hash', 'Business user', 1, NULL, 0)`); err != nil {
-		t.Fatal(err)
-	}
-
-	if err := execIdentitySingleCorpMigration(t, db, "0129_identity_realms_single_corp_schema.up.sql", false); err != nil {
-		t.Fatal(err)
+	if _, err := newMigrationRunnerThrough(t, db, "0129_identity_realms_single_corp_schema").Apply(context.Background()); err != nil {
+		t.Fatalf("apply production registry through 0129: %v", err)
 	}
 	if _, err := db.Exec(`INSERT INTO mochat_go_saas_admin_user_access (user_id) VALUES (11)`); err != nil {
 		t.Fatal(err)
 	}
-	if err := applyIdentityBackfillWithEvidence(t, db, "task8-real-1", 1, nil); err != nil {
+	var schema string
+	if err := db.QueryRow(`SELECT DATABASE()`).Scan(&schema); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`CREATE TABLE mochat_go_schema_migrations (version varchar(64) NOT NULL, description varchar(255) NOT NULL DEFAULT '', checksum char(64) NOT NULL DEFAULT '', applied_at timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP, execution_ms int(10) unsigned NOT NULL DEFAULT 0, PRIMARY KEY (version)) ENGINE=InnoDB`); err != nil {
+	manager, err := wecomcredentials.NewManager(wecomcredentials.Config{
+		EncryptionKey:       base64.StdEncoding.EncodeToString([]byte("0123456789abcdef0123456789abcdef")),
+		EncryptionKeyID:     "task10-integration",
+		RequireEncryption:   true,
+		DedicatedConfigured: true,
+	})
+	if err != nil {
 		t.Fatal(err)
+	}
+	target := migrationByVersion(t, "0130_identity_realms_single_corp_backfill")
+	if _, err := identitymigration.ApplyBackfill(context.Background(), db, identitymigration.DatabaseOptions{
+		Schema: schema, PlatformTenantID: 1, RequestID: "task8-real-1", CredentialManager: manager,
+	}, target.Path); err != nil {
+		t.Fatalf("apply controlled 0130 backfill: %v", err)
 	}
 	if err := RecordControlledMigration(context.Background(), db, filepath.Join("..", ".."), "0130_identity_realms_single_corp_backfill", "task8-real-1"); err != nil {
 		t.Fatalf("record controlled migration: %v", err)
@@ -101,8 +118,8 @@ func TestIdentityRealmsSingleCorpBackfillRealMariaDB(t *testing.T) {
 	assertIdentityForeignKeyExists(t, db, "mochat_go_saas_admin_user_access", "fk_saas_admin_user_access_identity")
 	assertIdentityTableExists(t, db, "mochat_go_identity_migration_ledger")
 
-	if err := execIdentitySingleCorpMigration(t, db, "0130_identity_realms_single_corp_backfill.down.sql", false); err != nil {
-		t.Fatal(err)
+	if err := rollbackIdentityBackfillWithEvidence(db, "task8-real-1"); err != nil {
+		t.Fatalf("roll back controlled 0130 migration: %v", err)
 	}
 	assertIdentityForeignKeyMissing(t, db, "mochat_go_saas_admin_user_access", "fk_saas_admin_user_access_identity")
 	assertIdentityTableMissing(t, db, "mochat_go_identity_migration_ledger")
@@ -110,6 +127,41 @@ func TestIdentityRealmsSingleCorpBackfillRealMariaDB(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertIdentityForeignKeyExists(t, db, "mochat_go_saas_admin_user_access", "fk_saas_admin_user_access_identity")
+}
+
+func migrationByVersion(t *testing.T, version string) Migration {
+	t.Helper()
+	for _, candidate := range DefaultMigrations(filepath.Join("..", "..")) {
+		if candidate.Version == version {
+			return candidate
+		}
+	}
+	t.Fatalf("production migration registry does not contain %s", version)
+	return Migration{}
+}
+
+func rollbackIdentityBackfillWithEvidence(db *sql.DB, requestID string) error {
+	path, err := identitymigration.ControlledMigrationPath(filepath.Join("..", ".."), "down")
+	if err != nil {
+		return err
+	}
+	body, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	conn, err := db.Conn(context.Background())
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	if _, err := conn.ExecContext(context.Background(), `SET @identity_0130_requested_down_request_id = ?`, requestID); err != nil {
+		return err
+	}
+	if err := execSQLScriptWithExecutor(context.Background(), conn, string(body)); err != nil {
+		return err
+	}
+	_, err = db.ExecContext(context.Background(), `DELETE FROM mochat_go_schema_migrations WHERE version=?`, "0130_identity_realms_single_corp_backfill")
+	return err
 }
 
 func TestIdentityRealmsSingleCorpBackfillRejectsSaaSIdentityConflictBeforeDDL(t *testing.T) {
