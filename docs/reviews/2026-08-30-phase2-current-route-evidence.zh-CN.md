@@ -13,6 +13,7 @@ Phase 2 的历史迁移进度与当前生产可达路由已经分离治理。历
 3. 构建证据生成器通过 `migrated-dashboard-page` 或 `page-` 文件名猜测动态 chunk。当前 Dashboard 的真实拆包名称已变化，Sidebar/Operation 当前又是合法的单入口 bundle，导致真实构建被误报失败。
 4. 原证据行没有区分“历史记录”和“本次现行运行”，历史截图可以继续引用最近一次 Playwright 记录，存在把旧证据冒充当前证据的风险。
 5. 原正式证据 runner 只清理旧 Playwright 报告和截图，未先执行生产构建。上一轮在撤销错误的 Dashboard `knownRoutes` 实验后，源码已恢复安全合同，但遗留 `dist` 仍包含错误深链；生成器忠实记录了该旧 bundle，导致后续 `check:audit` 在当前源码重新构建后出现 21 字节漂移。根因是构建输入、构建时间与浏览器证据之间没有 provenance 约束，不是 Vite 非确定性。
+6. 第一版源码指纹直接哈希工作树原始字节。在 Windows `core.autocrlf=true` 下，同一 Git blob 可在既有工作树中呈现混合 LF/CRLF，在全新 worktree 中呈现完整 CRLF；候选工作树代表文件实测为 34 行 CRLF、84 行 LF，raw hash 与 Git clean-filter blob hash不同。因此证据虽然绑定同一 tree，换工作树仍会误报源码漂移。与此同时，缺少现场 `dist` 时旧审计只报“没有 JavaScript entry”，未明确指出需要先运行正式 build-before-audit runner。
 
 ## 方案与理由
 
@@ -26,6 +27,7 @@ Phase 2 的历史迁移进度与当前生产可达路由已经分离治理。历
 - 审计现场重算 46 张当前截图的 SHA-256 并与索引严格相等，截图被替换、损坏或索引陈旧都会失败。
 - 正式 `test:e2e:phase2-evidence` runner 现在自行先执行当前源码的 `corepack pnpm build`；构建失败立即关闭，不启动 Playwright。成功后记录三端前端源码输入 SHA-256、构建开始/完成时间，并验证所有实际 `dist` 文件均由本次构建产生。
 - 构建 marker 位于被忽略的 `.tmp-phase2-evidence`，避免 Playwright 启动时清理自身 `test-results` 目录造成 marker 丢失。生成器要求 Playwright 开始时间晚于构建完成时间，并把 provenance 与实际 bundle 清单一并写入 `build-audit.json`；审计在 checkout 中重新计算当前源码指纹和全部 bundle 哈希。
+- 源码指纹现在仅对已知文本源码扩展名做 `CRLF/CR -> LF` canonicalization，二进制资产继续按原始字节哈希；这样换行展开不影响同内容指纹，真实内容变化仍改变指纹。审计派生产物前先显式验证三端 `dist/index.html` 与 `dist/assets`，缺失时直接提示运行 `test:e2e:phase2-evidence`，不会把“尚未构建”伪装成资产合同失败。
 
 ## TDD 与故障证据
 
@@ -35,18 +37,20 @@ Phase 2 的历史迁移进度与当前生产可达路由已经分离治理。历
 - RED：真实构建已存在，但生成器因找不到旧 `migrated-dashboard-page` 文件名报 `dashboard has no dynamic page chunk`。
 - RED：旧 build-audit 合同没有 provenance API；陈旧产物 mtime、源码指纹变化、Playwright 早于构建完成三种场景均被新增测试拒绝。
 - RED：marker 首次放在 `web/e2e/test-results` 后被 Playwright 生命周期清理；回归测试要求 marker 必须位于独立临时目录，随后完整套件重跑验证。
+- RED：相同 fixture 分别写为 LF 与 CRLF 后，旧实现得到不同指纹；空 worktree 调用 build audit 只得到 `dashboard has no JavaScript entry asset`，两项新增测试均按预期失败。
+- GREEN：canonicalization 后 LF/CRLF 指纹相同而内容变更指纹不同；缺失 `dist` 返回明确 build-before-audit 指引。完整 Phase 2 单测 10/10 PASS。
 - GREEN：共享现行集合为 Dashboard 1、Sidebar 12、Operation 10；完整视觉套件 `25 passed`。
 - GREEN：构建证据测试确认三端均有真实 JavaScript 入口和逐资产哈希；Dashboard 记录 10 个实际 lazy chunk，Sidebar/Operation 如实记录 0 个。
 
 ## 本地证据
 
-- Playwright：`corepack pnpm test:e2e:phase2-evidence`，先完整执行 12/13 workspace 的生产 build，再运行 25/25 PASS；本地 Go webServer 由仓库 Playwright 配置启动并在测试后退出。最终构建 provenance 为源码指纹 `0dfdeef595482519e72273cbbec16176a029f4252ad54f37ae644c3eb1b9f8dc`，构建时间 `2026-08-30T09:53:38.137Z` 至 `2026-08-30T09:53:58.719Z`，Playwright 于 `2026-08-30T09:53:59.862Z` 启动；生成器校验 JSON reporter 中的唯一 spec、实际 25 个用例、逐项结果和报告 SHA-256，筛选子集不能生成全量证据。
+- Playwright：`corepack pnpm test:e2e:phase2-evidence`，先完整执行 12/13 workspace 的生产 build，再运行 25/25 PASS；本地 Go webServer 由仓库 Playwright 配置启动并在测试后退出。最终构建 provenance 为 canonical 源码指纹 `4fbd2cc5f235ba4052a63821653d97cfce54fd37e53eb581731f2831911c72f9`，构建时间 `2026-08-30T11:23:40.627Z` 至 `2026-08-30T11:24:01.580Z`，Playwright 于 `2026-08-30T11:24:02.797Z` 启动；生成器校验 JSON reporter 中的唯一 spec、实际 25 个用例、逐项结果和报告 SHA-256，筛选子集不能生成全量证据。
 - 证据生成：`corepack pnpm evidence:phase2`，输出 `routes=23`。
 - Phase 2 审计：`corepack pnpm check:audit`，输出 `routes=23 legacy_targets=0 screenshots=46`。
 - 历史进度治理：`corepack pnpm check:phase2-progress`，输出 `82/82 React (100.0%), 0 legacy`；这是历史迁移进度，不是当前可达路由数。
 - Phase 2.1：`corepack pnpm check:phase2.1`，输出 `82 routes, 40 features`。
 - Dashboard 当前路由桌面截图：75,824 bytes，SHA-256 `44c574f0561315956a1adb24f9fe9815c2058b45076d23c34beef68b8a744f41`。
-- Dashboard 当前路由移动截图：161,467 bytes，SHA-256 `ab0997ba34065b1f378075bf7c4b154f0300c4538d4c32a2179f442ac81469aa`。
+- Dashboard 当前路由移动截图：162,916 bytes，SHA-256 `9c7249e731c4257c2f2506a3f544ea4e114a0c734df440bfb3dab3a42166d263`。
 - 视觉抽检：Dashboard 企业资料桌面、Sidebar 客户资料移动端、Operation 任务宝桌面均有真实可见内容且没有 404/兜底成功页面。
 
 ## 关联红门禁的合同迁移依据

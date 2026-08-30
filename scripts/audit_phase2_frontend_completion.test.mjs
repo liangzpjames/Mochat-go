@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test from 'node:test';
 
 import * as phase2BuildAudit from './phase2_build_audit.mjs';
@@ -11,6 +13,51 @@ import {
 } from './phase2_current_routes.mjs';
 
 const readJson = (path) => JSON.parse(readFileSync(path, 'utf8'));
+
+const writeFingerprintFixture = (root, eol, value = 'alpha') => {
+  writeFileSync(join(root, 'package.json'), `{${eol}  "name": "phase2-fixture"${eol}}${eol}`);
+  for (const app of phase2Apps) {
+    const sourceDirectory = join(root, 'web', 'apps', app, 'src');
+    mkdirSync(sourceDirectory, { recursive: true });
+    writeFileSync(join(sourceDirectory, 'fixture.ts'), `export const value = '${value}';${eol}`);
+  }
+  const packageDirectory = join(root, 'web', 'packages', 'fixture', 'src');
+  mkdirSync(packageDirectory, { recursive: true });
+  writeFileSync(join(packageDirectory, 'index.ts'), `export const shared = '${value}';${eol}`);
+};
+
+test('Phase 2 source fingerprint canonicalizes text line endings but detects content changes', () => {
+  const lfRoot = mkdtempSync(join(tmpdir(), 'mochat-phase2-fingerprint-lf-'));
+  const crlfRoot = mkdtempSync(join(tmpdir(), 'mochat-phase2-fingerprint-crlf-'));
+  const changedRoot = mkdtempSync(join(tmpdir(), 'mochat-phase2-fingerprint-changed-'));
+  try {
+    writeFingerprintFixture(lfRoot, '\n');
+    writeFingerprintFixture(crlfRoot, '\r\n');
+    writeFingerprintFixture(changedRoot, '\n', 'beta');
+
+    const lfFingerprint = phase2BuildAudit.phase2BuildInputFingerprint(lfRoot);
+    const crlfFingerprint = phase2BuildAudit.phase2BuildInputFingerprint(crlfRoot);
+    const changedFingerprint = phase2BuildAudit.phase2BuildInputFingerprint(changedRoot);
+    assert.equal(crlfFingerprint, lfFingerprint);
+    assert.notEqual(changedFingerprint, lfFingerprint);
+  } finally {
+    rmSync(lfRoot, { recursive: true, force: true });
+    rmSync(crlfRoot, { recursive: true, force: true });
+    rmSync(changedRoot, { recursive: true, force: true });
+  }
+});
+
+test('Phase 2 build audit rejects a checkout without live production dist explicitly', () => {
+  const root = mkdtempSync(join(tmpdir(), 'mochat-phase2-missing-dist-'));
+  try {
+    assert.throws(
+      () => phase2BuildAudit.derivePhase2BuildAudit(root),
+      /dashboard production build output is missing/,
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 
 test('Phase 2 build provenance rejects stale dist and out-of-order Playwright runs', () => {
   assert.equal(typeof phase2BuildAudit.validatePhase2BuildProvenance, 'function');

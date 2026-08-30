@@ -1,13 +1,35 @@
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
-import { basename, join, relative, sep } from 'node:path';
+import { basename, extname, join, relative, sep } from 'node:path';
 
 import { phase2Apps } from './phase2_current_routes.mjs';
 
 const sha256 = (path) => createHash('sha256').update(readFileSync(path)).digest('hex');
 const excludedBuildInputNames = new Set(['coverage', 'dist', 'node_modules', 'test-results']);
+const canonicalTextExtensions = new Set([
+  '.cjs', '.css', '.cts', '.gql', '.graphql', '.html', '.js', '.json', '.jsx',
+  '.less', '.md', '.mjs', '.mts', '.scss', '.svg', '.toml', '.ts', '.tsx',
+  '.txt', '.vue', '.xml', '.yaml', '.yml',
+]);
 
 const normalizedRelativePath = (root, path) => relative(root, path).split(sep).join('/');
+
+const canonicalBuildInput = (path) => {
+  const contents = readFileSync(path);
+  if (!canonicalTextExtensions.has(extname(path).toLowerCase())) return contents;
+  return contents.toString('utf8').replaceAll('\r\n', '\n').replaceAll('\r', '\n');
+};
+
+const phase2BuildOutputPaths = (root, app) => {
+  const dist = join(root, 'web', 'apps', app, 'dist');
+  const index = join(dist, 'index.html');
+  const assets = join(dist, 'assets');
+  if (!existsSync(index) || !statSync(index).isFile()
+    || !existsSync(assets) || !statSync(assets).isDirectory()) {
+    throw new Error(`${app} production build output is missing; run corepack pnpm test:e2e:phase2-evidence before check:audit`);
+  }
+  return { assets, index };
+};
 
 const collectFiles = (root, directory, result) => {
   if (!existsSync(directory)) return;
@@ -34,7 +56,7 @@ export function phase2BuildInputFingerprint(root = process.cwd()) {
   ))) {
     hash.update(normalizedRelativePath(root, path));
     hash.update('\0');
-    hash.update(readFileSync(path));
+    hash.update(canonicalBuildInput(path));
     hash.update('\0');
   }
   return hash.digest('hex');
@@ -43,10 +65,7 @@ export function phase2BuildInputFingerprint(root = process.cwd()) {
 export function phase2BuildOutputMtimeRange(root = process.cwd()) {
   const mtimes = [];
   for (const app of phase2Apps) {
-    const dist = join(root, 'web', 'apps', app, 'dist');
-    const index = join(dist, 'index.html');
-    const assets = join(dist, 'assets');
-    if (!existsSync(index) || !existsSync(assets)) throw new Error(`${app} production build output is missing`);
+    const { assets, index } = phase2BuildOutputPaths(root, app);
     mtimes.push(statSync(index).mtimeMs);
     for (const name of readdirSync(assets)) {
       const path = join(assets, name);
@@ -88,14 +107,10 @@ export function validatePhase2BuildProvenance({
 
 export function derivePhase2BuildAudit(root = process.cwd()) {
   return Object.fromEntries(phase2Apps.map((app) => {
-    const dist = join(root, 'web', 'apps', app, 'dist');
-    const assets = join(dist, 'assets');
-    const index = join(dist, 'index.html');
-    const allNames = existsSync(assets) ? readdirSync(assets).sort() : [];
-    const entryAssets = existsSync(index)
-      ? Array.from(new Set(readFileSync(index, 'utf8').match(/assets\/[^"' ]+/g) ?? []))
-        .map((file) => basename(file))
-      : [];
+    const { assets, index } = phase2BuildOutputPaths(root, app);
+    const allNames = readdirSync(assets).sort();
+    const entryAssets = Array.from(new Set(readFileSync(index, 'utf8').match(/assets\/[^"' ]+/g) ?? []))
+      .map((file) => basename(file));
     const entryNames = new Set(entryAssets);
     const javascriptAssets = allNames.filter((name) => name.endsWith('.js'));
     const audit = {

@@ -32,8 +32,8 @@
     "operation /speed renders React and records visual evidence",
     "API requests never return the SPA document"
   ],
-  "startedAt": "2026-08-30T11:11:59.491Z",
-  "durationMs": 19807.549,
-  "reportSha256": "b2acb69004ce7cc9c03fba1ae7a40ebe3a013a6955f0faf93af41c81ed9a287d",
-  "recordedAt": "2026-08-30T11:12:20.018Z"
+  "startedAt": "2026-08-30T11:24:02.797Z",
+  "durationMs": 19862.877,
+  "reportSha256": "85c69068aa19cb7b991832c65fc3086b0eb280f6fb669f8e8d5c24e7414a534f",
+  "recordedAt": "2026-08-30T11:24:29.518Z"
 }
