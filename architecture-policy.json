@@ -38,7 +38,9 @@
     {"module": "providers", "package": "archive", "import": "jiyi/mochat-go/internal/wecomarchivedemo"},
     {"module": "reporting", "package": ".", "import": "github.com/DATA-DOG/go-sqlmock"},
     {"module": "reporting", "package": ".", "import": "github.com/go-sql-driver/mysql"},
+    {"module": "scrm", "package": "adapters/mysql", "import": "jiyi/mochat-go/internal/integrationtestdb"},
     {"module": "scrm", "package": "adapters/mysql", "import": "jiyi/mochat-go/internal/migration"},
+    {"module": "scrm", "package": "adapters/mysql", "import": "jiyi/mochat-go/internal/migration/testharness"},
     {"module": "scrm", "package": "adapters/mysql", "import": "jiyi/mochat-go/internal/modules/scrm/application"},
     {"module": "scrm", "package": "transport/http", "import": "jiyi/mochat-go/internal/modules/scrm/adapters/mysql"}
   ],
