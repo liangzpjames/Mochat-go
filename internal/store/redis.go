@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"strconv"
 	"time"
 
@@ -31,6 +32,7 @@ const (
 	legacyWeWorkCallbackDeadKey       = "mochat-go:wework-callback:dead"
 	weWorkCallbackWakeupKey           = "mochat-go:wework-callback:wakeup"
 	weWorkCallbackWakeupWaitSlice     = time.Second
+	weWorkCallbackWakeupDeadlineSlack = 25 * time.Millisecond
 )
 
 func NewRedisStore(cfg RedisConfig) *RedisStore {
@@ -128,9 +130,15 @@ func (s *RedisStore) WaitWeWorkCallbackWakeup(ctx context.Context, timeout time.
 			return nil
 		}
 		slice := min(remaining, weWorkCallbackWakeupWaitSlice)
-		sliceCtx, cancelSlice := context.WithTimeout(ctx, slice)
-		_, err := s.client.BRPop(sliceCtx, slice, s.weWorkCallbackWakeupKey()).Result()
-		sliceExpired := errors.Is(sliceCtx.Err(), context.DeadlineExceeded)
+		sliceDeadline := time.Now().Add(slice)
+		ownsSliceDeadline := true
+		if parentDeadline, ok := ctx.Deadline(); ok && !sliceDeadline.Before(parentDeadline) {
+			ownsSliceDeadline = false
+		}
+		sliceCtx, cancelSlice := context.WithDeadline(ctx, sliceDeadline)
+		_, err := s.client.BRPop(sliceCtx, weWorkCallbackWakeupBRPopTimeout(slice), s.weWorkCallbackWakeupKey()).Result()
+		observedAt := time.Now()
+		sliceContextExpired := errors.Is(sliceCtx.Err(), context.DeadlineExceeded)
 		cancelSlice()
 		if err == nil {
 			return nil
@@ -138,11 +146,24 @@ func (s *RedisStore) WaitWeWorkCallbackWakeup(ctx context.Context, timeout time.
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return ctxErr
 		}
-		if errors.Is(err, redis.Nil) || errors.Is(err, context.DeadlineExceeded) || sliceExpired {
+		sliceExpired := ownsSliceDeadline && (errors.Is(err, context.DeadlineExceeded) || sliceContextExpired || weWorkCallbackWakeupSliceNetworkTimeout(err, ownsSliceDeadline, observedAt, sliceDeadline))
+		if errors.Is(err, redis.Nil) || sliceExpired {
 			continue
 		}
 		return err
 	}
+}
+
+func weWorkCallbackWakeupSliceNetworkTimeout(err error, ownsDeadline bool, observedAt time.Time, deadline time.Time) bool {
+	if !ownsDeadline || observedAt.Before(deadline.Add(-weWorkCallbackWakeupDeadlineSlack)) {
+		return false
+	}
+	var networkErr net.Error
+	return errors.As(err, &networkErr) && networkErr.Timeout()
+}
+
+func weWorkCallbackWakeupBRPopTimeout(slice time.Duration) time.Duration {
+	return max(slice, time.Second)
 }
 
 func (s *RedisStore) weWorkCallbackWakeupKey() string {

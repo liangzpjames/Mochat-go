@@ -3,7 +3,9 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net"
+	"os"
 	"sync"
 	"testing"
 	"time"
@@ -16,6 +18,41 @@ func TestNewRedisStoreEnablesContextTimeouts(t *testing.T) {
 	defer store.Close()
 	if !store.client.Options().ContextTimeoutEnabled {
 		t.Fatal("go-redis context timeouts are disabled")
+	}
+}
+
+func TestWeWorkCallbackWakeupSliceNetworkTimeoutClassification(t *testing.T) {
+	deadline := time.Unix(1_800_000_000, 0)
+	timeoutErr := &net.OpError{Op: "read", Net: "tcp", Err: os.ErrDeadlineExceeded}
+	tests := []struct {
+		name             string
+		err              error
+		ownsDeadline     bool
+		observedAt       time.Time
+		wantSliceExpired bool
+	}{
+		{name: "own deadline reached", err: timeoutErr, ownsDeadline: true, observedAt: deadline, wantSliceExpired: true},
+		{name: "own deadline close", err: timeoutErr, ownsDeadline: true, observedAt: deadline.Add(-5 * time.Millisecond), wantSliceExpired: true},
+		{name: "network timeout too early", err: timeoutErr, ownsDeadline: true, observedAt: deadline.Add(-50 * time.Millisecond)},
+		{name: "parent owns deadline", err: timeoutErr, observedAt: deadline},
+		{name: "connection error", err: errors.New("connection reset by peer"), ownsDeadline: true, observedAt: deadline},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := weWorkCallbackWakeupSliceNetworkTimeout(tt.err, tt.ownsDeadline, tt.observedAt, deadline)
+			if got != tt.wantSliceExpired {
+				t.Fatalf("slice network timeout=%t, want %t", got, tt.wantSliceExpired)
+			}
+		})
+	}
+}
+
+func TestWeWorkCallbackWakeupBRPopTimeoutUsesRedisMinimum(t *testing.T) {
+	if got := weWorkCallbackWakeupBRPopTimeout(199 * time.Millisecond); got != time.Second {
+		t.Fatalf("subsecond BRPOP timeout=%s, want 1s", got)
+	}
+	if got := weWorkCallbackWakeupBRPopTimeout(2 * time.Second); got != 2*time.Second {
+		t.Fatalf("supported BRPOP timeout=%s, want 2s", got)
 	}
 }
 
