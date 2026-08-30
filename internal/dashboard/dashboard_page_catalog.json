@@ -1856,6 +1856,21 @@
         },
         {
           "method": "GET",
+          "pathPattern": "/dashboard/company/callback-side-effects",
+          "scopeRequired": false
+        },
+        {
+          "method": "GET",
+          "pathPattern": "/dashboard/company/callback-side-effects/{eventKey}/{actionKey}",
+          "scopeRequired": false
+        },
+        {
+          "method": "POST",
+          "pathPattern": "/dashboard/company/callback-side-effects/{eventKey}/{actionKey}/reconcile",
+          "scopeRequired": false
+        },
+        {
+          "method": "GET",
           "pathPattern": "/dashboard/providers/status",
           "scopeRequired": false
         }

@@ -412,8 +412,8 @@ func TestStandaloneComposeFreshInitUsesSchemaForCorpDataIndexes(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if latest.Version != "0175_contact_batch_title" {
-		t.Fatalf("latest migration = %q, want 0175_contact_batch_title", latest.Version)
+	if latest.Version != "0176_wework_callback_side_effect_reconciliation" {
+		t.Fatalf("latest migration = %q, want 0176_wework_callback_side_effect_reconciliation", latest.Version)
 	}
 	if mount := "./migrations/0105_corp_data_realtime_indexes.up.sql:"; strings.Contains(string(composeBody), mount) {
 		t.Fatalf("standalone fresh init must use the synchronized base schema instead of replaying %q", mount)
@@ -649,8 +649,8 @@ func TestPhase35OrderProductizationMigrationIsForwardOnly(t *testing.T) {
 	root := filepath.Join("..", "..")
 	migrations := DefaultMigrations(root)
 	latest := migrations[len(migrations)-1]
-	if latest.Version != "0175_contact_batch_title" {
-		t.Fatalf("latest migration = %q, want 0175_contact_batch_title", latest.Version)
+	if latest.Version != "0176_wework_callback_side_effect_reconciliation" {
+		t.Fatalf("latest migration = %q, want 0176_wework_callback_side_effect_reconciliation", latest.Version)
 	}
 	up, err := os.ReadFile(filepath.Join(root, "deploy", "standalone", "migrations", "0121_phase35_order_productization.up.sql"))
 	if err != nil {

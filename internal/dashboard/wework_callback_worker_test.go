@@ -2440,8 +2440,8 @@ func (s *fakeDurableWeWorkCallbackWorkerStore) HandleWorkFissionAddContact(ctx c
 	return result, found, nil
 }
 
-func (s *fakeDurableWeWorkCallbackWorkerStore) BeginWeWorkCallbackSideEffect(_ context.Context, tenantID, corpID int, eventKey, actionKey, payloadHash string) (bool, string, error) {
-	key := eventKey + "\x00" + actionKey
+func (s *fakeDurableWeWorkCallbackWorkerStore) BeginWeWorkCallbackSideEffect(_ context.Context, execution WeWorkCallbackExecution, actionKey, payloadHash string) (bool, string, error) {
+	key := execution.EventKey + "\x00" + actionKey
 	if queued := s.sideEffectBeginErrors[actionKey]; len(queued) > 0 {
 		err := queued[0]
 		s.sideEffectBeginErrors[actionKey] = queued[1:]
@@ -2462,8 +2462,8 @@ func (s *fakeDurableWeWorkCallbackWorkerStore) BeginWeWorkCallbackSideEffect(_ c
 	}
 }
 
-func (s *fakeDurableWeWorkCallbackWorkerStore) CompleteWeWorkCallbackSideEffect(_ context.Context, tenantID, corpID int, eventKey, actionKey, payloadHash string) error {
-	key := eventKey + "\x00" + actionKey
+func (s *fakeDurableWeWorkCallbackWorkerStore) CompleteWeWorkCallbackSideEffect(_ context.Context, execution WeWorkCallbackExecution, actionKey, payloadHash string) error {
+	key := execution.EventKey + "\x00" + actionKey
 	if s.sideEffects[key] != "unknown" {
 		return errors.New("side effect is not unknown")
 	}

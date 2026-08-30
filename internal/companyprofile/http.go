@@ -125,9 +125,52 @@ func (h *HTTPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodGet && r.URL.Path == "/dashboard/company/audits":
 		page, callErr := h.service.ListAudits(r.Context(), principal, auditFilterFromQuery(r.URL.Query()))
 		h.writeCallResult(w, page, callErr)
+	case r.Method == http.MethodGet && r.URL.Path == "/dashboard/company/callback-side-effects":
+		limit, parseErr := strconv.Atoi(strings.TrimSpace(r.URL.Query().Get("limit")))
+		if strings.TrimSpace(r.URL.Query().Get("limit")) == "" {
+			limit = 0
+			parseErr = nil
+		}
+		if parseErr != nil {
+			writeEnvelope(w, http.StatusBadRequest, CodeInvalidRequest, "invalid request", nil)
+			return
+		}
+		page, callErr := h.service.ListCallbackSideEffects(r.Context(), principal, CallbackSideEffectListInput{
+			Status: r.URL.Query().Get("status"), Cursor: r.URL.Query().Get("cursor"), Limit: limit,
+		})
+		h.writeCallResult(w, page, callErr)
+	case r.Method == http.MethodGet && callbackSideEffectPathParts(r.URL.Path, false) != nil:
+		parts := callbackSideEffectPathParts(r.URL.Path, false)
+		detail, callErr := h.service.GetCallbackSideEffect(r.Context(), principal, parts[0], parts[1])
+		h.writeCallResult(w, detail, callErr)
+	case r.Method == http.MethodPost && callbackSideEffectPathParts(r.URL.Path, true) != nil:
+		parts := callbackSideEffectPathParts(r.URL.Path, true)
+		var input CallbackSideEffectReconcileInput
+		if !decodeJSON(r, &input) {
+			writeEnvelope(w, http.StatusBadRequest, CodeInvalidRequest, "invalid request", nil)
+			return
+		}
+		result, callErr := h.service.ReconcileCallbackSideEffect(r.Context(), principal, parts[0], parts[1], r.Header.Get("Idempotency-Key"), input)
+		h.writeCallResult(w, result, callErr)
 	default:
 		writeEnvelope(w, http.StatusNotFound, CodeNotFound, "not found", nil)
 	}
+}
+
+func callbackSideEffectPathParts(path string, reconcile bool) []string {
+	prefix := "/dashboard/company/callback-side-effects/"
+	if !strings.HasPrefix(path, prefix) {
+		return nil
+	}
+	parts := strings.Split(strings.TrimPrefix(path, prefix), "/")
+	if reconcile {
+		if len(parts) != 3 || parts[2] != "reconcile" {
+			return nil
+		}
+	} else if len(parts) != 2 {
+		return nil
+	}
+	return parts[:2]
 }
 
 func writeSecretResponseHeaders(w http.ResponseWriter) {
@@ -174,6 +217,20 @@ func errorResponse(err error) (int, string, string) {
 		return http.StatusNotFound, CodeNotFound, "not found"
 	case errors.Is(err, ErrVersionConflict):
 		return http.StatusConflict, CodeVersionConflict, "version conflict"
+	case errors.Is(err, ErrIdempotencyConflict):
+		return http.StatusConflict, CodeIdempotencyConflict, "idempotency conflict"
+	case errors.Is(err, ErrLeaseFenceConflict):
+		return http.StatusConflict, CodeLeaseFenceConflict, "lease fence conflict"
+	case errors.Is(err, ErrCallbackLeaseActive):
+		return http.StatusConflict, CodeCallbackLeaseActive, "callback lease active"
+	case errors.Is(err, ErrQuarantineActive):
+		return http.StatusConflict, CodeQuarantineActive, "reconciliation quarantine active"
+	case errors.Is(err, ErrSideEffectConflict):
+		return http.StatusConflict, CodeSideEffectConflict, "side effect state conflict"
+	case errors.Is(err, ErrUnsupportedAction):
+		return http.StatusConflict, CodeUnsupportedAction, "unsupported side effect action"
+	case errors.Is(err, ErrRecoveryUnavailable):
+		return http.StatusServiceUnavailable, CodeRecoveryUnavailable, "callback recovery unavailable"
 	case errors.Is(err, ErrCorpIDImmutable):
 		return http.StatusConflict, CodeCorpIDImmutable, "company CorpID is immutable"
 	case errors.Is(err, ErrIntegrationMode):

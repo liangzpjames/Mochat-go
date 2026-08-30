@@ -39,6 +39,9 @@ func TestCompanyProfileRoutesReachTheDedicatedHandler(t *testing.T) {
 		{http.MethodPost, "/dashboard/company/archive-sync"},
 		{http.MethodGet, "/dashboard/company/archive-sync-status"},
 		{http.MethodGet, "/dashboard/company/audits"},
+		{http.MethodGet, "/dashboard/company/callback-side-effects"},
+		{http.MethodGet, "/dashboard/company/callback-side-effects/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/fission.employee_reminder"},
+		{http.MethodPost, "/dashboard/company/callback-side-effects/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/fission.employee_reminder/reconcile"},
 	}
 	for _, test := range tests {
 		response := httptest.NewRecorder()
@@ -123,6 +126,9 @@ func TestCompanyProfileRoutesAreGrantableDashboardContracts(t *testing.T) {
 		"POST /dashboard/company/archive-sync",
 		"GET /dashboard/company/archive-sync-status",
 		"GET /dashboard/company/audits",
+		"GET /dashboard/company/callback-side-effects",
+		"GET /dashboard/company/callback-side-effects/{eventKey}/{actionKey}",
+		"POST /dashboard/company/callback-side-effects/{eventKey}/{actionKey}/reconcile",
 		"GET /dashboard/providers/status",
 	} {
 		if _, ok := denyOnly[contract]; ok {

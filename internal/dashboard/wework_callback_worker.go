@@ -906,7 +906,7 @@ func (w *WeWorkCallbackWorker) beginDurableSideEffect(ctx context.Context, actio
 	if err != nil {
 		return false, nil, err
 	}
-	execute, status, err := store.BeginWeWorkCallbackSideEffect(ctx, execution.TenantID, execution.CorpID, execution.EventKey, actionKey, payloadHash)
+	execute, status, err := store.BeginWeWorkCallbackSideEffect(ctx, execution, actionKey, payloadHash)
 	if err != nil {
 		return false, nil, err
 	}
@@ -924,7 +924,7 @@ func (w *WeWorkCallbackWorker) beginDurableSideEffect(ctx context.Context, actio
 		return false, nil, errors.Join(ErrWeWorkCallbackSideEffectReconcileRequired, fmt.Errorf("callback side effect did not enter unknown state: %q", status))
 	}
 	complete := func(completeCtx context.Context) error {
-		if err := store.CompleteWeWorkCallbackSideEffect(completeCtx, execution.TenantID, execution.CorpID, execution.EventKey, actionKey, payloadHash); err != nil {
+		if err := store.CompleteWeWorkCallbackSideEffect(completeCtx, execution, actionKey, payloadHash); err != nil {
 			return errors.Join(ErrWeWorkCallbackSideEffectReconcileRequired, err)
 		}
 		return nil

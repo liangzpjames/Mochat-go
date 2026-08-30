@@ -4786,6 +4786,12 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.companyProfile.ServeHTTP(w, r)
 	case s.companyProfile != nil && r.URL.Path == "/dashboard/company/audits" && r.Method == http.MethodGet:
 		s.companyProfile.ServeHTTP(w, r)
+	case s.companyProfile != nil && r.URL.Path == "/dashboard/company/callback-side-effects" && r.Method == http.MethodGet:
+		s.companyProfile.ServeHTTP(w, r)
+	case s.companyProfile != nil && dashboardRouteTemplateMatches(r.URL.Path, "/dashboard/company/callback-side-effects/{eventKey}/{actionKey}") && r.Method == http.MethodGet:
+		s.companyProfile.ServeHTTP(w, r)
+	case s.companyProfile != nil && dashboardRouteTemplateMatches(r.URL.Path, "/dashboard/company/callback-side-effects/{eventKey}/{actionKey}/reconcile") && r.Method == http.MethodPost:
+		s.companyProfile.ServeHTTP(w, r)
 	case s.providerStatus != nil && r.URL.Path == "/dashboard/providers/status" && r.Method == http.MethodGet:
 		s.providerStatus.ServeHTTP(w, r)
 	case r.URL.Path == "/dashboard/user/securityMFA" && (r.Method == http.MethodGet || r.Method == http.MethodPost || r.Method == http.MethodPut) && s.identitySelf != nil:
@@ -6357,6 +6363,9 @@ func (s *Server) migratedRoutes() []string {
 			"POST /dashboard/company/archive-sync",
 			"GET /dashboard/company/archive-sync-status",
 			"GET /dashboard/company/audits",
+			"GET /dashboard/company/callback-side-effects",
+			"GET /dashboard/company/callback-side-effects/{eventKey}/{actionKey}",
+			"POST /dashboard/company/callback-side-effects/{eventKey}/{actionKey}/reconcile",
 		)
 	}
 	if s.providerStatus != nil {
@@ -8248,6 +8257,26 @@ func (s *Server) migratedRoutes() []string {
 		routes = append(routes, "DELETE /dashboard/menu/destroy")
 	}
 	return routes
+}
+
+func dashboardRouteTemplateMatches(path string, template string) bool {
+	pathParts := strings.Split(strings.TrimPrefix(path, "/"), "/")
+	templateParts := strings.Split(strings.TrimPrefix(template, "/"), "/")
+	if len(pathParts) != len(templateParts) {
+		return false
+	}
+	for index, templatePart := range templateParts {
+		if strings.HasPrefix(templatePart, "{") && strings.HasSuffix(templatePart, "}") {
+			if pathParts[index] == "" {
+				return false
+			}
+			continue
+		}
+		if pathParts[index] != templatePart {
+			return false
+		}
+	}
+	return true
 }
 
 func (s *Server) handleAgentTxtVerify(w http.ResponseWriter, r *http.Request) {

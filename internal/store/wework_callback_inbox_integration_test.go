@@ -55,6 +55,11 @@ func TestMySQLStoreWeWorkCallbackSideEffectIntentIsTransactionalAndConcurrentRep
 	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
 	}
+	claim, found, err := store.ClaimWeWorkCallback(context.Background(), time.Minute, 3)
+	if err != nil || !found {
+		t.Fatalf("claim side-effect callback found=%t err=%v", found, err)
+	}
+	execution = dashboard.WeWorkCallbackExecution{TenantID: 11, CorpID: 1101, EventKey: eventKey, LeaseToken: claim.LeaseToken, LeaseFence: claim.LeaseFence}
 
 	const concurrency = 32
 	var executeCount atomic.Int64
@@ -64,7 +69,7 @@ func TestMySQLStoreWeWorkCallbackSideEffectIntentIsTransactionalAndConcurrentRep
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			execute, status, err := store.BeginWeWorkCallbackSideEffect(context.Background(), 11, 1101, eventKey, dashboard.WeWorkCallbackActionFissionCustomerPush, payloadHash)
+			execute, status, err := store.BeginWeWorkCallbackSideEffect(context.Background(), execution, dashboard.WeWorkCallbackActionFissionCustomerPush, payloadHash)
 			if err != nil {
 				errCh <- err
 				return
@@ -84,14 +89,14 @@ func TestMySQLStoreWeWorkCallbackSideEffectIntentIsTransactionalAndConcurrentRep
 	if executeCount.Load() != 1 {
 		t.Fatalf("external execution owners=%d, want 1", executeCount.Load())
 	}
-	if err := store.CompleteWeWorkCallbackSideEffect(context.Background(), 11, 1101, eventKey, dashboard.WeWorkCallbackActionFissionCustomerPush, payloadHash); err != nil {
+	if err := store.CompleteWeWorkCallbackSideEffect(context.Background(), execution, dashboard.WeWorkCallbackActionFissionCustomerPush, payloadHash); err != nil {
 		t.Fatal(err)
 	}
-	if execute, status, err := store.BeginWeWorkCallbackSideEffect(context.Background(), 11, 1101, eventKey, dashboard.WeWorkCallbackActionFissionCustomerPush, payloadHash); err != nil || execute || status != dashboard.WeWorkCallbackSideEffectSent {
+	if execute, status, err := store.BeginWeWorkCallbackSideEffect(context.Background(), execution, dashboard.WeWorkCallbackActionFissionCustomerPush, payloadHash); err != nil || execute || status != dashboard.WeWorkCallbackSideEffectSent {
 		t.Fatalf("sent replay execute=%t status=%q err=%v", execute, status, err)
 	}
 	rolledBack, err := runner.RollbackLast(context.Background())
-	if err != nil || rolledBack != "0174_wework_callback_side_effects" {
+	if err != nil || rolledBack != "0176_wework_callback_side_effect_reconciliation" {
 		t.Fatalf("rollback=%q err=%v", rolledBack, err)
 	}
 }
@@ -356,9 +361,9 @@ func newWeWorkCallbackInboxIntegrationStore(t *testing.T) (*MySQLStore, *sql.DB)
 
 func newWeWorkCallbackSideEffectIntegrationStore(t *testing.T) (*MySQLStore, *sql.DB, *migration.Runner) {
 	t.Helper()
-	db := newStoreIntegrationDBThrough(t, "0173_scrm_order_idempotency")
+	db := newStoreIntegrationDBThrough(t, "0175_contact_batch_title")
 	seedWeWorkCallbackIntegrationStore(t, db)
-	runner := newStoreMigrationRunnerThrough(t, db, "0174_wework_callback_side_effects")
+	runner := newStoreMigrationRunnerThrough(t, db, "0176_wework_callback_side_effect_reconciliation")
 	if _, err := runner.Apply(context.Background()); err != nil {
 		t.Fatal(err)
 	}

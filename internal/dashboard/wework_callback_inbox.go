@@ -66,8 +66,8 @@ type WeWorkCallbackInbox interface {
 }
 
 type WeWorkCallbackSideEffectStore interface {
-	BeginWeWorkCallbackSideEffect(ctx context.Context, tenantID, corpID int, eventKey, actionKey, payloadHash string) (execute bool, status string, err error)
-	CompleteWeWorkCallbackSideEffect(ctx context.Context, tenantID, corpID int, eventKey, actionKey, payloadHash string) error
+	BeginWeWorkCallbackSideEffect(ctx context.Context, execution WeWorkCallbackExecution, actionKey, payloadHash string) (execute bool, status string, err error)
+	CompleteWeWorkCallbackSideEffect(ctx context.Context, execution WeWorkCallbackExecution, actionKey, payloadHash string) error
 }
 
 type LegacyWeWorkCallbackBacklogStats struct {
@@ -115,13 +115,14 @@ type WeWorkCallbackExecution struct {
 	TenantID   int
 	CorpID     int
 	EventKey   string
+	LeaseToken string
 	LeaseFence uint64
 }
 
 func withWeWorkCallbackExecution(ctx context.Context, claim WeWorkCallbackClaim) context.Context {
 	return context.WithValue(ctx, weWorkCallbackExecutionContextKey{}, WeWorkCallbackExecution{
 		TenantID: claim.Event.TenantID, CorpID: claim.Event.CorpID,
-		EventKey: claim.EventKey, LeaseFence: claim.LeaseFence,
+		EventKey: claim.EventKey, LeaseToken: claim.LeaseToken, LeaseFence: claim.LeaseFence,
 	})
 }
 
@@ -130,7 +131,7 @@ func WeWorkCallbackExecutionFromContext(ctx context.Context) (WeWorkCallbackExec
 		return WeWorkCallbackExecution{}, false
 	}
 	execution, ok := ctx.Value(weWorkCallbackExecutionContextKey{}).(WeWorkCallbackExecution)
-	return execution, ok && strings.TrimSpace(execution.EventKey) != "" && execution.LeaseFence > 0
+	return execution, ok && strings.TrimSpace(execution.EventKey) != "" && strings.TrimSpace(execution.LeaseToken) != "" && execution.LeaseFence > 0
 }
 
 func WeWorkCallbackSideEffectPayloadHash(actionKey string, payload any) (string, error) {
