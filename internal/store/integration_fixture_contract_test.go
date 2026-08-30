@@ -23,10 +23,16 @@ func TestCurrentStoreIntegrationFixturesDoNotHandwriteBusinessSchemaOrLedger(t *
 			"seedArchiveReadCorp": true, "createArchiveReadBusinessFixture": true,
 		},
 		"archive_sync_integration_test.go": {
-			"TestArchiveSyncUpsertValidatesRunScopeAndRollsBackSourceFailure": true,
-			"TestArchiveSyncLeaseFenceRejectsStaleWorkerMutations":            true,
-			"TestArchiveSyncConcurrentDifferentRunsClaimOneMessageIdentity":   true,
-			"seedCurrentArchiveMessageFixture":                                true,
+			"TestArchiveSyncStoreUsesTemporarySchemaForLifecycleAndTenantIsolation": true,
+			"TestArchiveSourceStatusUsesCurrentCorpArchiveMode":                     true,
+			"TestArchiveSyncStaleRunningRunIsTakenOverWithAudit":                    true,
+			"TestArchiveSyncConcurrentFirstEnqueueRereadsDuplicateRun":              true,
+			"TestArchiveSyncEnqueueRejectsNamespaceMismatchWithoutMutation":         true,
+			"TestArchiveSyncUpsertValidatesRunScopeAndRollsBackSourceFailure":       true,
+			"TestArchiveSyncLeaseFenceRejectsStaleWorkerMutations":                  true,
+			"TestArchiveSyncConcurrentDifferentRunsClaimOneMessageIdentity":         true,
+			"seedCurrentArchiveSyncCorpFixture":                                     true,
+			"seedCurrentArchiveMessageFixture":                                      true,
 		},
 	}
 	for path, functions := range targets {
@@ -47,6 +53,11 @@ func TestCurrentStoreIntegrationFixturesDoNotHandwriteBusinessSchemaOrLedger(t *
 			source := strings.ToUpper(string(body[start:end]))
 			if strings.Contains(source, "CREATE TABLE") {
 				t.Fatalf("%s:%s handwrites business CREATE TABLE instead of using the production registry", path, function.Name.Name)
+			}
+			for _, bypass := range []string{"NEWDASHBOARDADMINPROVISIONINGDB", "CREATEARCHIVESYNCCORPFIXTURE", "EXECUTEARCHIVEMIGRATIONFILE"} {
+				if strings.Contains(source, bypass) {
+					t.Fatalf("%s:%s bypasses the current production registry through %s", path, function.Name.Name, bypass)
+				}
 			}
 			for _, mutation := range []string{"INSERT INTO MOCHAT_GO_SCHEMA_MIGRATIONS", "UPDATE MOCHAT_GO_SCHEMA_MIGRATIONS", "DELETE FROM MOCHAT_GO_SCHEMA_MIGRATIONS", "DROP TABLE MOCHAT_GO_SCHEMA_MIGRATIONS", "CREATE TABLE MOCHAT_GO_SCHEMA_MIGRATIONS"} {
 				if strings.Contains(source, mutation) {
