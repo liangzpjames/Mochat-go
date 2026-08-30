@@ -70,15 +70,22 @@ func ApplyCutover(ctx context.Context, db *sql.DB, options DatabaseOptions, upPa
 	if err != nil {
 		return CutoverResult{}, phaseFailure("cutover", "script_parse")
 	}
-	for _, statement := range statements {
-		if err := sqlscript.ExecuteStatement(ctx, conn, statement); err != nil {
-			return CutoverResult{}, phaseFailureWithCause("cutover", "statement", 0, err)
-		}
+	if err := executeCutoverStatements(ctx, conn, statements); err != nil {
+		return CutoverResult{}, err
 	}
 	if err := finalizeCorpTenantConstraint(ctx, conn); err != nil {
 		return CutoverResult{}, err
 	}
 	return CutoverResult{RequestID: options.RequestID}, nil
+}
+
+func executeCutoverStatements(ctx context.Context, executor sqlscript.QueryExecer, statements []string) error {
+	for index, statement := range statements {
+		if err := sqlscript.ExecuteStatement(ctx, executor, statement); err != nil {
+			return phaseFailureWithCause("cutover", "statement", index, err)
+		}
+	}
+	return nil
 }
 
 func finalizeCorpTenantConstraint(ctx context.Context, conn execer) error {
