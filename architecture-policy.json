@@ -39,7 +39,7 @@
     {
       "path": "internal/store/mysql.go",
       "targetBytes": 840395,
-      "maxBytes": 913782,
+      "maxBytes": 913526,
       "debt": {
         "owner": "backend-platform",
         "reason": "历史业务存储在模块化门禁启用后继续集中增长",
@@ -52,7 +52,7 @@
     {
       "path": "cmd/mochat-go/main.go",
       "targetBytes": 206017,
-      "maxBytes": 234230,
+      "maxBytes": 232325,
       "debt": {
         "owner": "backend-platform",
         "reason": "历史 composition root 在模块化门禁启用后继续集中增长",

@@ -14,4 +14,4 @@
 | R-010 | Dashboard 单包约 1.19 MB，后续页面会继续增大首屏资源 | 中 | 控制中 | Dashboard batch 2 起引入按页动态加载和 bundle 基线 | 待指定 | 下一批 |
 | R-011 | Playwright/CI 首次安装浏览器耗时且可能受网络抖动影响 | 中 | 控制中 | lockfile hash 缓存 pnpm store 与浏览器；保留失败 trace | 待指定 | 持续 |
 | R-012 | legacy E2E 当前主要验证路由与 document，不能完全证明旧业务页可操作 | 中 | 待处理 | 后续批次增加关键资源、启动错误和可见业务内容断言 | 待指定 | Dashboard batch 2 |
-| R-013 | `main.go` 与 `internal/store/mysql.go` 已超过长期结构目标，直接把当前体积改成新目标会固化架构债务 | 高 | 控制中 | 负责人 `backend-platform`；长期目标分别保持 206017/840395 字节；以 `f2b57f31f2baa93dc871b9157a04b0a8f7e2ae36` 为债务基线，临时 ratchet 上限分别为 234230/913782；已将 callback、archive、credential 装配迁出 main，后续按触碰切片继续下调；门禁要求元数据完整、期限不超过 90 天且到期失败 | backend-platform | 2026-11-28 |
+| R-013 | `main.go` 与 `internal/store/mysql.go` 已超过长期结构目标，直接把当前体积改成新目标会固化架构债务 | 高 | 控制中 | 负责人 `backend-platform`；长期目标分别保持 206017/840395 字节；以 `f2b57f31f2baa93dc871b9157a04b0a8f7e2ae36` 为债务基线，临时 ratchet 上限已随本次拆分下调到当前精确值 232325/913526；已将 callback、archive、credential 装配迁出 main，后续按触碰切片继续下调；门禁要求元数据完整、期限不超过 90 天且到期失败 | backend-platform | 2026-11-28 |
