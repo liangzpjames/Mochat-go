@@ -1,4 +1,4 @@
-package migration
+package migration_test
 
 import (
 	"context"
@@ -10,7 +10,9 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/go-sql-driver/mysql"
+	"jiyi/mochat-go/internal/integrationtestdb"
+	"jiyi/mochat-go/internal/migration"
+	"jiyi/mochat-go/internal/migration/testharness"
 )
 
 var weComCapabilityLedgerSchemaSequence atomic.Int64
@@ -35,8 +37,8 @@ func quoteMigrationIdentifier(value string) string {
 
 func TestWeComCapabilityLedgerMigrationIsRegisteredAndSplitSafe(t *testing.T) {
 	root := filepath.Join("..", "..")
-	migrations := DefaultMigrations(root)
-	var found *Migration
+	migrations := migration.DefaultMigrations(root)
+	var found *migration.Migration
 	for index := range migrations {
 		if migrations[index].Version == "0139_wecom_capability_ledger" {
 			found = &migrations[index]
@@ -47,11 +49,11 @@ func TestWeComCapabilityLedgerMigrationIsRegisteredAndSplitSafe(t *testing.T) {
 		t.Fatal("0139 capability ledger migration is not registered with a down script")
 	}
 	up, down := loadWeComCapabilityLedgerScripts(t)
-	upStatements, err := SplitSQLStatements(up)
+	upStatements, err := migration.SplitSQLStatements(up)
 	if err != nil {
 		t.Fatal(err)
 	}
-	downStatements, err := SplitSQLStatements(down)
+	downStatements, err := migration.SplitSQLStatements(down)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,7 +70,7 @@ func TestWeComCapabilityLedgerMigrationIsRegisteredAndSplitSafe(t *testing.T) {
 
 func TestWeComCapabilityLedgerPreflightCompletesBeforeFirstDDL(t *testing.T) {
 	up, _ := loadWeComCapabilityLedgerScripts(t)
-	statements, err := SplitSQLStatements(up)
+	statements, err := migration.SplitSQLStatements(up)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -270,78 +272,26 @@ REFERENCES mochat_go_wecom_capability_operation_events (id)`); err != nil {
 }
 
 func TestWeComCapabilityLedgerRealRunnerApplyDownApply(t *testing.T) {
-	dsn := strings.TrimSpace(os.Getenv("MOCHAT_GO_MYSQL_INTEGRATION_DSN"))
-	if dsn == "" {
-		t.Skip("SKIP: MOCHAT_GO_MYSQL_INTEGRATION_DSN is not set; isolated MariaDB DSN is required")
-	}
-	cfg, err := mysql.ParseDSN(dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	adminCfg := *cfg
-	adminCfg.DBName = ""
-	admin, err := sql.Open("mysql", adminCfg.FormatDSN())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := admin.PingContext(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = admin.Close() })
-	schema := fmt.Sprintf("mochat_wecom_0139_%d_%d", os.Getpid(), weComCapabilityLedgerSchemaSequence.Add(1))
-	if _, err := admin.Exec("CREATE DATABASE `" + schema + "` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		if _, err := admin.Exec("DROP DATABASE IF EXISTS `" + schema + "`"); err != nil {
-			t.Errorf("drop temporary schema: %v", err)
+	withTemporaryWeComCapabilityLedgerSchema(t, func(db *sql.DB, root string) {
+		createWeComCapabilityLedgerPreMigrationFixture(t, db)
+		runner := newWeComCapabilityLedgerTestRunner(t, db, root)
+		if _, err := runner.Apply(context.Background()); err != nil {
+			t.Fatal(err)
 		}
+		assertWeComCapabilityLedgerSchema(t, db, true)
+		if _, err := runner.RollbackLast(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		assertWeComCapabilityLedgerSchema(t, db, false)
+		if _, err := runner.Apply(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		assertWeComCapabilityLedgerSchema(t, db, true)
+		if _, err := runner.Apply(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		assertWeComCapabilityLedgerSchema(t, db, true)
 	})
-	testCfg := *cfg
-	testCfg.DBName = schema
-	db, err := sql.Open("mysql", testCfg.FormatDSN())
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-	if err := db.PingContext(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	createWeComCapabilityLedgerPreMigrationFixture(t, db)
-	root := filepath.Join("..", "..")
-	migration := Migration{
-		Version:     "0139_wecom_capability_ledger",
-		Description: "wecom capability ledger",
-		Path:        filepath.Join(root, "deploy", "standalone", "migrations", "0139_wecom_capability_ledger.up.sql"),
-		DownPath:    filepath.Join(root, "deploy", "standalone", "migrations", "0139_wecom_capability_ledger.down.sql"),
-	}
-	runner, err := NewRunner(db, []Migration{migration})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := runner.Apply(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	assertWeComCapabilityLedgerSchema(t, db, true)
-	if _, err := runner.RollbackLast(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	assertWeComCapabilityLedgerSchema(t, db, false)
-	if _, err := runner.Apply(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	assertWeComCapabilityLedgerSchema(t, db, true)
-	if _, err := runner.Apply(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	assertWeComCapabilityLedgerSchema(t, db, true)
-	var leftovers int
-	if err := admin.QueryRow(`SELECT COUNT(*) FROM information_schema.schemata WHERE schema_name=?`, schema).Scan(&leftovers); err != nil {
-		t.Fatal(err)
-	}
-	if leftovers != 1 {
-		t.Fatalf("temporary schema existence=%d before cleanup, want 1", leftovers)
-	}
 }
 
 func TestWeComCapabilityLedgerRejectsInvalidParentDataBeforeDDL(t *testing.T) {
@@ -375,15 +325,7 @@ func TestWeComCapabilityLedgerRejectsInvalidParentDataBeforeDDL(t *testing.T) {
 			withTemporaryWeComCapabilityLedgerSchema(t, func(db *sql.DB, root string) {
 				createWeComCapabilityLedgerPreMigrationFixture(t, db)
 				tc.setup(t, db)
-				runner, err := NewRunner(db, []Migration{{
-					Version:     "0139_wecom_capability_ledger",
-					Description: "wecom capability ledger",
-					Path:        filepath.Join(root, "deploy", "standalone", "migrations", "0139_wecom_capability_ledger.up.sql"),
-					DownPath:    filepath.Join(root, "deploy", "standalone", "migrations", "0139_wecom_capability_ledger.down.sql"),
-				}})
-				if err != nil {
-					t.Fatal(err)
-				}
+				runner := newWeComCapabilityLedgerTestRunner(t, db, root)
 				if _, err := runner.Apply(context.Background()); err == nil || !strings.Contains(err.Error(), "0139 incompatible batch tenant data") {
 					t.Fatalf("invalid parent data error=%v, want controlled batch tenant guard", err)
 				}
@@ -574,14 +516,20 @@ func TestWeComCapabilityLedgerDownRejectsWrongChildIndexSignatures(t *testing.T)
 	}
 }
 
-func newWeComCapabilityLedgerTestRunner(t *testing.T, db *sql.DB, root string) *Runner {
+func newWeComCapabilityLedgerTestRunner(t *testing.T, db *sql.DB, root string) *migration.Runner {
 	t.Helper()
-	runner, err := NewRunner(db, []Migration{{
-		Version:     "0139_wecom_capability_ledger",
-		Description: "wecom capability ledger",
-		Path:        filepath.Join(root, "deploy", "standalone", "migrations", "0139_wecom_capability_ledger.up.sql"),
-		DownPath:    filepath.Join(root, "deploy", "standalone", "migrations", "0139_wecom_capability_ledger.down.sql"),
-	}})
+	var target *migration.Migration
+	for _, candidate := range migration.DefaultMigrations(root) {
+		if candidate.Version == "0139_wecom_capability_ledger" {
+			candidate := candidate
+			target = &candidate
+			break
+		}
+	}
+	if target == nil {
+		t.Fatal("production migration registry does not contain 0139_wecom_capability_ledger")
+	}
+	runner, err := migration.NewRunner(db, []migration.Migration{*target})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -594,55 +542,24 @@ func withTemporaryWeComCapabilityLedgerSchema(t *testing.T, fn func(db *sql.DB, 
 	if dsn == "" {
 		t.Skip("SKIP: MOCHAT_GO_MYSQL_INTEGRATION_DSN is not set; isolated MariaDB DSN is required")
 	}
-	cfg, err := mysql.ParseDSN(dsn)
+	database := integrationtestdb.NewIsolated(t, dsn)
+	evidence, err := testharness.NewControlledEvidence("wecom-0139")
 	if err != nil {
 		t.Fatal(err)
 	}
-	adminCfg := *cfg
-	adminCfg.DBName = ""
-	admin, err := sql.Open("mysql", adminCfg.FormatDSN())
-	if err != nil {
-		t.Fatal(err)
+	root := filepath.Join("..", "..")
+	if err := testharness.ApplyThrough(context.Background(), database.DB, root, "0138_archive_source_sync", evidence); err != nil {
+		t.Fatalf("apply production migration registry through 0138: %v", err)
 	}
-	if err := admin.PingContext(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = admin.Close() })
-	schema := fmt.Sprintf("mochat_wecom_0139_invalid_%d_%d", os.Getpid(), weComCapabilityLedgerSchemaSequence.Add(1))
-	if _, err := admin.Exec("CREATE DATABASE `" + schema + "` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		if _, err := admin.Exec("DROP DATABASE IF EXISTS `" + schema + "`"); err != nil {
-			t.Errorf("drop temporary schema: %v", err)
-		}
-	})
-	testCfg := *cfg
-	testCfg.DBName = schema
-	db, err := sql.Open("mysql", testCfg.FormatDSN())
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-	if err := db.PingContext(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	fn(db, filepath.Join("..", ".."))
+	fn(database.DB, root)
 }
 
 func createWeComCapabilityLedgerPreMigrationFixture(t *testing.T, db *sql.DB) {
 	t.Helper()
 	statements := []string{
-		`CREATE TABLE mc_tenant (id INT UNSIGNED NOT NULL PRIMARY KEY) ENGINE=InnoDB`,
-		`CREATE TABLE mc_user (id INT UNSIGNED NOT NULL, tenant_id INT UNSIGNED NOT NULL, PRIMARY KEY (id), UNIQUE KEY uni_dashboard_user_tenant_id_id (tenant_id,id)) ENGINE=InnoDB`,
-		`CREATE TABLE mc_corp (id INT UNSIGNED NOT NULL, tenant_id INT UNSIGNED NOT NULL, deleted_at DATETIME NULL, PRIMARY KEY (id), UNIQUE KEY uni_mc_corp_tenant_id_id (tenant_id,id)) ENGINE=InnoDB`,
-		`CREATE TABLE mochat_go_tenant_corp_bindings (tenant_id INT UNSIGNED NOT NULL, corp_id INT UNSIGNED NOT NULL, status TINYINT UNSIGNED NOT NULL DEFAULT 1, version BIGINT UNSIGNED NOT NULL DEFAULT 1, verified_wx_corpid VARCHAR(255) NULL, verified_corp_name VARCHAR(255) NOT NULL DEFAULT '', verified_at TIMESTAMP NULL, created_at TIMESTAMP NULL, updated_at TIMESTAMP NULL, PRIMARY KEY (tenant_id), UNIQUE KEY uk_binding_corp (corp_id), CONSTRAINT fk_tenant_corp_binding_corp FOREIGN KEY (tenant_id,corp_id) REFERENCES mc_corp (tenant_id,id)) ENGINE=InnoDB`,
-		`CREATE TABLE mc_contact_message_batch_send (id INT UNSIGNED NOT NULL AUTO_INCREMENT, corp_id INT UNSIGNED NOT NULL DEFAULT 0, user_id INT UNSIGNED NOT NULL DEFAULT 0, employee_ids JSON NOT NULL, content JSON NOT NULL, created_at TIMESTAMP NULL, updated_at TIMESTAMP NULL, deleted_at TIMESTAMP NULL, PRIMARY KEY (id)) ENGINE=InnoDB`,
-		`CREATE TABLE mc_room_message_batch_send (id INT UNSIGNED NOT NULL AUTO_INCREMENT, corp_id INT UNSIGNED NOT NULL DEFAULT 0, user_id INT UNSIGNED NOT NULL DEFAULT 0, employee_ids JSON NOT NULL, content JSON NOT NULL, created_at TIMESTAMP NULL, updated_at TIMESTAMP NULL, deleted_at TIMESTAMP NULL, PRIMARY KEY (id)) ENGINE=InnoDB`,
-		`CREATE TABLE mochat_go_schema_migrations (version VARCHAR(128) NOT NULL PRIMARY KEY, description VARCHAR(255) NOT NULL, checksum CHAR(64) NOT NULL, applied_at DATETIME NOT NULL, execution_ms INT NOT NULL) ENGINE=InnoDB`,
-		`INSERT INTO mc_tenant VALUES (11),(22)`,
+		`INSERT INTO mc_tenant(id,name,status) VALUES (11,'Tenant 11',1),(22,'Tenant 22',1)`,
 		`INSERT INTO mc_user(id,tenant_id) VALUES (101,11),(202,22)`,
-		`INSERT INTO mc_corp(id,tenant_id) VALUES (1101,11),(2201,22)`,
+		`INSERT INTO mc_corp(id,tenant_id,name) VALUES (1101,11,'Corp 11'),(2201,22,'Corp 22')`,
 		`INSERT INTO mochat_go_tenant_corp_bindings(tenant_id,corp_id) VALUES (11,1101),(22,2201)`,
 		`INSERT INTO mc_contact_message_batch_send(corp_id,user_id,employee_ids,content) VALUES (1101,101,'[]','{}')`,
 		`INSERT INTO mc_room_message_batch_send(corp_id,user_id,employee_ids,content) VALUES (1101,101,'[]','{}')`,

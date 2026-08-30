@@ -35,6 +35,11 @@ func TestMySQLIntegrationFixturesUseProductionRegistryBaselines(t *testing.T) {
 			"newIdentitySingleCorpMigrationDB":    {},
 			"createIdentitySingleCorpBaseFixture": {},
 		},
+		"wecom_capability_ledger_contract_test.go": {
+			"TestWeComCapabilityLedgerRealRunnerApplyDownApply": {},
+			"withTemporaryWeComCapabilityLedgerSchema":          {},
+			"createWeComCapabilityLedgerPreMigrationFixture":    {},
+		},
 	}
 
 	for path, functions := range targets {
