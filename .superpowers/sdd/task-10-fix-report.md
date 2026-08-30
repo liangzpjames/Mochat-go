@@ -1,6 +1,6 @@
 # Task 10 独立审查整改报告
 
-日期：2026-08-30  
+日期：2026-08-30
 整改基线：`a0b7d127ce6b69d375f5c115e8bf1f39865b98e3`
 
 ## 1. 结论
@@ -25,7 +25,7 @@ MariaDB 10.6、原生 MySQL 5.7 的完整 `internal/store`、`internal/migration
 - Find/Complete 依赖故障均断言 `RecordMFAFailure` 调用次数为 0。
 - sqlmock 覆盖数据库读取故障与 `sql.ErrNoRows` 的分类边界；真实 MariaDB/MySQL 完整 store suite 覆盖正式 persistence/schema 合同。
 
-RED：challenge 读取故障实际得到 `saas MFA challenge invalid`；Find 依赖故障实际返回 401。  
+RED：challenge 读取故障实际得到 `saas MFA challenge invalid`；Find 依赖故障实际返回 401。
 GREEN：聚焦 store、saasauth 测试通过，随后两种数据库完整 store suite 通过。
 
 ## 3. I1：fresh full-registry 与 generic helper 边界
@@ -113,7 +113,7 @@ go test ./cmd/mochat-identity-migrate -run '^TestFullRegistryFromEmptySchemaViaP
 ok  jiyi/mochat-go/cmd/mochat-identity-migrate  6.831s
 ```
 
-0175 targeted：PASS，test body 5.58s。  
+0175 targeted：PASS，test body 5.58s。
 generic ApplyLatest reentrant targeted：PASS，test body 5.54s。
 
 ### MySQL 5.7
