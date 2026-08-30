@@ -14,6 +14,13 @@ func TestNewOrderRejectsInvalidMoneyAndState(t *testing.T) {
 	}
 }
 
+func TestNewOrderRequiresInjectedID(t *testing.T) {
+	_, err := NewOrder(NewOrderInput{TenantID: 1, CorpID: 2, ContactID: "c", Title: "order", AmountCents: 1, Status: OrderPending})
+	if err == nil {
+		t.Fatal("blank ID must be rejected by domain")
+	}
+}
+
 func TestOrderCreateRequestHashRequiresExplicitClientOrderID(t *testing.T) {
 	hashType := reflect.TypeOf(OrderCreateRequestHash)
 	if hashType.IsVariadic() || hashType.NumIn() != 2 || hashType.In(1).Kind() != reflect.String {

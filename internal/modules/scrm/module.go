@@ -95,11 +95,11 @@ func New(dependencies Dependencies) (*Module, error) {
 	if err != nil {
 		return nil, fmt.Errorf("create SCRM settings repository: %w", err)
 	}
-	acceptanceStore, err := transporthttp.NewSQLAcceptanceStore(dependencies.DB)
+	acceptanceStore, err := mysql.NewSQLAcceptanceStore(dependencies.DB)
 	if err != nil {
 		return nil, fmt.Errorf("create Phase 3.5 acceptance store: %w", err)
 	}
-	return &Module{leads: handler, customerLifecycle: assignmentHandler, opportunities: opportunityService, opportunityHTTP: opportunityHTTP, customerTagHTTP: customerTagHTTP, orderHTTP: transporthttp.NewOrderHandler(orderRepository, dependencies.PrincipalResolver, dependencies.LeadAuthorizer), settingsHTTP: transporthttp.NewSettingsHandler(settingsRepository, dependencies.PrincipalResolver, dependencies.LeadAuthorizer), acceptanceHTTP: transporthttp.NewAcceptanceHandler(dependencies.EnableAcceptanceLifecycle, dependencies.AcceptanceEnvironmentID, acceptanceStore, dependencies.PrincipalResolver, dependencies.LeadAuthorizer)}, nil
+	return &Module{leads: handler, customerLifecycle: assignmentHandler, opportunities: opportunityService, opportunityHTTP: opportunityHTTP, customerTagHTTP: customerTagHTTP, orderHTTP: transporthttp.NewOrderHandler(orderRepository, dependencies.PrincipalResolver, dependencies.LeadAuthorizer, dependencies.IDGenerator), settingsHTTP: transporthttp.NewSettingsHandler(settingsRepository, dependencies.PrincipalResolver, dependencies.LeadAuthorizer), acceptanceHTTP: transporthttp.NewAcceptanceHandler(dependencies.EnableAcceptanceLifecycle, dependencies.AcceptanceEnvironmentID, acceptanceStore, dependencies.PrincipalResolver, dependencies.LeadAuthorizer)}, nil
 }
 
 func (m *Module) RegisterRoutes(registrar appmodules.RouteRegistrar) error {

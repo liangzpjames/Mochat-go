@@ -1,8 +1,8 @@
 package http
 
 import (
-	"context"
 	"encoding/json"
+	"jiyi/mochat-go/internal/modules/scrm/ports"
 	nethttp "net/http"
 	"regexp"
 	"strings"
@@ -12,25 +12,13 @@ var acceptanceEnvironmentPattern = regexp.MustCompile(`^P35-ACCEPT-[A-Za-z0-9-]{
 
 const (
 	AcceptancePath              = "/dashboard/acceptance/phase35"
-	AcceptancePrefix            = "P35-ACCEPT-"
+	AcceptancePrefix            = ports.AcceptancePrefix
 	AcceptanceEnvironmentHeader = "X-Phase35-Acceptance-Environment"
 )
 
-type AcceptanceScope struct {
-	TenantID, CorpID, ActorID int64
-	EnvironmentID             string
-}
-type AcceptanceResult struct {
-	Prefix        string   `json:"prefix"`
-	EnvironmentID string   `json:"environmentId,omitempty"`
-	ResourceIDs   []string `json:"resourceIds,omitempty"`
-	Count         int      `json:"count"`
-}
-type AcceptanceStore interface {
-	Create(context.Context, AcceptanceScope) (AcceptanceResult, error)
-	Verify(context.Context, AcceptanceScope) (AcceptanceResult, error)
-	Cleanup(context.Context, AcceptanceScope) (AcceptanceResult, error)
-}
+type AcceptanceScope = ports.AcceptanceScope
+type AcceptanceResult = ports.AcceptanceResult
+type AcceptanceStore = ports.AcceptanceStore
 type AcceptanceHandler struct {
 	enabled       bool
 	environmentID string

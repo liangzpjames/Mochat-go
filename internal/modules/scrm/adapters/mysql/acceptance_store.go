@@ -1,10 +1,11 @@
-package http
+package mysql
 
 import (
 	"context"
 	"database/sql"
 	"fmt"
 	"github.com/google/uuid"
+	"jiyi/mochat-go/internal/modules/scrm/ports"
 	"strings"
 	"time"
 )
@@ -18,10 +19,10 @@ func NewSQLAcceptanceStore(db *sql.DB) (*SQLAcceptanceStore, error) {
 	return &SQLAcceptanceStore{db: db}, nil
 }
 func acceptanceID() string {
-	return AcceptancePrefix + strings.ReplaceAll(uuid.NewString(), "-", "")[:23]
+	return ports.AcceptancePrefix + strings.ReplaceAll(uuid.NewString(), "-", "")[:23]
 }
 
-func (s *SQLAcceptanceStore) Create(ctx context.Context, scope AcceptanceScope) (result AcceptanceResult, err error) {
+func (s *SQLAcceptanceStore) Create(ctx context.Context, scope ports.AcceptanceScope) (result ports.AcceptanceResult, err error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return result, err
@@ -62,37 +63,37 @@ func (s *SQLAcceptanceStore) Create(ctx context.Context, scope AcceptanceScope) 
 		return result, err
 	}
 	ids := []string{contactID, orderID, settingID}
-	return AcceptanceResult{Prefix: AcceptancePrefix, EnvironmentID: scope.EnvironmentID, ResourceIDs: ids, Count: len(ids)}, nil
+	return ports.AcceptanceResult{Prefix: ports.AcceptancePrefix, EnvironmentID: scope.EnvironmentID, ResourceIDs: ids, Count: len(ids)}, nil
 }
 
-func (s *SQLAcceptanceStore) Verify(ctx context.Context, scope AcceptanceScope) (AcceptanceResult, error) {
+func (s *SQLAcceptanceStore) Verify(ctx context.Context, scope ports.AcceptanceScope) (ports.AcceptanceResult, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT resource_id FROM mochat_go_phase35_acceptance_resources WHERE tenant_id=? AND corp_id=? AND environment_id=? AND deleted_at IS NULL ORDER BY created_at,id`, scope.TenantID, scope.CorpID, scope.EnvironmentID)
 	if err != nil {
-		return AcceptanceResult{}, err
+		return ports.AcceptanceResult{}, err
 	}
 	defer rows.Close()
 	ids := []string{}
 	for rows.Next() {
 		var id string
 		if err := rows.Scan(&id); err != nil {
-			return AcceptanceResult{}, err
+			return ports.AcceptanceResult{}, err
 		}
-		if !strings.HasPrefix(id, AcceptancePrefix) {
-			return AcceptanceResult{}, fmt.Errorf("unsafe acceptance resource")
+		if !strings.HasPrefix(id, ports.AcceptancePrefix) {
+			return ports.AcceptanceResult{}, fmt.Errorf("unsafe acceptance resource")
 		}
 		ids = append(ids, id)
 	}
 	if err := rows.Err(); err != nil {
-		return AcceptanceResult{}, err
+		return ports.AcceptanceResult{}, err
 	}
 	_, err = s.db.ExecContext(ctx, `INSERT INTO mochat_go_phase35_acceptance_audit (id,tenant_id,corp_id,environment_id,action,resource_count,actor_id,created_at) VALUES (?,?,?,?,?,?,?,?)`, uuid.NewString(), scope.TenantID, scope.CorpID, scope.EnvironmentID, "verify", len(ids), scope.ActorID, time.Now().UTC())
 	if err != nil {
-		return AcceptanceResult{}, err
+		return ports.AcceptanceResult{}, err
 	}
-	return AcceptanceResult{Prefix: AcceptancePrefix, EnvironmentID: scope.EnvironmentID, ResourceIDs: ids, Count: len(ids)}, nil
+	return ports.AcceptanceResult{Prefix: ports.AcceptancePrefix, EnvironmentID: scope.EnvironmentID, ResourceIDs: ids, Count: len(ids)}, nil
 }
 
-func (s *SQLAcceptanceStore) Cleanup(ctx context.Context, scope AcceptanceScope) (result AcceptanceResult, err error) {
+func (s *SQLAcceptanceStore) Cleanup(ctx context.Context, scope ports.AcceptanceScope) (result ports.AcceptanceResult, err error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return result, err
@@ -114,7 +115,7 @@ func (s *SQLAcceptanceStore) Cleanup(ctx context.Context, scope AcceptanceScope)
 			_ = rows.Close()
 			return result, err
 		}
-		if !strings.HasPrefix(r.id, AcceptancePrefix) {
+		if !strings.HasPrefix(r.id, ports.AcceptancePrefix) {
 			_ = rows.Close()
 			return result, fmt.Errorf("unsafe cleanup resource")
 		}
@@ -149,9 +150,9 @@ func (s *SQLAcceptanceStore) Cleanup(ctx context.Context, scope AcceptanceScope)
 	if err = tx.Commit(); err != nil {
 		return result, err
 	}
-	return AcceptanceResult{Prefix: AcceptancePrefix, EnvironmentID: scope.EnvironmentID, Count: len(resources)}, nil
+	return ports.AcceptanceResult{Prefix: ports.AcceptancePrefix, EnvironmentID: scope.EnvironmentID, Count: len(resources)}, nil
 }
-func (s *SQLAcceptanceStore) audit(ctx context.Context, tx *sql.Tx, scope AcceptanceScope, action string, count int, now time.Time) error {
+func (s *SQLAcceptanceStore) audit(ctx context.Context, tx *sql.Tx, scope ports.AcceptanceScope, action string, count int, now time.Time) error {
 	_, err := tx.ExecContext(ctx, `INSERT INTO mochat_go_phase35_acceptance_audit (id,tenant_id,corp_id,environment_id,action,resource_count,actor_id,created_at) VALUES (?,?,?,?,?,?,?,?)`, uuid.NewString(), scope.TenantID, scope.CorpID, scope.EnvironmentID, action, count, scope.ActorID, now)
 	return err
 }

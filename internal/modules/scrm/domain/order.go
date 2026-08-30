@@ -6,8 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
-
-	"github.com/google/uuid"
 )
 
 type OrderStatus string
@@ -78,7 +76,7 @@ func NewOrder(input NewOrderInput) (Order, error) {
 	}
 	id := strings.TrimSpace(input.ID)
 	if id == "" {
-		id = uuid.NewString()
+		return Order{}, errors.New("invalid order")
 	}
 	return Order{ID: id, TenantID: input.TenantID, CorpID: input.CorpID, ContactID: input.ContactID, OpportunityID: input.OpportunityID, Title: title, Note: note, AmountCents: input.AmountCents, Currency: currency, Status: input.Status, Version: 1}, nil
 }

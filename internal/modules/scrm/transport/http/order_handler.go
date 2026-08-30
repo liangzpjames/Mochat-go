@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"jiyi/mochat-go/internal/modules/scrm/domain"
+	"jiyi/mochat-go/internal/modules/scrm/ports"
 	nethttp "net/http"
 	"sort"
 	"strconv"
@@ -99,9 +100,10 @@ func (r *MemoryOrderRepository) TransitionContext(_ context.Context, id string, 
 }
 
 type OrderHandler struct {
-	repo       OrderRepository
-	principal  PrincipalResolver
-	authorizer LeadAuthorizer
+	repo        OrderRepository
+	principal   PrincipalResolver
+	authorizer  LeadAuthorizer
+	idGenerator ports.IDGenerator
 }
 
 func NewOrderHandler(repo OrderRepository, deps ...any) *OrderHandler {
@@ -112,6 +114,8 @@ func NewOrderHandler(repo OrderRepository, deps ...any) *OrderHandler {
 			h.principal = v
 		case LeadAuthorizer:
 			h.authorizer = v
+		case ports.IDGenerator:
+			h.idGenerator = v
 		}
 	}
 	return h
@@ -204,12 +208,25 @@ func (h *OrderHandler) ServeHTTP(w nethttp.ResponseWriter, r *nethttp.Request) {
 		writeError(w, nethttp.StatusUnprocessableEntity, "Idempotency-Key is required and must not exceed 128 bytes")
 		return
 	}
+	requestedID := strings.TrimSpace(in.ID)
+	if strings.TrimSpace(in.ID) == "" {
+		if h.idGenerator == nil {
+			writeError(w, nethttp.StatusInternalServerError, "internal server error")
+			return
+		}
+		generatedID, err := h.idGenerator.NewID()
+		if err != nil || strings.TrimSpace(generatedID) == "" {
+			writeError(w, nethttp.StatusInternalServerError, "internal server error")
+			return
+		}
+		in.ID = generatedID
+	}
 	o, e := domain.NewOrder(domain.NewOrderInput{ID: strings.TrimSpace(in.ID), TenantID: inTenantID, CorpID: inCorpID, ContactID: in.ContactID, OpportunityID: in.OpportunityID, Title: in.Title, Note: in.Note, AmountCents: in.AmountCents, Currency: in.Currency, Status: in.Status})
 	if e != nil {
 		nethttp.Error(w, e.Error(), 422)
 		return
 	}
-	requestHash, e := domain.OrderCreateRequestHash(o, in.ID)
+	requestHash, e := domain.OrderCreateRequestHash(o, requestedID)
 	if e != nil {
 		writeError(w, nethttp.StatusInternalServerError, "internal server error")
 		return

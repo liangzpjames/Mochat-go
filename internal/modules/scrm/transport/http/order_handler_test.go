@@ -4,13 +4,27 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"jiyi/mochat-go/internal/modules/scrm/domain"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 )
+
+type fixedOrderIDGenerator struct{ id string }
+
+func (g fixedOrderIDGenerator) NewID() (string, error) { return g.id, nil }
+
+type sequenceOrderIDGenerator struct{}
+
+var testOrderIDSequence atomic.Int64
+
+func (sequenceOrderIDGenerator) NewID() (string, error) {
+	return fmt.Sprintf("test-order-%d", testOrderIDSequence.Add(1)), nil
+}
 
 func TestOrderHandlerRoutesListPathToListContext(t *testing.T) {
 	repo := &routingOrderRepository{
@@ -112,7 +126,7 @@ func TestOrderHandlerReturnsInternalServerErrorWhenAuditQueryFails(t *testing.T)
 
 func TestOrderHandlerCreatesAndListsScopedOrder(t *testing.T) {
 	r := NewMemoryOrderRepository()
-	h := NewOrderHandler(r, routingPrincipalResolver{corpID: 1})
+	h := NewOrderHandler(r, routingPrincipalResolver{corpID: 1}, fixedOrderIDGenerator{id: "generated-order-id"})
 	req := httptest.NewRequest("POST", "/scrm/orders", strings.NewReader(`{"id":"o1","tenantId":1,"corpId":1,"contactId":"c1","opportunityId":"opp1","title":"年度续费","note":"客户确认","amountCents":100,"status":"pending"}`))
 	req.Header.Set("Idempotency-Key", "explicit-order")
 	rec := httptest.NewRecorder()
@@ -143,18 +157,11 @@ func TestOrderHandlerCreatesAndListsScopedOrder(t *testing.T) {
 	if err := json.Unmarshal(autoResponse.Data, &autoCreated); err != nil {
 		t.Fatalf("decode auto order: %v", err)
 	}
-	if autoCreated.ID == "" || strings.HasPrefix(autoCreated.ID, "P35-ORDER-") {
-		t.Fatalf("auto id = %q, want server-side non-acceptance id", autoCreated.ID)
+	if autoCreated.ID != "generated-order-id" {
+		t.Fatalf("auto id = %q, want injected generator ID", autoCreated.ID)
 	}
 	if len(r.List(7, 1)) != 2 {
 		t.Fatal("auto order not persisted")
-	}
-	generated, err := domain.NewOrder(domain.NewOrderInput{TenantID: 1, CorpID: 1, ContactID: "c", Title: "auto id", AmountCents: 1, Status: domain.OrderPending})
-	if err != nil {
-		t.Fatalf("NewOrder without id failed: %v", err)
-	}
-	if generated.ID == "" || strings.HasPrefix(generated.ID, "P35-ORDER-") {
-		t.Fatalf("generated id = %q, want server-side non-acceptance id", generated.ID)
 	}
 }
 
@@ -171,7 +178,7 @@ func TestOrderHandlerRequiresIdempotencyKeyForCreate(t *testing.T) {
 
 func TestOrderHandlerReplaysExactFirstResponseAfterClientLosesIt(t *testing.T) {
 	repo := NewMemoryOrderRepository()
-	h := NewOrderHandler(repo, routingPrincipalResolver{corpID: 1})
+	h := NewOrderHandler(repo, routingPrincipalResolver{corpID: 1}, sequenceOrderIDGenerator{})
 	first := createOrderRequest("retry-key", `{"contactId":"c1","title":"renewal","amountCents":100,"status":"pending"}`)
 	firstResponse := httptest.NewRecorder()
 	h.ServeHTTP(firstResponse, first)
@@ -192,7 +199,7 @@ func TestOrderHandlerReplaysExactFirstResponseAfterClientLosesIt(t *testing.T) {
 
 func TestOrderHandlerTreatsIdempotencyKeyAsOpaqueBytes(t *testing.T) {
 	repo := NewMemoryOrderRepository()
-	h := NewOrderHandler(repo, routingPrincipalResolver{corpID: 1})
+	h := NewOrderHandler(repo, routingPrincipalResolver{corpID: 1}, sequenceOrderIDGenerator{})
 	keys := []string{
 		"opaque-key",
 		"opaque-key ",
@@ -221,7 +228,7 @@ func TestOrderHandlerTreatsIdempotencyKeyAsOpaqueBytes(t *testing.T) {
 }
 
 func TestOrderHandlerRejectsSameKeyWithDifferentPayload(t *testing.T) {
-	h := NewOrderHandler(NewMemoryOrderRepository(), routingPrincipalResolver{corpID: 1})
+	h := NewOrderHandler(NewMemoryOrderRepository(), routingPrincipalResolver{corpID: 1}, sequenceOrderIDGenerator{})
 	first := httptest.NewRecorder()
 	h.ServeHTTP(first, createOrderRequest("conflict-key", `{"contactId":"c1","title":"renewal","amountCents":100,"status":"pending"}`))
 	conflict := httptest.NewRecorder()
@@ -246,7 +253,7 @@ func TestOrderHandlerTreatsClientOrderIDAsPartOfTheIdempotencyPayload(t *testing
 
 func TestOrderHandlerSerializesThirtyTwoConcurrentCreatesWithSameKey(t *testing.T) {
 	repo := NewMemoryOrderRepository()
-	h := NewOrderHandler(repo, routingPrincipalResolver{corpID: 1})
+	h := NewOrderHandler(repo, routingPrincipalResolver{corpID: 1}, sequenceOrderIDGenerator{})
 	responses := make([]*httptest.ResponseRecorder, 32)
 	start := make(chan struct{})
 	var wait sync.WaitGroup
@@ -280,7 +287,7 @@ func TestOrderHandlerScopesSameIdempotencyKeyByTenantAndCorp(t *testing.T) {
 		{TenantID: 7, CorpID: 2, UserID: 11},
 		{TenantID: 8, CorpID: 1, UserID: 11},
 	} {
-		h := NewOrderHandler(repo, fixedOrderPrincipalResolver{principal: principal})
+		h := NewOrderHandler(repo, fixedOrderPrincipalResolver{principal: principal}, sequenceOrderIDGenerator{})
 		response := httptest.NewRecorder()
 		h.ServeHTTP(response, createOrderRequest("shared-key", `{"contactId":"c1","title":"renewal","amountCents":100,"status":"pending"}`))
 		if response.Code != http.StatusOK {
