@@ -540,8 +540,17 @@ func (c *AIInsight0165Controller) lockedConnection(ctx context.Context) (*sql.Co
 	if err != nil {
 		return nil, nil, err
 	}
+	var schema sql.NullString
+	if err := conn.QueryRowContext(ctx, `SELECT DATABASE()`).Scan(&schema); err != nil {
+		_ = conn.Close()
+		return nil, nil, fmt.Errorf("resolve controlled 0165 lock schema: %w", err)
+	}
+	lockName, err := aiInsight0165LockName(schema.String, c.checksum)
+	if err != nil {
+		_ = conn.Close()
+		return nil, nil, err
+	}
 	var acquired int
-	lockName := "mochat-go:0165:" + c.checksum[:16]
 	if err := conn.QueryRowContext(ctx, `SELECT GET_LOCK(?, 0)`, lockName).Scan(&acquired); err != nil {
 		_ = conn.Close()
 		return nil, nil, err
@@ -556,6 +565,19 @@ func (c *AIInsight0165Controller) lockedConnection(ctx context.Context) (*sql.Co
 		_ = conn.Close()
 	}
 	return conn, release, nil
+}
+
+func aiInsight0165LockName(schema, checksum string) (string, error) {
+	schema = strings.TrimSpace(schema)
+	if schema == "" {
+		return "", errors.New("0165 controlled migration requires a selected database")
+	}
+	checksum = strings.TrimSpace(checksum)
+	if checksum == "" {
+		return "", errors.New("0165 controlled migration checksum is required")
+	}
+	digest := sha256.Sum256([]byte(schema + "\x00" + checksum))
+	return "mochat-go:0165:" + hex.EncodeToString(digest[:24]), nil
 }
 
 func validateAIInsight0165RequestID(value string) (string, error) {
