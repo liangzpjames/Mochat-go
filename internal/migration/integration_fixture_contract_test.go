@@ -1,114 +1,192 @@
 package migration
 
 import (
-	"go/ast"
-	"go/parser"
-	"go/token"
-	"os"
-	"regexp"
 	"strings"
 	"testing"
+
+	"jiyi/mochat-go/internal/integrationfixtureaudit"
 )
 
-var fixtureCreateTablePattern = regexp.MustCompile(`(?i)CREATE\s+TABLE(?:\s+IF\s+NOT\s+EXISTS)?\s+(?:[[:alnum:]_]+\.)?[` + "`" + `]?([[:alnum:]_]+)` + "`" + `?`)
-
 func TestMySQLIntegrationFixturesUseProductionRegistryBaselines(t *testing.T) {
-	targets := map[string]map[string]map[string]bool{
-		"archive_runner_integration_test.go": {
-			"TestArchiveSourceMigrationRunnerApplyDownApplyPinsOneConnection": {
-				"mochat_go_archive_sync_runs": true,
-			},
-		},
-		"contact_batch_title_integration_test.go": {
-			"TestContactBatchTitle0175UpDownReapplyLifecycle": {},
-			"migrationsThrough": {},
-		},
-		"dashboard_page_rbac_integration_test.go": {
-			"TestDashboardPageRBACIntegration": {
-				"mochat_go_dashboard_permissions":          true,
-				"mochat_go_dashboard_permission_resources": true,
-				"mochat_go_dashboard_user_roles":           true,
-			},
-			"newDashboardRBACMigrationDB":      {},
-			"createDashboardRBACLegacyFixture": {},
-		},
-		"identity_realms_single_corp_backfill_integration_test.go": {
-			"TestIdentityRealmsSingleCorpBackfillRealMariaDB": {},
-		},
-		"identity_realms_single_corp_integration_test.go": {
-			"TestIdentityRealmsSingleCorpIntegration": {
-				"identity_dependency_probe":      true,
-				"mochat_go_dashboard_identities": true,
-			},
-			"newIdentitySingleCorpMigrationDB":    {},
-			"createIdentitySingleCorpBaseFixture": {},
-		},
-		"mysql_integration_harness_test.go": {
-			"newMigrationIntegrationDBThrough": {},
-			"newMigrationRunnerThrough":        {},
-		},
-		"testharness/registry_test.go": {
-			"registryIntegrationDSN": {},
-		},
-		"wecom_capability_ledger_contract_test.go": {
-			"TestWeComCapabilityLedgerRealRollbackRejectsExternalInboundForeignKeysBeforeDrop": {
-				"mo_chat_wecom_0139_external_fk_probe": true,
-			},
-			"TestWeComCapabilityLedgerRealRunnerApplyDownApply": {},
-			"newWeComCapabilityLedgerTestRunner":                {},
-			"withTemporaryWeComCapabilityLedgerSchema":          {},
-			"createWeComCapabilityLedgerPreMigrationFixture":    {},
-		},
+	sources, err := integrationfixtureaudit.LoadTestSources(".", "integration_fixture_contract_test.go")
+	if err != nil {
+		t.Fatal(err)
 	}
-	allowedCreateDatabase := map[string]bool{
-		"wecom_capability_ledger_contract_test.go:TestWeComCapabilityLedgerRealRollbackRejectsExternalInboundForeignKeysBeforeDrop": true,
+	issues := auditMigrationFixtureSources(sources)
+	if len(issues) > 0 {
+		t.Fatalf("migration integration fixture contract violations:\n%s", strings.Join(issues, "\n"))
 	}
+}
 
-	for path, functions := range targets {
-		body, err := os.ReadFile(path)
-		if err != nil {
-			t.Fatal(err)
+func TestMigrationFixtureContractMutationsRejectLocalRunnerAndParentDDL(t *testing.T) {
+	t.Run("WeCom single migration runner", func(t *testing.T) {
+		sources := map[string][]byte{
+			"wecom_integration_test.go": []byte(`package migration
+import (
+	"os"
+	"jiyi/mochat-go/internal/migration"
+)
+func withWeComDB() { _ = os.Getenv("MOCHAT_GO_MYSQL_INTEGRATION_DSN") }
+func TestWeComLifecycle() {
+	withWeComDB()
+	migration.NewRunner(nil, []migration.Migration{{Version: "0139"}})
+}`),
 		}
-		file, err := parser.ParseFile(token.NewFileSet(), path, body, 0)
-		if err != nil {
-			t.Fatal(err)
+		issues := auditMigrationFixtureSources(sources)
+		if !migrationIssuesContain(issues, "TestWeComLifecycle", "local migration runner", "migration slice") {
+			t.Fatalf("WeCom single-migration runner mutation was not rejected: %v", issues)
 		}
-		for _, declaration := range file.Decls {
-			function, ok := declaration.(*ast.FuncDecl)
-			if !ok {
-				continue
-			}
-			allowedTables, targeted := functions[function.Name.Name]
-			if !targeted {
-				continue
-			}
-			start, end := int(function.Pos()-file.Pos()), int(function.End()-file.Pos())
-			source := string(body[start:end])
-			for _, match := range fixtureCreateTablePattern.FindAllStringSubmatch(source, -1) {
-				table := strings.ToLower(match[1])
-				if !allowedTables[table] {
-					t.Fatalf("%s:%s handwrites non-probe table %s instead of using a production registry prefix", path, function.Name.Name, table)
-				}
-			}
-			upper := strings.ToUpper(source)
-			compact := strings.NewReplacer(" ", "", "\t", "", "\r", "", "\n", "").Replace(upper)
-			for _, bypass := range []string{"CREATE DATABASE", "DBNAME=\"\"", "[]MIGRATION{MIGRATION}"} {
-				if strings.Contains(compact, strings.ReplaceAll(bypass, " ", "")) {
-					if bypass == "CREATE DATABASE" && allowedCreateDatabase[path+":"+function.Name.Name] {
-						continue
-					}
-					t.Fatalf("%s:%s bypasses the production migration registry through %s", path, function.Name.Name, bypass)
-				}
-			}
-			for _, mutation := range []string{"CREATE TABLE MOCHAT_GO_SCHEMA_MIGRATIONS", "INSERT INTO MOCHAT_GO_SCHEMA_MIGRATIONS", "UPDATE MOCHAT_GO_SCHEMA_MIGRATIONS"} {
-				if strings.Contains(upper, mutation) {
-					t.Fatalf("%s:%s handwrites the standard migration ledger with %q", path, function.Name.Name, mutation)
-				}
-			}
-			delete(functions, function.Name.Name)
+	})
+
+	t.Run("parent function cannot inherit probe table allowlist", func(t *testing.T) {
+		sources := map[string][]byte{
+			"identity_realms_single_corp_integration_test.go": []byte(`package migration
+func createIdentityUnknownTenantDependencyProbe() {
+	newMigrationIntegrationDBThrough(nil, "0128")
+	db.Exec("CREATE TABLE identity_dependency_probe (id bigint)")
+}
+func TestIdentityParent() {
+	newMigrationIntegrationDBThrough(nil, "0128")
+	db.Exec("CREATE TABLE identity_dependency_probe (id bigint)")
+}`),
 		}
-		for name := range functions {
-			t.Fatalf("static migration fixture target %s:%s no longer exists", path, name)
+		issues := auditMigrationFixtureSources(sources)
+		if !migrationIssuesContain(issues, "TestIdentityParent", "CREATE TABLE") {
+			t.Fatalf("parent function same-name DDL mutation was not rejected: %v", issues)
+		}
+		for _, issue := range issues {
+			if strings.Contains(issue, "createIdentityUnknownTenantDependencyProbe") {
+				t.Fatalf("exact probe helper was unexpectedly rejected: %s", issue)
+			}
+		}
+	})
+
+	t.Run("ledger delete must pin controlled 0130 version", func(t *testing.T) {
+		sources := map[string][]byte{
+			"identity_realms_single_corp_backfill_integration_test.go": []byte(`package migration
+func rollbackIdentityBackfillWithEvidence() {
+	newMigrationIntegrationDBThrough(nil, "0128")
+	db.Exec("DELETE FROM mochat_go_schema_migrations WHERE version=?", "0139_wecom_capability_ledger")
+}`),
+		}
+		issues := auditMigrationFixtureSources(sources)
+		if !migrationIssuesContain(issues, "rollbackIdentityBackfillWithEvidence", "exact controlled version") {
+			t.Fatalf("wrong-version ledger delete mutation was not rejected: %v", issues)
+		}
+	})
+
+	t.Run("0139 raw probe is only reachable through exact helper", func(t *testing.T) {
+		sources := map[string][]byte{
+			"wecom_capability_ledger_contract_test.go": []byte(`package migration_test
+import (
+	"os"
+	"jiyi/mochat-go/internal/migration"
+)
+func TestWeComDirectProbe() {
+	_ = os.Getenv("MOCHAT_GO_MYSQL_INTEGRATION_DSN")
+	migration.ExecuteWeComCapabilityLedger0139UpProbe(nil, nil, "../..")
+}`),
+		}
+		issues := auditMigrationFixtureSources(sources)
+		if !migrationIssuesContain(issues, "TestWeComDirectProbe", "bypasses") {
+			t.Fatalf("direct 0139 raw probe mutation was not rejected: %v", issues)
+		}
+	})
+
+	t.Run("exact runner helper rejects single element registry", func(t *testing.T) {
+		sources := map[string][]byte{
+			"mysql_integration_harness_test.go": []byte(`package migration
+func newMigrationIntegrationDBThrough() { newMigrationRunnerThrough() }
+func newMigrationRunnerThrough() {
+	NewRunner(nil, []Migration{{Version: "0139"}})
+}`),
+		}
+		issues := auditMigrationFixtureSources(sources)
+		if !migrationIssuesContain(issues, "newMigrationRunnerThrough", "exact production prefix") {
+			t.Fatalf("exact helper single-element runner mutation was not rejected: %v", issues)
+		}
+	})
+
+	t.Run("ledger mutation resolves variable const and helper", func(t *testing.T) {
+		for _, tc := range []struct {
+			name   string
+			source string
+		}{
+			{
+				name: "file const and local variable",
+				source: `package migration
+const ledgerTable = "mochat_go_schema_migrations"
+func newMigrationIntegrationDBThrough() {
+	query := "DELETE FROM " + ledgerTable + " WHERE version=?"
+	db.Exec(query, "0139_wecom_capability_ledger")
+}`,
+			},
+			{
+				name: "helper concatenation",
+				source: `package migration
+const ledgerTable = "mochat_go_schema_migrations"
+func ledgerDeleteSQL() string { return "DELETE FROM " + ledgerTable + " WHERE version=?" }
+func newMigrationIntegrationDBThrough() {
+	db.Exec(ledgerDeleteSQL(), "0139_wecom_capability_ledger")
+}`,
+			},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				issues := auditMigrationFixtureSources(map[string][]byte{"ledger_integration_test.go": []byte(tc.source)})
+				if !migrationIssuesContain(issues, "ledger", "standard migration ledger", "exact controlled version") {
+					t.Fatalf("ledger indirection mutation was not rejected: %v", issues)
+				}
+			})
+		}
+	})
+}
+
+func auditMigrationFixtureSources(sources map[string][]byte) []string {
+	operation := func(path, function, name, object string) integrationfixtureaudit.OperationAllowance {
+		return integrationfixtureaudit.OperationAllowance{
+			Ref: integrationfixtureaudit.Ref(path, function), Operation: name, Object: object,
 		}
 	}
+	return integrationfixtureaudit.Audit(sources, integrationfixtureaudit.Config{
+		RootFunctions: []string{"newMigrationIntegrationDBThrough"},
+		AllowedRunnerRefs: []string{
+			integrationfixtureaudit.Ref("mysql_integration_harness_test.go", "newMigrationRunnerThrough"),
+			integrationfixtureaudit.Ref("mysql_external_integration_harness_test.go", "newExternalMigrationRunnerThrough"),
+		},
+		AllowedOperations: []integrationfixtureaudit.OperationAllowance{
+			operation("archive_runner_integration_test.go", "TestArchiveSourceMigrationRunnerApplyDownApplyPinsOneConnection", "CREATE TABLE", "mochat_go_archive_sync_runs"),
+			operation("archive_runner_integration_test.go", "TestArchiveSourceMigrationRunnerApplyDownApplyPinsOneConnection", "DROP TABLE", "mochat_go_archive_sync_runs"),
+			operation("dashboard_page_rbac_integration_test.go", "createDashboardRBACPartialTablesProbe", "CREATE TABLE", "mochat_go_dashboard_permissions"),
+			operation("dashboard_page_rbac_integration_test.go", "createDashboardRBACPartialTablesProbe", "CREATE TABLE", "mochat_go_dashboard_permission_resources"),
+			operation("dashboard_page_rbac_integration_test.go", "createDashboardRBACPartialTablesProbe", "CREATE TABLE", "mochat_go_dashboard_user_roles"),
+			operation("identity_realms_single_corp_integration_test.go", "createIdentityUnknownTenantDependencyProbe", "CREATE TABLE", "identity_dependency_probe"),
+			operation("identity_realms_single_corp_integration_test.go", "createIdentityPartialDashboardIdentityProbe", "CREATE TABLE", "mochat_go_dashboard_identities"),
+			operation("identity_realms_single_corp_backfill_integration_test.go", "TestIdentityRealmsSingleCorpBackfillDownToleratesPartialDDL", "DROP TABLE", "mochat_go_identity_migration_ledger"),
+			operation("wecom_capability_ledger_contract_test.go", "createWeComCapabilityExternalForeignKeyProbe", "CREATE TABLE", "mo_chat_wecom_0139_external_fk_probe"),
+			operation("wecom_capability_ledger_contract_test.go", "createWeComCapabilityExternalForeignKeyProbeDatabase", "CREATE DATABASE", "<dynamic>"),
+			operation("wecom_capability_ledger_contract_test.go", "TestWeComCapabilityLedgerDownRecoversPartialStateThenReapplies", "DROP TABLE", "mochat_go_wecom_capability_operation_events"),
+		},
+		AllowedLedgerDelete: map[string]string{
+			integrationfixtureaudit.Ref("identity_realms_single_corp_backfill_integration_test.go", "TestIdentityRealmsSingleCorpBackfillRealMariaDB"): "0130_identity_realms_single_corp_backfill",
+			integrationfixtureaudit.Ref("identity_realms_single_corp_backfill_integration_test.go", "rollbackIdentityBackfillWithEvidence"):            "0130_identity_realms_single_corp_backfill",
+		},
+		ForbiddenCalls: []string{"ExecuteWeComCapabilityLedger0139UpProbe"},
+		AllowedCallRefs: []string{
+			integrationfixtureaudit.Ref("wecom_capability_ledger_contract_test.go", "executeWeComCapabilityLedgerUpResidualProbe") + ":ExecuteWeComCapabilityLedger0139UpProbe",
+		},
+	})
+}
+
+func migrationIssuesContain(issues []string, function string, fragments ...string) bool {
+	for _, issue := range issues {
+		if !strings.Contains(issue, function) {
+			continue
+		}
+		for _, fragment := range fragments {
+			if strings.Contains(issue, fragment) {
+				return true
+			}
+		}
+	}
+	return false
 }

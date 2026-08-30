@@ -133,18 +133,23 @@ func TestDashboardPageRBACIntegration(t *testing.T) {
 		if _, err := db.Exec(`ALTER TABLE mc_rbac_role ADD COLUMN dashboard_access_version bigint(20) unsigned NOT NULL DEFAULT 1, ADD UNIQUE INDEX uni_dashboard_role_tenant_id_id (tenant_id,id)`); err != nil {
 			t.Fatal(err)
 		}
-		for _, statement := range []string{
-			`CREATE TABLE mochat_go_dashboard_permissions (id bigint unsigned NOT NULL PRIMARY KEY) ENGINE=InnoDB`,
-			`CREATE TABLE mochat_go_dashboard_permission_resources (id bigint unsigned NOT NULL PRIMARY KEY) ENGINE=InnoDB`,
-			`CREATE TABLE mochat_go_dashboard_user_roles (id bigint unsigned NOT NULL PRIMARY KEY) ENGINE=InnoDB`,
-		} {
-			if _, err := db.Exec(statement); err != nil {
-				t.Fatal(err)
-			}
-		}
+		createDashboardRBACPartialTablesProbe(t, db)
 		recoverDashboardRBACPartialState(t, db)
 		assertDashboardRBACRemoved(t, db)
 	})
+}
+
+func createDashboardRBACPartialTablesProbe(t *testing.T, db *sql.DB) {
+	t.Helper()
+	for _, statement := range []string{
+		`CREATE TABLE mochat_go_dashboard_permissions (id bigint unsigned NOT NULL PRIMARY KEY) ENGINE=InnoDB`,
+		`CREATE TABLE mochat_go_dashboard_permission_resources (id bigint unsigned NOT NULL PRIMARY KEY) ENGINE=InnoDB`,
+		`CREATE TABLE mochat_go_dashboard_user_roles (id bigint unsigned NOT NULL PRIMARY KEY) ENGINE=InnoDB`,
+	} {
+		if _, err := db.Exec(statement); err != nil {
+			t.Fatal(err)
+		}
+	}
 }
 
 func newDashboardRBACMigrationDB(t *testing.T) *sql.DB {

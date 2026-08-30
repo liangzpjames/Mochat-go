@@ -3,31 +3,11 @@ package migration_test
 import (
 	"context"
 	"database/sql"
-	"os"
-	"path/filepath"
-	"strings"
 	"testing"
-
-	"jiyi/mochat-go/internal/integrationtestdb"
-	"jiyi/mochat-go/internal/migration"
-	"jiyi/mochat-go/internal/migration/testharness"
 )
 
 func TestArchiveSourceMigrationRunnerApplyDownApplyPinsOneConnection(t *testing.T) {
-	dsn := strings.TrimSpace(os.Getenv("MOCHAT_GO_MYSQL_INTEGRATION_DSN"))
-	if dsn == "" {
-		t.Skip("SKIP: MOCHAT_GO_MYSQL_INTEGRATION_DSN is not set; isolated MariaDB DSN is required")
-	}
-	database := integrationtestdb.NewIsolated(t, dsn)
-	db := database.DB
-	root := filepath.Join("..", "..")
-	evidence, err := testharness.NewControlledEvidence("archive-runner-0137")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := testharness.ApplyThrough(context.Background(), db, root, "0137_reconcile_ai_settings_schema", evidence); err != nil {
-		t.Fatalf("apply production registry through 0137: %v", err)
-	}
+	db, root := newExternalMigrationIntegrationDBThrough(t, "0137_reconcile_ai_settings_schema", "archive-runner-0137")
 	if _, err := db.Exec(`INSERT INTO mc_tenant (id,name,status) VALUES (11,'Archive runner tenant',1)`); err != nil {
 		t.Fatal(err)
 	}
@@ -37,17 +17,7 @@ func TestArchiveSourceMigrationRunnerApplyDownApplyPinsOneConnection(t *testing.
 	if _, err := db.Exec(`INSERT INTO mochat_go_tenant_corp_bindings (tenant_id,corp_id,status,version) VALUES (11,27,1,1)`); err != nil {
 		t.Fatal(err)
 	}
-	migrations := migration.DefaultMigrations(root)
-	var runner *migration.Runner
-	for index, candidate := range migrations {
-		if candidate.Version == "0138_archive_source_sync" {
-			runner, err = migration.NewRunner(db, migrations[:index+1])
-			break
-		}
-	}
-	if err != nil || runner == nil {
-		t.Fatalf("build production runner through 0138: runner=%v err=%v", runner != nil, err)
-	}
+	runner := newExternalMigrationRunnerThrough(t, db, root, "0138_archive_source_sync")
 	if _, err := runner.Apply(context.Background()); err != nil {
 		t.Fatal(err)
 	}

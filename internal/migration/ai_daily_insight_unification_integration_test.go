@@ -1,6 +1,6 @@
 //go:build integration
 
-package migration
+package migration_test
 
 import (
 	"context"
@@ -10,19 +10,21 @@ import (
 	"strings"
 	"testing"
 
-	mysqldriver "github.com/go-sql-driver/mysql"
+	"jiyi/mochat-go/internal/integrationtestdb"
+	. "jiyi/mochat-go/internal/migration"
+	"jiyi/mochat-go/internal/migration/testharness"
 )
 
 const aiDailyMigrationIntegrationDSNEnv = "MOCHAT_GO_AI_INSIGHT_MYSQL_INTEGRATION_DSN"
 
 func TestAIDailyInsightUnification0165RetriesEveryPartialStageOnRealMariaDB(t *testing.T) {
-	db := aiDailyMigrationIntegrationDB(t)
 	up := aiDailyMigrationStatements(t, "up")
 	down := aiDailyMigrationStatements(t, "down")
 
 	for cut := 1; cut < len(up); cut++ {
 		t.Run("up_after_statement_"+string(rune('0'+cut)), func(t *testing.T) {
-			resetAIDailyMigrationFixture(t, db)
+			db := aiDailyMigrationIntegrationDB(t)
+			seedAIDailyMigrationFixture(t, db)
 			execAIDailyMigrationStatements(t, db, up[:cut])
 			execAIDailyMigrationStatements(t, db, up)
 			execAIDailyMigrationStatements(t, db, up)
@@ -32,7 +34,8 @@ func TestAIDailyInsightUnification0165RetriesEveryPartialStageOnRealMariaDB(t *t
 
 	for cut := 1; cut < len(down); cut++ {
 		t.Run("down_after_statement_"+string(rune('0'+cut)), func(t *testing.T) {
-			resetAIDailyMigrationFixture(t, db)
+			db := aiDailyMigrationIntegrationDB(t)
+			seedAIDailyMigrationFixture(t, db)
 			execAIDailyMigrationStatements(t, db, up)
 			prepareAIDailyMigrationDownDuplicate(t, db)
 			execAIDailyMigrationStatements(t, db, down[:cut])
@@ -52,30 +55,17 @@ func aiDailyMigrationIntegrationDB(t *testing.T) *sql.DB {
 		}
 		t.Skipf("%s is required for MariaDB integration tests", aiDailyMigrationIntegrationDSNEnv)
 	}
-	config, err := mysqldriver.ParseDSN(dsn)
-	if err != nil {
-		t.Fatal("invalid AI insight integration DSN")
-	}
-	if !isAIDailyMigrationIntegrationSchema(config.DBName) {
-		t.Fatal("AI daily migration integration DSN must target a dedicated test schema")
-	}
-	config.MultiStatements = false
-	db, err := sql.Open("mysql", config.FormatDSN())
+	database := integrationtestdb.NewIsolated(t, dsn)
+	evidence, err := testharness.NewControlledEvidence("ai-daily-0165")
 	if err != nil {
 		t.Fatal(err)
 	}
-	db.SetMaxOpenConns(1)
-	db.SetMaxIdleConns(1)
-	if err := db.PingContext(context.Background()); err != nil {
-		_ = db.Close()
-		t.Fatal("connect AI daily migration integration database")
+	if err := testharness.ApplyThrough(context.Background(), database.DB, filepath.Join("..", ".."), "0164_saas_tenant_ai_provider", evidence); err != nil {
+		t.Fatalf("apply production migration registry through 0164: %v", err)
 	}
-	t.Cleanup(func() {
-		_, _ = db.Exec("DROP TABLE IF EXISTS mochat_go_ai_analysis")
-		_, _ = db.Exec("DROP TABLE IF EXISTS mochat_go_ai_conversation_insights")
-		_ = db.Close()
-	})
-	return db
+	database.DB.SetMaxOpenConns(1)
+	database.DB.SetMaxIdleConns(1)
+	return database.DB
 }
 
 func aiDailyMigrationStatements(t *testing.T, direction string) []string {
@@ -91,44 +81,9 @@ func aiDailyMigrationStatements(t *testing.T, direction string) []string {
 	return statements
 }
 
-func resetAIDailyMigrationFixture(t *testing.T, db *sql.DB) {
+func seedAIDailyMigrationFixture(t *testing.T, db *sql.DB) {
 	t.Helper()
 	for _, statement := range []string{
-		"DROP TABLE IF EXISTS mochat_go_ai_analysis",
-		"DROP TABLE IF EXISTS mochat_go_ai_conversation_insights",
-		`CREATE TABLE mochat_go_ai_conversation_insights (
-			id bigint unsigned NOT NULL AUTO_INCREMENT,
-			tenant_id int unsigned NOT NULL,
-			corp_id int unsigned NOT NULL,
-			analysis_type varchar(24) NOT NULL,
-			rule_id bigint unsigned NOT NULL DEFAULT 0,
-			rule_version_id bigint unsigned NOT NULL DEFAULT 0,
-			conversation_key varchar(191) NOT NULL,
-			employee_id bigint unsigned NOT NULL DEFAULT 0,
-			employee_name varchar(120) NOT NULL DEFAULT '',
-			employee_avatar varchar(512) NOT NULL DEFAULT '',
-			target_type varchar(24) NOT NULL DEFAULT '',
-			target_id varchar(191) NOT NULL DEFAULT '',
-			target_name varchar(191) NOT NULL DEFAULT '',
-			target_avatar varchar(512) NOT NULL DEFAULT '',
-			source_started_at datetime(6) NULL,
-			source_ended_at datetime(6) NULL,
-			source_message_count int unsigned NOT NULL DEFAULT 0,
-			source_fingerprint char(64) NOT NULL,
-			status varchar(16) NOT NULL DEFAULT 'pending',
-			summary varchar(1200) NOT NULL DEFAULT '',
-			result_json json NOT NULL,
-			error_summary varchar(500) NOT NULL DEFAULT '',
-			provider varchar(64) NOT NULL DEFAULT '',
-			model varchar(128) NOT NULL DEFAULT '',
-			prompt_version varchar(32) NOT NULL DEFAULT '',
-			generated_at datetime(6) NULL,
-			created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
-			updated_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-			PRIMARY KEY (id),
-			UNIQUE KEY uq_ai_conversation_source (tenant_id,corp_id,analysis_type,rule_version_id,conversation_key,source_fingerprint)
-		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
-		`CREATE TABLE mochat_go_ai_analysis (id bigint unsigned NOT NULL AUTO_INCREMENT, PRIMARY KEY (id)) ENGINE=InnoDB`,
 		`INSERT INTO mochat_go_ai_conversation_insights
 			(tenant_id,corp_id,analysis_type,rule_version_id,conversation_key,source_fingerprint,status,result_json,generated_at,created_at)
 		VALUES

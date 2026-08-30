@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -17,26 +16,7 @@ import (
 )
 
 func TestMySQLStoreWeWorkCallbackSideEffectIntentIsTransactionalAndConcurrentReplayExecutesOnce(t *testing.T) {
-	store, db, _ := newWeWorkCallbackInboxIntegrationStore(t)
-	root := filepath.Join("..", "..")
-	runner, err := migration.NewRunner(db, []migration.Migration{
-		{
-			Version: "0172_wework_callback_inbox", Description: "durable WeWork callback inbox",
-			Path:     filepath.Join(root, "deploy", "standalone", "migrations", "0172_wework_callback_inbox.up.sql"),
-			DownPath: filepath.Join(root, "deploy", "standalone", "migrations", "0172_wework_callback_inbox.down.sql"),
-		},
-		{
-			Version: "0174_wework_callback_side_effects", Description: "durable callback external side effects",
-			Path:     filepath.Join(root, "deploy", "standalone", "migrations", "0174_wework_callback_side_effects.up.sql"),
-			DownPath: filepath.Join(root, "deploy", "standalone", "migrations", "0174_wework_callback_side_effects.down.sql"),
-		},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := runner.Apply(context.Background()); err != nil {
-		t.Fatal(err)
-	}
+	store, db, runner := newWeWorkCallbackSideEffectIntegrationStore(t)
 	event := dashboard.WeWorkCallbackEvent{
 		TenantID: 11, CorpID: 1101, WxCorpID: "wx-corp-1101", EventPath: "event.change_external_contact.add_external_contact",
 		Message: map[string]string{"MsgId": "side-effect-intent"}, ReceivedAt: "2026-08-30 00:00:00",
@@ -117,7 +97,7 @@ func TestMySQLStoreWeWorkCallbackSideEffectIntentIsTransactionalAndConcurrentRep
 }
 
 func TestMySQLStoreWeWorkCallbackInboxConcurrentAcceptanceAndLeaseFencing(t *testing.T) {
-	store, db, _ := newWeWorkCallbackInboxIntegrationStore(t)
+	store, db := newWeWorkCallbackInboxIntegrationStore(t)
 	state, err := store.WeWorkCallbackLegacyCutover(context.Background())
 	if err != nil || state.Status == "completed" || state.SourceFingerprint != "" {
 		t.Fatalf("initial cutover state=%+v err=%v", state, err)
@@ -367,9 +347,26 @@ func TestMySQLStoreWeWorkCallbackInboxConcurrentAcceptanceAndLeaseFencing(t *tes
 
 }
 
-func newWeWorkCallbackInboxIntegrationStore(t *testing.T) (*MySQLStore, *sql.DB, *migration.Runner) {
+func newWeWorkCallbackInboxIntegrationStore(t *testing.T) (*MySQLStore, *sql.DB) {
 	t.Helper()
 	db := newCurrentStoreIntegrationDB(t)
+	seedWeWorkCallbackIntegrationStore(t, db)
+	return NewMySQLStore(db), db
+}
+
+func newWeWorkCallbackSideEffectIntegrationStore(t *testing.T) (*MySQLStore, *sql.DB, *migration.Runner) {
+	t.Helper()
+	db := newStoreIntegrationDBThrough(t, "0173_scrm_order_idempotency")
+	seedWeWorkCallbackIntegrationStore(t, db)
+	runner := newStoreMigrationRunnerThrough(t, db, "0174_wework_callback_side_effects")
+	if _, err := runner.Apply(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	return NewMySQLStore(db), db, runner
+}
+
+func seedWeWorkCallbackIntegrationStore(t *testing.T, db *sql.DB) {
+	t.Helper()
 	for _, statement := range []string{
 		`INSERT INTO mc_tenant (id,name,status) VALUES (11,'Callback tenant',1)`,
 		`INSERT INTO mc_corp (id,tenant_id,name) VALUES (1101,11,'Callback corp')`,
@@ -379,17 +376,4 @@ func newWeWorkCallbackInboxIntegrationStore(t *testing.T) (*MySQLStore, *sql.DB,
 			t.Fatal(err)
 		}
 	}
-	root := filepath.Join("..", "..")
-	runner, err := migration.NewRunner(db, []migration.Migration{{
-		Version: "0172_wework_callback_inbox", Description: "durable WeWork callback inbox",
-		Path:     filepath.Join(root, "deploy", "standalone", "migrations", "0172_wework_callback_inbox.up.sql"),
-		DownPath: filepath.Join(root, "deploy", "standalone", "migrations", "0172_wework_callback_inbox.down.sql"),
-	}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := runner.Apply(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	return NewMySQLStore(db), db, runner
 }

@@ -4,63 +4,30 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"os"
-	"path/filepath"
-	"strings"
 	"testing"
 
-	"jiyi/mochat-go/internal/integrationtestdb"
 	"jiyi/mochat-go/internal/migration"
-	"jiyi/mochat-go/internal/migration/testharness"
 )
 
 func TestContactBatchTitle0175UpDownReapplyLifecycle(t *testing.T) {
-	dsn := strings.TrimSpace(os.Getenv("MOCHAT_GO_MYSQL_INTEGRATION_DSN"))
-	if dsn == "" {
-		t.Skip("SKIP: MOCHAT_GO_MYSQL_INTEGRATION_DSN is required for 0175 lifecycle integration")
-	}
-	database := integrationtestdb.NewIsolated(t, dsn)
-	root := filepath.Join("..", "..")
-	evidence, err := testharness.NewControlledEvidence("contact-0175")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := testharness.ApplyThrough(context.Background(), database.DB, root, "0174_wework_callback_side_effects", evidence); err != nil {
-		t.Fatal(err)
-	}
-	migrations := migrationsThrough(t, root, "0175_contact_batch_title")
-	runner, err := migration.NewRunner(database.DB, migrations)
-	if err != nil {
-		t.Fatal(err)
-	}
+	db, root := newExternalMigrationIntegrationDBThrough(t, "0174_wework_callback_side_effects", "contact-0175")
+	runner := newExternalMigrationRunnerThrough(t, db, root, "0175_contact_batch_title")
 	if _, err := runner.Apply(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	assertContactBatchTitleColumn(t, database.DB, true)
-	assertContact0175Ledger(t, database.DB, root, true)
+	assertContactBatchTitleColumn(t, db, true)
+	assertContact0175Ledger(t, db, root, true)
 	rolledBack, err := runner.RollbackLast(context.Background())
 	if err != nil || rolledBack != "0175_contact_batch_title" {
 		t.Fatalf("rollback=%q err=%v", rolledBack, err)
 	}
-	assertContactBatchTitleColumn(t, database.DB, false)
-	assertContact0175Ledger(t, database.DB, root, false)
+	assertContactBatchTitleColumn(t, db, false)
+	assertContact0175Ledger(t, db, root, false)
 	if _, err := runner.Apply(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	assertContactBatchTitleColumn(t, database.DB, true)
-	assertContact0175Ledger(t, database.DB, root, true)
-}
-
-func migrationsThrough(t *testing.T, root, version string) []migration.Migration {
-	t.Helper()
-	all := migration.DefaultMigrations(root)
-	for index, item := range all {
-		if item.Version == version {
-			return all[:index+1]
-		}
-	}
-	t.Fatalf("migration %s not found", version)
-	return nil
+	assertContactBatchTitleColumn(t, db, true)
+	assertContact0175Ledger(t, db, root, true)
 }
 
 func assertContactBatchTitleColumn(t *testing.T, db interface{ QueryRow(string, ...any) *sql.Row }, present bool) {

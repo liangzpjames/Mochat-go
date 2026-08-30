@@ -1,120 +1,134 @@
 package store
 
 import (
-	"go/ast"
-	"go/parser"
-	"go/token"
-	"os"
-	"regexp"
 	"strings"
 	"testing"
+
+	"jiyi/mochat-go/internal/integrationfixtureaudit"
 )
 
 func TestCurrentStoreIntegrationFixturesDoNotHandwriteBusinessSchemaOrLedger(t *testing.T) {
-	targets := map[string]map[string]bool{
-		"mysql_integration_harness_test.go": {
-			"newCurrentStoreIntegrationDB":   true,
-			"newStoreIntegrationDBThrough":   true,
-			"newStoreIntegrationDatabase":    true,
-			"newStoreMigrationRunnerThrough": true,
-		},
-		"dashboard_access_integration_test.go": {
-			"openDashboardIntegrationDB": true,
-		},
-		"wework_callback_inbox_integration_test.go": {
-			"newWeWorkCallbackInboxIntegrationStore": true,
-		},
-		"archive_source_read_integration_test.go": {
-			"TestArchiveSourceReadUsesRegistryForItemsCountsAndPages":                true,
-			"TestArchiveSourceReadLegacySimulationRegistryStaysOutOfExternalDefault": true,
-			"seedArchiveReadCorp": true, "createArchiveReadBusinessFixture": true,
-		},
-		"archive_sync_integration_test.go": {
-			"TestArchiveSourceMigrationBackfillsLegacySimulationRowsOnTemporaryMariaDB": true,
-			"TestArchiveSyncStoreUsesTemporarySchemaForLifecycleAndTenantIsolation":     true,
-			"TestArchiveSourceStatusUsesCurrentCorpArchiveMode":                         true,
-			"TestArchiveSyncStaleRunningRunIsTakenOverWithAudit":                        true,
-			"TestArchiveSyncConcurrentFirstEnqueueRereadsDuplicateRun":                  true,
-			"TestArchiveSyncEnqueueRejectsNamespaceMismatchWithoutMutation":             true,
-			"TestArchiveSyncMigrationApplyDownApplyAndRejectsCrossTenantRun":            true,
-			"TestArchiveSyncUpsertValidatesRunScopeAndRollsBackSourceFailure":           true,
-			"TestArchiveSyncLeaseFenceRejectsStaleWorkerMutations":                      true,
-			"TestArchiveSyncConcurrentDifferentRunsClaimOneMessageIdentity":             true,
-			"TestArchiveSyncMigrationRejectsIncompleteResidualTable":                    true,
-			"TestArchiveSyncMigrationRejectsWrongCompositeSourceForeignKey":             true,
-			"TestArchiveSyncMigrationRejectsNonUniqueResidualScopeIndex":                true,
-			"TestArchiveSyncMigrationRejectsPrefixedResidualScopeIndex":                 true,
-			"TestArchiveSyncMigrationRejectsWrongAuditScopeIndex":                       true,
-			"newArchiveSyncProbeDB":             true,
-			"seedCurrentArchiveSyncCorpFixture": true,
-			"seedCurrentArchiveMessageFixture":  true,
-		},
-		"message_intercept_integration_test.go": {
-			"TestKeywordEntryAtomicityAndConcurrentVersionsAgainstIsolatedMySQL": true,
-		},
-		"risk_behavior_integration_test.go": {
-			"TestRiskAndKeywordAtomicityAgainstIsolatedMySQL": true,
-		},
-		"work_message_customer_integration_test.go": {
-			"TestCustomerDirectoryMariaDBIntegration":    true,
-			"TestCustomerConversationMariaDBIntegration": true,
-			"TestCustomerDetailMariaDBIntegration":       true,
-		},
+	sources, err := integrationfixtureaudit.LoadTestSources(".", "integration_fixture_contract_test.go")
+	if err != nil {
+		t.Fatal(err)
 	}
-	allowedProbeTables := map[string]map[string]bool{
-		"TestArchiveSyncMigrationRejectsIncompleteResidualTable":        {"mochat_go_archive_sync_runs": true},
-		"TestArchiveSyncMigrationRejectsWrongCompositeSourceForeignKey": {"mochat_go_archive_message_sources": true},
-		"TestArchiveSyncMigrationRejectsNonUniqueResidualScopeIndex":    {"mochat_go_archive_message_sources": true},
-		"TestArchiveSyncMigrationRejectsPrefixedResidualScopeIndex":     {"mochat_go_archive_message_sources": true},
-		"TestArchiveSyncMigrationRejectsWrongAuditScopeIndex":           {"mochat_go_archive_sync_audits": true},
+	issues := auditStoreFixtureSources(sources)
+	if len(issues) > 0 {
+		t.Fatalf("current Store integration fixture contract violations:\n%s", strings.Join(issues, "\n"))
 	}
-	allowedProbeMigrationExecution := map[string]bool{
-		"TestArchiveSyncMigrationRejectsIncompleteResidualTable":        true,
-		"TestArchiveSyncMigrationRejectsWrongCompositeSourceForeignKey": true,
-		"TestArchiveSyncMigrationRejectsNonUniqueResidualScopeIndex":    true,
-		"TestArchiveSyncMigrationRejectsPrefixedResidualScopeIndex":     true,
-		"TestArchiveSyncMigrationRejectsWrongAuditScopeIndex":           true,
+}
+
+func TestStoreFixtureContractMutationRejectsCallbackLocalRunner(t *testing.T) {
+	sources := map[string][]byte{
+		"callback_integration_test.go": []byte(`package store
+import "jiyi/mochat-go/internal/migration"
+func newCallbackStore() { newCurrentStoreIntegrationDB(nil) }
+func TestCallbackLifecycle() {
+	newCallbackStore()
+	migration.NewRunner(nil, []migration.Migration{{Version: "0174"}})
+}`),
 	}
-	createTablePattern := regexp.MustCompile(`(?i)CREATE\s+TABLE(?:\s+IF\s+NOT\s+EXISTS)?\s+[` + "`" + `]?([[:alnum:]_]+)` + "`" + `?`)
-	for path, functions := range targets {
-		body, err := os.ReadFile(path)
-		if err != nil {
-			t.Fatal(err)
-		}
-		file, err := parser.ParseFile(token.NewFileSet(), path, body, 0)
-		if err != nil {
-			t.Fatal(err)
-		}
-		for _, declaration := range file.Decls {
-			function, ok := declaration.(*ast.FuncDecl)
-			if !ok || !functions[function.Name.Name] {
-				continue
+	issues := auditStoreFixtureSources(sources)
+	if !issuesContain(issues, "TestCallbackLifecycle", "local migration runner", "migration slice") {
+		t.Fatalf("callback fixture local migration runner mutation was not rejected: %v", issues)
+	}
+}
+
+func TestStoreFixtureContractMutationDiscoversStructuredDatabaseSink(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		sink string
+	}{
+		{name: "integrationtestdb NewIsolated", sink: "integrationtestdb.NewIsolated(nil, dsn)"},
+		{name: "database sql Open", sink: `sql.Open("mysql", dsn)`},
+		{name: "standard registry harness", sink: `testharness.ApplyThrough(nil, nil, "../..", "0174", evidence)`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			source := `package store
+import (
+	"database/sql"
+	"jiyi/mochat-go/internal/integrationtestdb"
+	"jiyi/mochat-go/internal/migration"
+	"jiyi/mochat-go/internal/migration/testharness"
+)
+const integrationDSN = "configured-indirectly"
+func openIndirectIntegrationDB(dsn string) { ` + tc.sink + ` }
+func TestIndirectIntegrationEntry() {
+	openIndirectIntegrationDB(integrationDSN)
+	migration.NewRunner(nil, []migration.Migration{{Version: "0174"}})
+}`
+			issues := auditStoreFixtureSources(map[string][]byte{"indirect_integration_test.go": []byte(source)})
+			if !issuesContain(issues, "TestIndirectIntegrationEntry", "local migration runner", "migration slice") {
+				t.Fatalf("structured database sink did not discover indirect integration entry: %v", issues)
 			}
-			start, end := int(function.Pos()-file.Pos()), int(function.End()-file.Pos())
-			source := strings.ToUpper(string(body[start:end]))
-			for _, match := range createTablePattern.FindAllStringSubmatch(source, -1) {
-				table := strings.ToLower(match[1])
-				if !allowedProbeTables[function.Name.Name][table] {
-					t.Fatalf("%s:%s handwrites non-probe table %s instead of using the production registry", path, function.Name.Name, table)
-				}
-			}
-			for _, bypass := range []string{"NEWDASHBOARDADMINPROVISIONINGDB", "CREATEARCHIVESYNCCORPFIXTURE", "EXECUTEARCHIVEMIGRATIONFILE", "TASK6INTEGRATIONDB", "CREATE DATABASE"} {
-				if strings.Contains(source, bypass) {
-					if bypass == "EXECUTEARCHIVEMIGRATIONFILE" && allowedProbeMigrationExecution[function.Name.Name] {
-						continue
-					}
-					t.Fatalf("%s:%s bypasses the current production registry through %s", path, function.Name.Name, bypass)
-				}
-			}
-			for _, mutation := range []string{"INSERT INTO MOCHAT_GO_SCHEMA_MIGRATIONS", "UPDATE MOCHAT_GO_SCHEMA_MIGRATIONS", "DELETE FROM MOCHAT_GO_SCHEMA_MIGRATIONS", "DROP TABLE MOCHAT_GO_SCHEMA_MIGRATIONS", "CREATE TABLE MOCHAT_GO_SCHEMA_MIGRATIONS"} {
-				if strings.Contains(source, mutation) {
-					t.Fatalf("%s:%s mutates the production migration ledger with %q", path, function.Name.Name, mutation)
-				}
-			}
-			delete(functions, function.Name.Name)
-		}
-		for name := range functions {
-			t.Fatalf("static fixture contract target %s:%s no longer exists", path, name)
+		})
+	}
+}
+
+func auditStoreFixtureSources(sources map[string][]byte) []string {
+	operation := func(path, function, name, object string) integrationfixtureaudit.OperationAllowance {
+		return integrationfixtureaudit.OperationAllowance{
+			Ref: integrationfixtureaudit.Ref(path, function), Operation: name, Object: object,
 		}
 	}
+	allowedOperations := []integrationfixtureaudit.OperationAllowance{
+		operation("archive_sync_integration_test.go", "TestArchiveSyncMigrationRejectsIncompleteResidualTable", "CREATE TABLE", "mochat_go_archive_sync_runs"),
+		operation("archive_sync_integration_test.go", "TestArchiveSyncMigrationRejectsIncompleteResidualTable", "DROP TABLE", "mochat_go_archive_sync_runs"),
+		operation("archive_sync_integration_test.go", "TestArchiveSyncMigrationRejectsWrongCompositeSourceForeignKey", "CREATE TABLE", "mochat_go_archive_message_sources"),
+		operation("archive_sync_integration_test.go", "TestArchiveSyncMigrationRejectsWrongCompositeSourceForeignKey", "DROP TABLE", "mochat_go_archive_message_sources"),
+		operation("archive_sync_integration_test.go", "TestArchiveSyncMigrationRejectsNonUniqueResidualScopeIndex", "CREATE TABLE", "mochat_go_archive_message_sources"),
+		operation("archive_sync_integration_test.go", "TestArchiveSyncMigrationRejectsNonUniqueResidualScopeIndex", "DROP TABLE", "mochat_go_archive_message_sources"),
+		operation("archive_sync_integration_test.go", "TestArchiveSyncMigrationRejectsPrefixedResidualScopeIndex", "CREATE TABLE", "mochat_go_archive_message_sources"),
+		operation("archive_sync_integration_test.go", "TestArchiveSyncMigrationRejectsPrefixedResidualScopeIndex", "DROP TABLE", "mochat_go_archive_message_sources"),
+		operation("archive_sync_integration_test.go", "TestArchiveSyncMigrationRejectsWrongAuditScopeIndex", "CREATE TABLE", "mochat_go_archive_sync_audits"),
+		operation("archive_sync_integration_test.go", "TestArchiveSyncMigrationRejectsWrongAuditScopeIndex", "DROP TABLE", "mochat_go_archive_sync_audits"),
+		operation("dashboard_admin_provisioning_integration_test.go", "TestDashboardAdminProvisioningRealMariaDB", "DROP TABLE", "mochat_go_dashboard_permission_audits"),
+	}
+	allowedCallRefs := []string{}
+	for _, function := range []string{
+		"executeArchiveMigrationFile",
+		"TestArchiveSyncMigrationRejectsIncompleteResidualTable",
+		"TestArchiveSyncMigrationRejectsSingleFactorIdempotencyKeyTypeMismatch",
+		"TestArchiveSyncMigrationRejectsWrongCompositeSourceForeignKey",
+		"TestArchiveSyncMigrationRejectsNonUniqueResidualScopeIndex",
+		"TestArchiveSyncMigrationRejectsPrefixedResidualScopeIndex",
+		"TestArchiveSyncMigrationRejectsWrongAuditScopeIndex",
+	} {
+		for _, call := range []string{"executeArchiveMigrationFile", "executeArchiveMigrationFileErr"} {
+			allowedCallRefs = append(allowedCallRefs, integrationfixtureaudit.Ref("archive_sync_integration_test.go", function)+":"+call)
+		}
+	}
+	return integrationfixtureaudit.Audit(sources, integrationfixtureaudit.Config{
+		RootFunctions: []string{
+			"newCurrentStoreIntegrationDB",
+			"newStoreIntegrationDBThrough",
+			"newStoreIntegrationDatabase",
+		},
+		AllowedRunnerRefs: []string{
+			integrationfixtureaudit.Ref("mysql_integration_harness_test.go", "newStoreMigrationRunnerThrough"),
+		},
+		AllowedOperations: allowedOperations,
+		ForbiddenCalls: []string{
+			"newDashboardAdminProvisioningDB",
+			"createArchiveSyncCorpFixture",
+			"executeArchiveMigrationFile",
+			"executeArchiveMigrationFileErr",
+			"task6IntegrationDB",
+		},
+		AllowedCallRefs: allowedCallRefs,
+	})
+}
+
+func issuesContain(issues []string, function string, fragments ...string) bool {
+	for _, issue := range issues {
+		if !strings.Contains(issue, function) {
+			continue
+		}
+		for _, fragment := range fragments {
+			if strings.Contains(issue, fragment) {
+				return true
+			}
+		}
+	}
+	return false
 }

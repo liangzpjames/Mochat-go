@@ -199,10 +199,7 @@ func TestWeComCapabilityLedgerRealRollbackRejectsExternalInboundForeignKeysBefor
 		if err := db.QueryRow(`SELECT DATABASE()`).Scan(&currentSchema); err != nil {
 			t.Fatal(err)
 		}
-		probeSchema := fmt.Sprintf("mochat_wecom_0139_fk_probe_%d_%d", os.Getpid(), weComCapabilityLedgerSchemaSequence.Add(1))
-		if _, err := db.Exec("CREATE DATABASE `" + probeSchema + "` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"); err != nil {
-			t.Fatal(err)
-		}
+		probeSchema := createWeComCapabilityExternalForeignKeyProbeDatabase(t, db)
 		defer func() {
 			if _, err := db.Exec("DROP DATABASE IF EXISTS `" + probeSchema + "`"); err != nil {
 				t.Errorf("drop cross-schema probe: %v", err)
@@ -215,7 +212,32 @@ func TestWeComCapabilityLedgerRealRollbackRejectsExternalInboundForeignKeysBefor
 				t.Errorf("cross-schema probe leftovers=%d", leftovers)
 			}
 		}()
-		if _, err := db.Exec(fmt.Sprintf(`
+		createWeComCapabilityExternalForeignKeyProbe(t, db, probeSchema, currentSchema)
+		if _, err := runner.RollbackLast(context.Background()); err == nil || !strings.Contains(err.Error(), "0139 rollback blocked by external foreign key") {
+			t.Fatalf("external inbound foreign key rollback error=%v", err)
+		}
+		var remaining int
+		if err := db.QueryRow(`SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name IN ('mochat_go_wecom_capability_operations','mochat_go_wecom_capability_dispatches','mochat_go_wecom_capability_operation_results','mochat_go_wecom_capability_operation_audits','mochat_go_wecom_capability_operation_events')`).Scan(&remaining); err != nil {
+			t.Fatal(err)
+		}
+		if remaining != 5 {
+			t.Fatalf("external inbound foreign key rollback dropped ledger tables: remaining=%d", remaining)
+		}
+	})
+}
+
+func createWeComCapabilityExternalForeignKeyProbeDatabase(t *testing.T, db *sql.DB) string {
+	t.Helper()
+	probeSchema := fmt.Sprintf("mochat_wecom_0139_fk_probe_%d_%d", os.Getpid(), weComCapabilityLedgerSchemaSequence.Add(1))
+	if _, err := db.Exec("CREATE DATABASE `" + probeSchema + "` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"); err != nil {
+		t.Fatal(err)
+	}
+	return probeSchema
+}
+
+func createWeComCapabilityExternalForeignKeyProbe(t *testing.T, db *sql.DB, probeSchema, currentSchema string) {
+	t.Helper()
+	if _, err := db.Exec(fmt.Sprintf(`
 CREATE TABLE %s.mo_chat_wecom_0139_external_fk_probe (
   id INT UNSIGNED NOT NULL AUTO_INCREMENT,
   tenant_id INT UNSIGNED NOT NULL,
@@ -230,19 +252,8 @@ CREATE TABLE %s.mo_chat_wecom_0139_external_fk_probe (
   CONSTRAINT fk_external_dispatch FOREIGN KEY (tenant_id,corp_id,dispatch_id)
     REFERENCES %s.mochat_go_wecom_capability_dispatches (tenant_id,corp_id,id)
 ) ENGINE=InnoDB`, quoteMigrationIdentifier(probeSchema), quoteMigrationIdentifier(currentSchema), quoteMigrationIdentifier(currentSchema))); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := runner.RollbackLast(context.Background()); err == nil || !strings.Contains(err.Error(), "0139 rollback blocked by external foreign key") {
-			t.Fatalf("external inbound foreign key rollback error=%v", err)
-		}
-		var remaining int
-		if err := db.QueryRow(`SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name IN ('mochat_go_wecom_capability_operations','mochat_go_wecom_capability_dispatches','mochat_go_wecom_capability_operation_results','mochat_go_wecom_capability_operation_audits','mochat_go_wecom_capability_operation_events')`).Scan(&remaining); err != nil {
-			t.Fatal(err)
-		}
-		if remaining != 5 {
-			t.Fatalf("external inbound foreign key rollback dropped ledger tables: remaining=%d", remaining)
-		}
-	})
+		t.Fatal(err)
+	}
 }
 
 func TestWeComCapabilityLedgerRealRollbackRejectsUnexpectedInternalForeignKeysBeforeDrop(t *testing.T) {
@@ -405,10 +416,7 @@ func TestWeComCapabilityLedgerRejectsIncompatibleResidualBeforeDDL(t *testing.T)
 					t.Fatal(err)
 				}
 				tc.mutate(t, db)
-				if _, err := db.Exec(`DELETE FROM mochat_go_schema_migrations WHERE version='0139_wecom_capability_ledger'`); err != nil {
-					t.Fatal(err)
-				}
-				if _, err := runner.Apply(context.Background()); err == nil || !strings.Contains(err.Error(), tc.want) {
+				if err := executeWeComCapabilityLedgerUpResidualProbe(t, db, root); err == nil || !strings.Contains(err.Error(), tc.want) {
 					t.Fatalf("residual guard error=%v, want %q", err, tc.want)
 				}
 			})
@@ -518,22 +526,12 @@ func TestWeComCapabilityLedgerDownRejectsWrongChildIndexSignatures(t *testing.T)
 
 func newWeComCapabilityLedgerTestRunner(t *testing.T, db *sql.DB, root string) *migration.Runner {
 	t.Helper()
-	var target *migration.Migration
-	for _, candidate := range migration.DefaultMigrations(root) {
-		if candidate.Version == "0139_wecom_capability_ledger" {
-			candidate := candidate
-			target = &candidate
-			break
-		}
-	}
-	if target == nil {
-		t.Fatal("production migration registry does not contain 0139_wecom_capability_ledger")
-	}
-	runner, err := migration.NewRunner(db, []migration.Migration{*target})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return runner
+	return newExternalMigrationRunnerThrough(t, db, root, "0139_wecom_capability_ledger")
+}
+
+func executeWeComCapabilityLedgerUpResidualProbe(t *testing.T, db *sql.DB, root string) error {
+	t.Helper()
+	return migration.ExecuteWeComCapabilityLedger0139UpProbe(context.Background(), db, root)
 }
 
 func withTemporaryWeComCapabilityLedgerSchema(t *testing.T, fn func(db *sql.DB, root string)) {

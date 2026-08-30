@@ -228,9 +228,7 @@ func TestIdentityRealmsSingleCorpIntegration(t *testing.T) {
 	t.Run("preflight rejects an unknown tenant dependency before DDL", func(t *testing.T) {
 		db := newIdentitySingleCorpMigrationDB(t)
 		createIdentitySingleCorpBaseFixture(t, db)
-		if _, err := db.Exec(`CREATE TABLE identity_dependency_probe (tenant_id int(10) unsigned NOT NULL, CONSTRAINT fk_unknown_tenant_dependency FOREIGN KEY (tenant_id) REFERENCES mc_tenant (id)) ENGINE=InnoDB`); err != nil {
-			t.Fatal(err)
-		}
+		createIdentityUnknownTenantDependencyProbe(t, db)
 		err := execIdentitySingleCorpMigration(t, db, "0129_identity_realms_single_corp_schema.up.sql", true)
 		if !strings.Contains(strings.ToLower(err.Error()), "unknown tenant dependency") {
 			t.Fatalf("error=%v", err)
@@ -315,13 +313,25 @@ func TestIdentityRealmsSingleCorpIntegration(t *testing.T) {
 		if _, err := db.Exec(`ALTER TABLE mc_user MODIFY tenant_id int(10) unsigned NOT NULL DEFAULT 1`); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := db.Exec(`CREATE TABLE mochat_go_dashboard_identities (user_id int(10) unsigned NOT NULL PRIMARY KEY) ENGINE=InnoDB`); err != nil {
-			t.Fatal(err)
-		}
+		createIdentityPartialDashboardIdentityProbe(t, db)
 		execIdentitySingleCorpMigration(t, db, "0129_identity_realms_single_corp_schema.down.sql", false)
 		assertIdentityTableMissing(t, db, "mochat_go_dashboard_identities")
 		assertIdentityColumnType(t, db, "mc_user", "tenant_id", "int(11)")
 	})
+}
+
+func createIdentityUnknownTenantDependencyProbe(t *testing.T, db *sql.DB) {
+	t.Helper()
+	if _, err := db.Exec(`CREATE TABLE identity_dependency_probe (tenant_id int(10) unsigned NOT NULL, CONSTRAINT fk_unknown_tenant_dependency FOREIGN KEY (tenant_id) REFERENCES mc_tenant (id)) ENGINE=InnoDB`); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func createIdentityPartialDashboardIdentityProbe(t *testing.T, db *sql.DB) {
+	t.Helper()
+	if _, err := db.Exec(`CREATE TABLE mochat_go_dashboard_identities (user_id int(10) unsigned NOT NULL PRIMARY KEY) ENGINE=InnoDB`); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func newIdentitySingleCorpMigrationDB(t *testing.T) *sql.DB {

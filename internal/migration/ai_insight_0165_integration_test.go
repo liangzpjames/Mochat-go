@@ -1,4 +1,4 @@
-package migration
+package migration_test
 
 import (
 	"context"
@@ -12,6 +12,10 @@ import (
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
+
+	"jiyi/mochat-go/internal/integrationtestdb"
+	. "jiyi/mochat-go/internal/migration"
+	"jiyi/mochat-go/internal/migration/testharness"
 )
 
 const aiInsight0165ExpectedChecksum = "4575a0d89e59cf0b87059c0d60575be3e5cc566ee7338cc6fb6f616e8431520f"
@@ -26,17 +30,16 @@ func TestAIInsight0165IsRegisteredAsControlledWithoutChangingPublishedSQL(t *tes
 	}
 
 	root := filepath.Join("..", "..")
-	migrations := DefaultMigrations(root)
-	for _, item := range migrations {
+	inventory, err := DefaultInventory(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range inventory {
 		if item.Version != AIInsight0165Version {
 			continue
 		}
-		_, checksum, err := migrationBodyAndChecksum(item)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if checksum != aiInsight0165ExpectedChecksum {
-			t.Fatalf("0165 checksum = %s, want immutable %s", checksum, aiInsight0165ExpectedChecksum)
+		if item.Checksum != aiInsight0165ExpectedChecksum {
+			t.Fatalf("0165 checksum = %s, want immutable %s", item.Checksum, aiInsight0165ExpectedChecksum)
 		}
 		return
 	}
@@ -50,7 +53,7 @@ func TestAIInsight0165MySQL57ExecutionPlanPreservesImmutableSourceAndSemantics(t
 		t.Fatal(err)
 	}
 	original := string(body)
-	compatible := aiInsight0165BodyForServer(original, "5.7.44")
+	compatible := AIInsight0165BodyForServerForTest(original, "5.7.44")
 	for _, unsupported := range []string{
 		"ADD COLUMN IF NOT EXISTS",
 		"MODIFY COLUMN IF EXISTS",
@@ -69,7 +72,7 @@ func TestAIInsight0165MySQL57ExecutionPlanPreservesImmutableSourceAndSemantics(t
 	if err != nil || string(current) != original {
 		t.Fatal("MySQL 5.7 compatibility rewrote the immutable migration source")
 	}
-	if got := aiInsight0165BodyForServer(original, "10.6.22-MariaDB"); got != original {
+	if got := AIInsight0165BodyForServerForTest(original, "10.6.22-MariaDB"); got != original {
 		t.Fatal("MariaDB execution plan unexpectedly changed the source SQL")
 	}
 }
@@ -233,7 +236,6 @@ func TestAIInsight0165LedgerAndVerifiedStatusCommitAtomicallyMariaDB(t *testing.
 }
 
 func TestAIInsight0165VerifyRejectsWrongOrChangedSurvivorMariaDB(t *testing.T) {
-	db := openAIInsight0165IntegrationDB(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 
@@ -246,6 +248,7 @@ func TestAIInsight0165VerifyRejectsWrongOrChangedSurvivorMariaDB(t *testing.T) {
 		{name: "content hash drift", request: "survivor-content", mutate: `UPDATE mochat_go_ai_conversation_insights SET summary = 'tampered' WHERE id = 2`},
 	} {
 		t.Run(test.name, func(t *testing.T) {
+			db := openAIInsight0165IntegrationDB(t)
 			resetAIInsight0165Schema(t, ctx, db)
 			controller, err := NewAIInsight0165Controller(db, filepath.Join("..", ".."))
 			if err != nil {
@@ -277,11 +280,11 @@ func TestAIInsight0165VerifyRejectsWrongOrChangedSurvivorMariaDB(t *testing.T) {
 }
 
 func TestAIInsight0165RejectsSnapshotAndBackupDrift(t *testing.T) {
-	db := openAIInsight0165IntegrationDB(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 
 	t.Run("source snapshot changes after backup", func(t *testing.T) {
+		db := openAIInsight0165IntegrationDB(t)
 		resetAIInsight0165Schema(t, ctx, db)
 		controller, err := NewAIInsight0165Controller(db, filepath.Join("..", ".."))
 		if err != nil {
@@ -299,6 +302,7 @@ func TestAIInsight0165RejectsSnapshotAndBackupDrift(t *testing.T) {
 	})
 
 	t.Run("backup rows change", func(t *testing.T) {
+		db := openAIInsight0165IntegrationDB(t)
 		resetAIInsight0165Schema(t, ctx, db)
 		controller, err := NewAIInsight0165Controller(db, filepath.Join("..", ".."))
 		if err != nil {
@@ -317,46 +321,68 @@ func TestAIInsight0165RejectsSnapshotAndBackupDrift(t *testing.T) {
 }
 
 func TestAIInsight0165RejectsWrongSchemaAndAlreadyAppliedEnvironment(t *testing.T) {
-	db := openAIInsight0165IntegrationDB(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
-	resetAIInsight0165Schema(t, ctx, db)
 
-	if _, err := db.ExecContext(ctx, `ALTER TABLE mochat_go_ai_conversation_insights DROP INDEX uq_ai_conversation_source, DROP COLUMN source_fingerprint`); err != nil {
-		t.Fatal(err)
-	}
-	controller, err := NewAIInsight0165Controller(db, filepath.Join("..", ".."))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := controller.Inventory(ctx); !errors.Is(err, ErrAIInsight0165WrongSchema) {
-		t.Fatalf("wrong schema error = %v", err)
-	}
+	t.Run("wrong source schema", func(t *testing.T) {
+		db := openAIInsight0165IntegrationDB(t)
+		resetAIInsight0165Schema(t, ctx, db)
+		if _, err := db.ExecContext(ctx, `ALTER TABLE mochat_go_ai_conversation_insights DROP INDEX uq_ai_conversation_source, DROP COLUMN source_fingerprint`); err != nil {
+			t.Fatal(err)
+		}
+		controller, err := NewAIInsight0165Controller(db, filepath.Join("..", ".."))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := controller.Inventory(ctx); !errors.Is(err, ErrAIInsight0165WrongSchema) {
+			t.Fatalf("wrong schema error = %v", err)
+		}
+	})
 
-	resetAIInsight0165Schema(t, ctx, db)
-	if _, err := db.ExecContext(ctx, `ALTER TABLE mochat_go_ai_conversation_insights DROP INDEX uq_ai_conversation_source`); err != nil {
-		t.Fatal(err)
-	}
-	controller, err = NewAIInsight0165Controller(db, filepath.Join("..", ".."))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := controller.Inventory(ctx); !errors.Is(err, ErrAIInsight0165WrongSchema) {
-		t.Fatalf("missing pre-0165 unique index error = %v", err)
-	}
+	t.Run("missing pre-0165 unique index", func(t *testing.T) {
+		db := openAIInsight0165IntegrationDB(t)
+		resetAIInsight0165Schema(t, ctx, db)
+		if _, err := db.ExecContext(ctx, `ALTER TABLE mochat_go_ai_conversation_insights DROP INDEX uq_ai_conversation_source`); err != nil {
+			t.Fatal(err)
+		}
+		controller, err := NewAIInsight0165Controller(db, filepath.Join("..", ".."))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := controller.Inventory(ctx); !errors.Is(err, ErrAIInsight0165WrongSchema) {
+			t.Fatalf("missing pre-0165 unique index error = %v", err)
+		}
+	})
 
-	resetAIInsight0165Schema(t, ctx, db)
-	if _, err := db.ExecContext(ctx, `INSERT INTO mochat_go_schema_migrations (version, description, checksum, applied_at, execution_ms) VALUES (?, 'historical apply', ?, NOW(), 0)`, AIInsight0165Version, aiInsight0165ExpectedChecksum); err != nil {
-		t.Fatal(err)
-	}
-	controller, err = NewAIInsight0165Controller(db, filepath.Join("..", ".."))
-	if err != nil {
-		t.Fatal(err)
-	}
-	inventory, err := controller.Inventory(ctx)
-	if !errors.Is(err, ErrAIInsight0165AlreadyApplied) || !inventory.Applied || inventory.RecoveryBoundary == "" {
-		t.Fatalf("already applied inventory=%+v error=%v", inventory, err)
-	}
+	t.Run("already applied through controlled controller", func(t *testing.T) {
+		db := openAIInsight0165IntegrationDB(t)
+		resetAIInsight0165Schema(t, ctx, db)
+		controller, err := NewAIInsight0165Controller(db, filepath.Join("..", ".."))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := controller.Backup(ctx, "already-applied"); err != nil {
+			t.Fatal(err)
+		}
+		preflight, err := controller.Preflight(ctx, "already-applied")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := controller.Apply(ctx, AIInsight0165ApplyRequest{
+			RequestID: "already-applied", ApprovalToken: preflight.ApprovalToken,
+			DestructiveApproval: preflight.DestructiveApproval, TrafficStopped: true,
+		}); err != nil {
+			t.Fatal(err)
+		}
+		controller, err = NewAIInsight0165Controller(db, filepath.Join("..", ".."))
+		if err != nil {
+			t.Fatal(err)
+		}
+		inventory, err := controller.Inventory(ctx)
+		if !errors.Is(err, ErrAIInsight0165AlreadyApplied) || !inventory.Applied || inventory.RecoveryBoundary == "" {
+			t.Fatalf("already applied inventory=%+v error=%v", inventory, err)
+		}
+	})
 }
 
 func TestAIInsight0165ConcurrentApplyCommitsExactlyOnce(t *testing.T) {
@@ -410,15 +436,15 @@ func openAIInsight0165IntegrationDB(t *testing.T) *sql.DB {
 	if dsn == "" {
 		t.Skip("SKIP: MOCHAT_GO_0165_MYSQL_INTEGRATION_DSN is not set; isolated MariaDB/MySQL DSN is required")
 	}
-	db, err := sql.Open("mysql", dsn)
+	database := integrationtestdb.NewIsolated(t, dsn)
+	evidence, err := testharness.NewControlledEvidence("ai-insight-0165")
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = db.Close() })
-	if err := db.Ping(); err != nil {
-		t.Fatal(err)
+	if err := testharness.ApplyThrough(context.Background(), database.DB, filepath.Join("..", ".."), "0164_saas_tenant_ai_provider", evidence); err != nil {
+		t.Fatalf("apply production migration registry through 0164: %v", err)
 	}
-	return db
+	return database.DB
 }
 
 const aiInsight0165InsertSQL = `INSERT INTO mochat_go_ai_conversation_insights
@@ -427,39 +453,6 @@ const aiInsight0165InsertSQL = `INSERT INTO mochat_go_ai_conversation_insights
 
 func resetAIInsight0165Schema(t *testing.T, ctx context.Context, db *sql.DB) {
 	t.Helper()
-	statements := []string{
-		`DROP TRIGGER IF EXISTS mochat_0165_test_fail_verified`,
-		`DROP TRIGGER IF EXISTS mochat_0165_guard_insight_insert`,
-		`DROP TRIGGER IF EXISTS mochat_0165_guard_insight_update`,
-		`DROP TRIGGER IF EXISTS mochat_0165_guard_insight_delete`,
-		`DROP TRIGGER IF EXISTS mochat_0165_guard_legacy_insert`,
-		`DROP TRIGGER IF EXISTS mochat_0165_guard_legacy_update`,
-		`DROP TRIGGER IF EXISTS mochat_0165_guard_legacy_delete`,
-		`DROP TABLE IF EXISTS mochat_go_controlled_migration_0165`,
-		`DROP TABLE IF EXISTS mochat_go_backup_0165_ai_conversation_insights`,
-		`DROP TABLE IF EXISTS mochat_go_backup_0165_ai_analysis`,
-		`DROP TABLE IF EXISTS mochat_go_ai_conversation_insights`,
-		`DROP TABLE IF EXISTS mochat_go_ai_analysis`,
-		`DROP TABLE IF EXISTS mochat_go_schema_migrations`,
-		`CREATE TABLE mochat_go_schema_migrations (version varchar(191) NOT NULL PRIMARY KEY, description varchar(255) NOT NULL, checksum char(64) NOT NULL, applied_at datetime NOT NULL, execution_ms int NOT NULL DEFAULT 0) ENGINE=InnoDB`,
-		`CREATE TABLE mochat_go_ai_conversation_insights (
-			id bigint unsigned NOT NULL AUTO_INCREMENT, tenant_id int unsigned NOT NULL, corp_id int unsigned NOT NULL,
-			analysis_type varchar(24) NOT NULL, rule_id bigint unsigned NOT NULL DEFAULT 0, rule_version_id bigint unsigned NOT NULL DEFAULT 0,
-			conversation_key varchar(191) NOT NULL, employee_id bigint unsigned NOT NULL DEFAULT 0, employee_name varchar(120) NOT NULL DEFAULT '', employee_avatar varchar(512) NOT NULL DEFAULT '',
-			target_type varchar(24) NOT NULL DEFAULT '', target_id varchar(191) NOT NULL DEFAULT '', target_name varchar(191) NOT NULL DEFAULT '', target_avatar varchar(512) NOT NULL DEFAULT '',
-			source_started_at datetime(6) NULL, source_ended_at datetime(6) NULL, source_message_count int unsigned NOT NULL DEFAULT 0, source_fingerprint char(64) NOT NULL,
-			status varchar(16) NOT NULL DEFAULT 'pending', summary varchar(1200) NOT NULL DEFAULT '', result_json json NOT NULL, error_summary varchar(500) NOT NULL DEFAULT '',
-			provider varchar(64) NOT NULL DEFAULT '', model varchar(128) NOT NULL DEFAULT '', prompt_version varchar(32) NOT NULL DEFAULT '', generated_at datetime(6) NULL,
-			created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-			PRIMARY KEY (id), UNIQUE KEY uq_ai_conversation_source (tenant_id,corp_id,analysis_type,rule_version_id,conversation_key,source_fingerprint)
-		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
-		`CREATE TABLE mochat_go_ai_analysis (id bigint unsigned NOT NULL AUTO_INCREMENT, tenant_id int unsigned NOT NULL DEFAULT 0, corp_id int unsigned NOT NULL DEFAULT 0, page varchar(64) NOT NULL DEFAULT '', status varchar(16) NOT NULL DEFAULT 'succeeded', payload json DEFAULT NULL, error varchar(1024) NOT NULL DEFAULT '', created_at timestamp NULL DEFAULT CURRENT_TIMESTAMP, updated_at timestamp NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP, PRIMARY KEY (id)) ENGINE=InnoDB`,
-	}
-	for _, statement := range statements {
-		if _, err := db.ExecContext(ctx, statement); err != nil {
-			t.Fatalf("reset statement %q: %v", statement, err)
-		}
-	}
 	for _, row := range []struct {
 		id          int
 		fingerprint string
