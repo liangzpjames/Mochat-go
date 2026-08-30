@@ -174,8 +174,8 @@ func dependencyFindings(policy Policy, path, currentModule string, currentLayer 
 	}
 
 	importedModule, importedLayer := classifyModuleImportWithPolicy(imported, policy)
-	publicContract := publicModuleImportAllowed(policy, currentModule, imported)
-	testContract := testImportAllowed(policy, path, currentModule, imported, importedModule, importedLayer)
+	publicContract := publicModuleImportAllowed(policy, path, currentModule, currentLayer, imported)
+	testContract := testImportAllowed(policy, path, currentModule, imported)
 	if importedModule != "" && importedModule != currentModule && (importedLayer == layerAdapters || importedLayer == layerTransport) && !publicContract && !testContract {
 		add(RuleCrossModulePrivate)
 	}
@@ -211,10 +211,10 @@ func forbiddenByLayer(policy Policy, path string, currentLayer layer, currentMod
 }
 
 func allowedByLayer(policy Policy, path string, currentLayer layer, currentModule, imported, importedModule string, importedLayer layer) bool {
-	if packageImportAllowed(policy, path, currentModule, imported) || publicModuleImportAllowed(policy, currentModule, imported) {
+	if packageImportAllowed(policy, path, currentModule, imported) || publicModuleImportAllowed(policy, path, currentModule, currentLayer, imported) {
 		return true
 	}
-	if testImportAllowed(policy, path, currentModule, imported, importedModule, importedLayer) {
+	if testImportAllowed(policy, path, currentModule, imported) {
 		return true
 	}
 	if isStandardLibrary(imported) {
@@ -429,16 +429,12 @@ func classifyModuleImportWithPolicy(imported string, policy Policy) (string, lay
 }
 
 func declaredModulePackageLayer(policy Policy, module, packagePath string) layer {
-	bestLength := -1
-	best := layerUnknown
 	for _, item := range policy.ModulePackages {
-		if item.Module != module || !isPackageFamily(packagePath, item.Path) || len(item.Path) <= bestLength {
-			continue
+		if item.Module == module && packagePath == item.Path {
+			return layerByName(item.Layer)
 		}
-		bestLength = len(item.Path)
-		best = layerByName(item.Layer)
 	}
-	return best
+	return layerUnknown
 }
 
 func layerByName(value string) layer {
@@ -460,9 +456,10 @@ func layerByName(value string) layer {
 	}
 }
 
-func publicModuleImportAllowed(policy Policy, module, imported string) bool {
+func publicModuleImportAllowed(policy Policy, path, module string, currentLayer layer, imported string) bool {
+	packagePath := modulePackagePath(path, module)
 	for _, item := range policy.PublicModuleImports {
-		if item.Module == module && item.Import == imported {
+		if item.Module == module && item.Package == packagePath && layerByName(item.Layer) == currentLayer && item.Import == imported {
 			return true
 		}
 	}
@@ -489,16 +486,17 @@ func modulePackagePath(path, module string) string {
 	return directory
 }
 
-func testImportAllowed(policy Policy, path, currentModule, imported, importedModule string, importedLayer layer) bool {
+func testImportAllowed(policy Policy, path, currentModule, imported string) bool {
 	if !strings.HasSuffix(path, "_test.go") {
 		return false
 	}
+	packagePath := modulePackagePath(path, currentModule)
 	for _, allowed := range policy.TestImports {
-		if imported == allowed {
+		if allowed.Module == currentModule && allowed.Package == packagePath && allowed.Import == imported {
 			return true
 		}
 	}
-	return importedModule == currentModule && importedLayer != layerUnknown
+	return false
 }
 
 func protectedDebtExpired(debt ProtectedDebt, now time.Time) bool {
@@ -507,7 +505,7 @@ func protectedDebtExpired(debt ProtectedDebt, now time.Time) bool {
 		return false
 	}
 	today, err := time.Parse("2006-01-02", now.UTC().Format("2006-01-02"))
-	return err == nil && today.After(expiresOn)
+	return err == nil && !today.Before(expiresOn)
 }
 
 func isLegacyImport(imported string) bool {

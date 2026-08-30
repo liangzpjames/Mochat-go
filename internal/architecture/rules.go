@@ -65,12 +65,22 @@ type ModulePackage struct {
 
 // PublicModuleImport is an exact cross-module public contract.
 type PublicModuleImport struct {
-	Module string `json:"module"`
-	Import string `json:"import"`
+	Module  string `json:"module"`
+	Package string `json:"package"`
+	Layer   string `json:"layer"`
+	Import  string `json:"import"`
 }
 
 // PackageImport is an exact dependency required by one declared package.
 type PackageImport struct {
+	Module  string `json:"module"`
+	Package string `json:"package"`
+	Import  string `json:"import"`
+}
+
+// TestImport is an exact import granted only to _test.go files in one module
+// package. It never changes production dependencies or other test packages.
+type TestImport struct {
 	Module  string `json:"module"`
 	Package string `json:"package"`
 	Import  string `json:"import"`
@@ -83,7 +93,7 @@ type Policy struct {
 	ModulePackages      []ModulePackage      `json:"modulePackages,omitempty"`
 	PublicModuleImports []PublicModuleImport `json:"publicModuleImports,omitempty"`
 	PackageImports      []PackageImport      `json:"packageImports,omitempty"`
-	TestImports         []string             `json:"testImports,omitempty"`
+	TestImports         []TestImport         `json:"testImports,omitempty"`
 	ProtectedFiles      []SizeLimit          `json:"protectedFiles"`
 	ForbiddenNewFiles   []string             `json:"forbiddenNewFiles"`
 	Exceptions          []Exception          `json:"exceptions"`
@@ -187,8 +197,11 @@ func (p *Policy) normalizeAndValidate() error {
 	for index := range p.PublicModuleImports {
 		item := &p.PublicModuleImports[index]
 		item.Module = strings.TrimSpace(item.Module)
+		item.Package = normalizePath(item.Package)
+		item.Layer = strings.TrimSpace(item.Layer)
 		item.Import = strings.TrimSpace(item.Import)
-		if _, ok := registered[item.Module]; !ok || !validExactImport(item.Import) || strings.Contains(item.Import, "/adapters/") || strings.Contains(item.Import, "/transport/") {
+		consumerLayer, layerOK := policyPackageLayer(item.Module, item.Package, p.ModulePackages)
+		if _, ok := registered[item.Module]; !ok || item.Package == "" || !validLayerName(item.Layer) || !layerOK || item.Layer != consumerLayer || !validPublicModuleTarget(item.Module, item.Import, registered) {
 			return fmt.Errorf("publicModuleImports[%d] is invalid", index)
 		}
 	}
@@ -202,8 +215,12 @@ func (p *Policy) normalizeAndValidate() error {
 		}
 	}
 	for index := range p.TestImports {
-		p.TestImports[index] = strings.TrimSpace(p.TestImports[index])
-		if !validExactImport(p.TestImports[index]) {
+		item := &p.TestImports[index]
+		item.Module = strings.TrimSpace(item.Module)
+		item.Package = normalizePath(item.Package)
+		item.Import = strings.TrimSpace(item.Import)
+		layer, layerOK := policyPackageLayer(item.Module, item.Package, p.ModulePackages)
+		if _, ok := registered[item.Module]; !ok || item.Package == "" || !validExactImport(item.Import) || !layerOK || (layer != "adapters" && layer != "transport" && layer != "module") {
 			return fmt.Errorf("testImports[%d] is invalid", index)
 		}
 	}
@@ -225,6 +242,44 @@ func (p *Policy) normalizeAndValidate() error {
 		}
 	}
 	return nil
+}
+
+func validPublicModuleTarget(consumerModule, imported string, registered map[string]struct{}) bool {
+	if !validExactImport(imported) {
+		return false
+	}
+	const prefix = "jiyi/mochat-go/internal/modules/"
+	if !strings.HasPrefix(imported, prefix) {
+		return false
+	}
+	parts := strings.Split(strings.TrimPrefix(imported, prefix), "/")
+	if len(parts) == 0 || parts[0] == consumerModule {
+		return false
+	}
+	if _, ok := registered[parts[0]]; !ok {
+		return false
+	}
+	return len(parts) == 1 || (len(parts) == 2 && parts[1] == "ports")
+}
+
+func policyPackageLayer(module, packagePath string, declared []ModulePackage) (string, bool) {
+	packagePath = normalizePath(packagePath)
+	if packagePath == "." {
+		return "module", true
+	}
+	first := strings.Split(packagePath, "/")[0]
+	switch first {
+	case "domain", "ports", "application", "adapters":
+		return first, true
+	case "transport":
+		return "transport", true
+	}
+	for _, item := range declared {
+		if item.Module == module && item.Path == packagePath {
+			return item.Layer, true
+		}
+	}
+	return "", false
 }
 
 // Valid reports whether protected debt has complete, bounded metadata.

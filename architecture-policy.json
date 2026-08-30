@@ -4,13 +4,15 @@
   "modulePackages": [
     {"module": "providers", "path": "ai/openai", "layer": "adapters"},
     {"module": "providers", "path": "archive", "layer": "adapters"},
+    {"module": "providers", "path": "archive/wecom", "layer": "adapters"},
     {"module": "providers", "path": "audio/local", "layer": "adapters"},
     {"module": "providers", "path": "catalog", "layer": "module"}
   ],
   "publicModuleImports": [
-    {"module": "ai-insight", "import": "jiyi/mochat-go/internal/modules/ai-settings/ports"},
-    {"module": "ai-insight", "import": "jiyi/mochat-go/internal/modules/providers"},
-    {"module": "chat-media", "import": "jiyi/mochat-go/internal/modules/providers"}
+    {"module": "ai-insight", "package": ".", "layer": "module", "import": "jiyi/mochat-go/internal/modules/ai-settings/ports"},
+    {"module": "ai-insight", "package": ".", "layer": "module", "import": "jiyi/mochat-go/internal/modules/providers"},
+    {"module": "chat-media", "package": ".", "layer": "module", "import": "jiyi/mochat-go/internal/modules/providers"},
+    {"module": "chat-media", "package": "transport/http", "layer": "transport", "import": "jiyi/mochat-go/internal/modules/providers"}
   ],
   "packageImports": [
     {"module": "providers", "package": "ai/openai", "import": "jiyi/mochat-go/internal/modules/providers"},
@@ -26,12 +28,19 @@
     {"module": "reporting", "package": "transport/http", "import": "jiyi/mochat-go/internal/modules/reporting"}
   ],
   "testImports": [
-    "github.com/DATA-DOG/go-sqlmock",
-    "github.com/go-sql-driver/mysql",
-    "jiyi/mochat-go/internal/migration",
-    "jiyi/mochat-go/internal/modules/providers/audio/local",
-    "jiyi/mochat-go/internal/testfixtures/archivesource",
-    "jiyi/mochat-go/internal/wecomarchivedemo"
+    {"module": "ai-insight", "package": ".", "import": "github.com/DATA-DOG/go-sqlmock"},
+    {"module": "ai-insight", "package": ".", "import": "github.com/go-sql-driver/mysql"},
+    {"module": "ai-insight", "package": "adapters/mysqlerror", "import": "github.com/go-sql-driver/mysql"},
+    {"module": "ai-settings", "package": "adapters/mysql", "import": "github.com/DATA-DOG/go-sqlmock"},
+    {"module": "chat-media", "package": "adapters/mysql", "import": "github.com/DATA-DOG/go-sqlmock"},
+    {"module": "chat-media", "package": "transport/http", "import": "jiyi/mochat-go/internal/modules/providers/audio/local"},
+    {"module": "providers", "package": "archive", "import": "jiyi/mochat-go/internal/testfixtures/archivesource"},
+    {"module": "providers", "package": "archive", "import": "jiyi/mochat-go/internal/wecomarchivedemo"},
+    {"module": "reporting", "package": ".", "import": "github.com/DATA-DOG/go-sqlmock"},
+    {"module": "reporting", "package": ".", "import": "github.com/go-sql-driver/mysql"},
+    {"module": "scrm", "package": "adapters/mysql", "import": "jiyi/mochat-go/internal/migration"},
+    {"module": "scrm", "package": "adapters/mysql", "import": "jiyi/mochat-go/internal/modules/scrm/application"},
+    {"module": "scrm", "package": "transport/http", "import": "jiyi/mochat-go/internal/modules/scrm/adapters/mysql"}
   ],
   "protectedFiles": [
     {"path": "internal/dashboard/saas_admin_page.go", "maxBytes": 860906},

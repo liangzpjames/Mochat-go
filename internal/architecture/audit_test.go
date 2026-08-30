@@ -335,7 +335,7 @@ import (
 	writeArchitectureTestFile(t, root, "internal/modules/beta/adapters/mysql/repository.go", "package mysql\n")
 	policy := Policy{
 		ProductionModules:   []string{"alpha", "beta"},
-		PublicModuleImports: []PublicModuleImport{{Module: "alpha", Import: "jiyi/mochat-go/internal/modules/beta/ports"}},
+		PublicModuleImports: []PublicModuleImport{{Module: "alpha", Package: "application", Layer: "application", Import: "jiyi/mochat-go/internal/modules/beta/ports"}},
 	}
 	violations, err := Audit(root, policy, time.Now())
 	if err != nil {
@@ -346,6 +346,38 @@ import (
 	}
 	if !containsImportViolation(violations, RuleCrossModulePrivate, "jiyi/mochat-go/internal/modules/beta/adapters/mysql") {
 		t.Fatalf("private adapter was allowed by public contract: %#v", violations)
+	}
+}
+
+func TestAuditPublicContractDoesNotLeakAcrossConsumerLayerOrTargetPrivatePackage(t *testing.T) {
+	root := t.TempDir()
+	writeArchitectureTestFile(t, root, "internal/modules/alpha/application/service.go", "package application\nimport _ \"jiyi/mochat-go/internal/modules/beta/ports\"\n")
+	writeArchitectureTestFile(t, root, "internal/modules/alpha/domain/bad.go", "package domain\nimport _ \"jiyi/mochat-go/internal/modules/beta/ports\"\n")
+	writeArchitectureTestFile(t, root, "internal/modules/alpha/application/private.go", "package application\nimport _ \"jiyi/mochat-go/internal/modules/beta/application\"\n")
+	writeArchitectureTestFile(t, root, "internal/modules/beta/ports/provider.go", "package ports\n")
+	writeArchitectureTestFile(t, root, "internal/modules/beta/application/private.go", "package application\n")
+	policy := Policy{ProductionModules: []string{"alpha", "beta"}, PublicModuleImports: []PublicModuleImport{{Module: "alpha", Package: "application", Layer: "application", Import: "jiyi/mochat-go/internal/modules/beta/ports"}}}
+	violations, err := Audit(root, policy, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if containsPathViolation(violations, RuleApplicationDependency, "internal/modules/alpha/application/service.go") {
+		t.Fatalf("exact public contract rejected: %#v", violations)
+	}
+	if !containsPathViolation(violations, RuleDomainDependency, "internal/modules/alpha/domain/bad.go") {
+		t.Fatalf("public contract leaked into domain: %#v", violations)
+	}
+	if !containsPathViolation(violations, RuleApplicationDependency, "internal/modules/alpha/application/private.go") {
+		t.Fatalf("private target accepted: %#v", violations)
+	}
+}
+
+func TestPolicyRejectsPrivatePublicContractTarget(t *testing.T) {
+	for _, target := range []string{"domain", "application", "adapters/mysql", "transport/http"} {
+		policy := Policy{ProductionModules: []string{"alpha", "beta"}, PublicModuleImports: []PublicModuleImport{{Module: "alpha", Package: "application", Layer: "application", Import: "jiyi/mochat-go/internal/modules/beta/" + target}}}
+		if err := policy.normalizeAndValidate(); err == nil {
+			t.Fatalf("private %s target accepted as public contract", target)
+		}
 	}
 }
 
@@ -373,6 +405,21 @@ import _ "jiyi/mochat-go/internal/modules/providers"
 	}
 }
 
+func TestAuditDeclaredCapabilityPackageDoesNotClassifyUnknownDescendants(t *testing.T) {
+	root := t.TempDir()
+	writeArchitectureTestFile(t, root, "internal/modules/providers/providers.go", "package providers\n")
+	writeArchitectureTestFile(t, root, "internal/modules/providers/archive/archive.go", "package archive\n")
+	writeArchitectureTestFile(t, root, "internal/modules/providers/archive/unknown/bad.go", "package unknown\n")
+	policy := Policy{ProductionModules: []string{"providers"}, ModulePackages: []ModulePackage{{Module: "providers", Path: "archive", Layer: "adapters"}}}
+	violations, err := Audit(root, policy, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !containsPathViolation(violations, RuleModuleDependency, "internal/modules/providers/archive/unknown/bad.go") {
+		t.Fatalf("unknown descendant inherited declared capability role: %#v", violations)
+	}
+}
+
 func TestAuditAllowsControlledTestImportsWithoutWeakeningProduction(t *testing.T) {
 	root := t.TempDir()
 	writeArchitectureTestFile(t, root, "internal/modules/alpha/application/service.go", "package application\n")
@@ -386,7 +433,7 @@ import (
 	writeArchitectureTestFile(t, root, "internal/modules/alpha/adapters/mysql/repository.go", contents)
 	policy := Policy{
 		ProductionModules: []string{"alpha"},
-		TestImports:       []string{"github.com/DATA-DOG/go-sqlmock"},
+		TestImports:       []TestImport{{Module: "alpha", Package: "adapters/mysql", Import: "github.com/DATA-DOG/go-sqlmock"}, {Module: "alpha", Package: "adapters/mysql", Import: "jiyi/mochat-go/internal/modules/alpha/application"}},
 	}
 	violations, err := Audit(root, policy, time.Now())
 	if err != nil {
@@ -397,6 +444,35 @@ import (
 	}
 	if !containsPathViolation(violations, RuleAdaptersDependency, "internal/modules/alpha/adapters/mysql/repository.go") {
 		t.Fatalf("production import inherited test allowance: %#v", violations)
+	}
+}
+
+func TestAuditExactTestContractRejectsWrongLayerPackageAndProduction(t *testing.T) {
+	root := t.TempDir()
+	writeArchitectureTestFile(t, root, "internal/modules/alpha/adapters/mysql/repository_test.go", "package mysql\nimport _ \"jiyi/mochat-go/internal/modules/alpha/application\"\n")
+	writeArchitectureTestFile(t, root, "internal/modules/alpha/adapters/other/repository_test.go", "package other\nimport _ \"jiyi/mochat-go/internal/modules/alpha/application\"\n")
+	writeArchitectureTestFile(t, root, "internal/modules/alpha/domain/adapter_test.go", "package domain\nimport _ \"jiyi/mochat-go/internal/modules/alpha/adapters/mysql\"\n")
+	writeArchitectureTestFile(t, root, "internal/modules/alpha/domain/transport_test.go", "package domain\nimport _ \"jiyi/mochat-go/internal/modules/alpha/transport/http\"\n")
+	writeArchitectureTestFile(t, root, "internal/modules/alpha/adapters/mysql/repository.go", "package mysql\nimport _ \"jiyi/mochat-go/internal/modules/alpha/application\"\n")
+	writeArchitectureTestFile(t, root, "internal/modules/alpha/adapters/mysql/mysql.go", "package mysql\n")
+	writeArchitectureTestFile(t, root, "internal/modules/alpha/application/service.go", "package application\n")
+	writeArchitectureTestFile(t, root, "internal/modules/alpha/transport/http/handler.go", "package http\n")
+	policy := Policy{ProductionModules: []string{"alpha"}, TestImports: []TestImport{{Module: "alpha", Package: "adapters/mysql", Import: "jiyi/mochat-go/internal/modules/alpha/application"}}}
+	violations, err := Audit(root, policy, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if containsPathViolation(violations, RuleAdaptersDependency, "internal/modules/alpha/adapters/mysql/repository_test.go") {
+		t.Fatalf("exact test contract rejected: %#v", violations)
+	}
+	if !containsPathViolation(violations, RuleAdaptersDependency, "internal/modules/alpha/adapters/other/repository_test.go") {
+		t.Fatalf("test contract leaked into wrong package: %#v", violations)
+	}
+	if !containsPathViolation(violations, RuleDomainDependency, "internal/modules/alpha/domain/adapter_test.go") || !containsPathViolation(violations, RuleDomainDependency, "internal/modules/alpha/domain/transport_test.go") {
+		t.Fatalf("domain test imported adapter: %#v", violations)
+	}
+	if !containsPathViolation(violations, RuleAdaptersDependency, "internal/modules/alpha/adapters/mysql/repository.go") {
+		t.Fatalf("production inherited test contract: %#v", violations)
 	}
 }
 
@@ -417,12 +493,12 @@ func TestAuditProtectedDebtRatchetsWithoutReplacingTarget(t *testing.T) {
 	if containsRule(violations, RuleProtectedFileSize) || containsRule(violations, RuleProtectedDebtExpired) {
 		t.Fatalf("bounded active debt rejected: %#v", violations)
 	}
-	violations, err = Audit(root, Policy{ProtectedFiles: []SizeLimit{limit}}, time.Date(2026, 11, 29, 0, 0, 0, 0, time.UTC))
+	violations, err = Audit(root, Policy{ProtectedFiles: []SizeLimit{limit}}, time.Date(2026, 11, 28, 0, 0, 0, 0, time.UTC))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !containsRule(violations, RuleProtectedDebtExpired) {
-		t.Fatalf("expired protected debt accepted: %#v", violations)
+		t.Fatalf("protected debt remained active on its expiry date: %#v", violations)
 	}
 }
 
