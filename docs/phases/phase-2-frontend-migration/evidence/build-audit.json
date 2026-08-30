@@ -2,8 +2,8 @@
   "provenance": {
     "schemaVersion": 1,
     "command": "corepack pnpm build",
-    "startedAt": "2026-08-30T13:02:08.773Z",
-    "completedAt": "2026-08-30T13:03:30.548Z",
+    "startedAt": "2026-08-30T13:17:13.043Z",
+    "completedAt": "2026-08-30T13:17:33.920Z",
     "sourceFingerprint": "4fbd2cc5f235ba4052a63821653d97cfce54fd37e53eb581731f2831911c72f9"
   },
   "apps": {
