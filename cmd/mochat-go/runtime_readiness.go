@@ -33,7 +33,7 @@ func migrationReadinessProbes(reader migrationStatusReader) []compatserver.Readi
 					}
 				}
 				for _, item := range statuses {
-					if item.State != "applied" {
+					if item.State != "applied" && item.State != "superseded" {
 						return errors.New("migration ledger is not current")
 					}
 				}

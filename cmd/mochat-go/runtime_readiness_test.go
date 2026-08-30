@@ -54,6 +54,17 @@ func TestMigrationReadinessUsesStableDatabaseAheadCode(t *testing.T) {
 	}
 }
 
+func TestMigrationReadinessAcceptsAuditedSupersededMigration(t *testing.T) {
+	reader := &fakeMigrationStatusReader{items: []migration.StatusItem{
+		{Migration: migration.Migration{Version: "0150_live_code_workspace"}, State: "superseded"},
+		{Migration: migration.Migration{Version: "0153_live_code_workspace"}, State: "applied"},
+	}}
+	checks := compatserver.NewReadinessChecker(migrationReadinessProbes(reader)...).Check(context.Background())
+	if len(checks) != 1 || !checks[0].Ready || reader.calls != 1 {
+		t.Fatalf("checks = %+v calls=%d", checks, reader.calls)
+	}
+}
+
 func TestBackgroundTaskReadinessToleratesSingleFailureAndRecoversAfterThree(t *testing.T) {
 	snapshots := []taskrunner.Snapshot{{
 		Name: "cron-required", Status: taskrunner.StatusRunning, LastSuccessAt: time.Now().Add(-time.Minute).Format(time.RFC3339),
