@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"jiyi/mochat-go/internal/migrationhistory"
 	"jiyi/mochat-go/internal/sqlscript"
 )
 
@@ -48,21 +49,6 @@ const knownLegacySCRMLeadParityChecksum = "cf299bfb4ef21b95da0f76ee9e9c8cb244758
 // Only accept the historical mixed-line-ending checksum while the current
 // migration still normalizes to the verified SQL that produced it.
 const knownCanonicalSCRMLeadParityChecksum = "47cfa7915b970455f6a626806a56fea71f97dbd9056b22f1f375c42b55196266"
-
-// The first Windows Docker Desktop deployment of 0153 was built from a
-// worktree containing mixed LF/CRLF line endings. The SQL is byte-normalized
-// to the current migration, but its immutable ledger retains this checksum.
-const knownLegacyLiveCodeWorkspaceChecksum = "f17df230c78b79ed0e23d77b87057a939fa8ef5d1ac97fa1db43b5aa34f7344c"
-
-// The original live-code workspace migration was published as 0150 on an
-// integration branch, then renumbered to 0153 when the mainline sequence
-// converged. Preserve the exact historical ledger fact instead of deleting it,
-// but recognize it only when the audited old SQL checksum and valid 0153
-// replacement are both present.
-const knownSupersededLiveCodeVersion = "0150_live_code_workspace"
-const knownSupersedingLiveCodeVersion = "0153_live_code_workspace"
-const knownSupersededLiveCodeLFChecksum = "f89678394dea6164312152f9bbb5298111150d9dea8489252789ef7ed67117ed"
-const knownSupersededLiveCodeCRLFChecksum = "5cce5bea0f7b89b7e607772c5aa02ffaf125af27027c79e18772642a4c7ab15d"
 
 type Migration struct {
 	Version         string
@@ -266,8 +252,7 @@ func (r *Runner) statusItems(ctx context.Context, applied map[string]AppliedMigr
 	for _, version := range unknown {
 		existing := applied[version]
 		state := "database_ahead"
-		if version == knownSupersededLiveCodeVersion && validApplied[knownSupersedingLiveCodeVersion] &&
-			(existing.Checksum == knownSupersededLiveCodeLFChecksum || existing.Checksum == knownSupersededLiveCodeCRLFChecksum) {
+		if migrationhistory.IsAuditedSupersededLiveCode(version, existing.Checksum, validApplied[migrationhistory.LiveCodeWorkspaceVersion]) {
 			state = "superseded"
 		}
 		result = append(result, StatusItem{
@@ -1015,7 +1000,7 @@ func standaloneIncrementalMigrations(projectRoot string) []Migration {
 			checksumAliases = append(checksumAliases, knownLegacySCRMLeadParityChecksum)
 		}
 		if version == "0153_live_code_workspace" {
-			checksumAliases = append(checksumAliases, knownLegacyLiveCodeWorkspaceChecksum)
+			checksumAliases = append(checksumAliases, migrationhistory.LegacyLiveCodeWorkspaceChecksum)
 		}
 		migrations = append(migrations, Migration{
 			Version:         version,

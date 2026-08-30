@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"jiyi/mochat-go/internal/dashboard"
+	"jiyi/mochat-go/internal/migrationhistory"
 	"jiyi/mochat-go/internal/saasbackup"
 
 	mysqlDriver "github.com/go-sql-driver/mysql"
@@ -112,8 +113,8 @@ func saasMigrationHealthCheck(ctx context.Context, db *sql.DB) (dashboard.SaaSAd
 		Severity: dashboard.SaaSAdminSystemHealthStateCritical, Threshold: dashboard.SaaSAdminExpectedMigrationCount,
 		Metadata: map[string]any{"currentVersion": "", "expectedVersion": dashboard.SaaSAdminExpectedMigrationVersion, "migrationCount": int64(0), "ledgerAvailable": true},
 	}
-	var migrationCount int64
-	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM mochat_go_schema_migrations`).Scan(&migrationCount); err != nil {
+	rows, err := db.QueryContext(ctx, `SELECT version, checksum FROM mochat_go_schema_migrations`)
+	if err != nil {
 		var mysqlErr *mysqlDriver.MySQLError
 		if errors.As(err, &mysqlErr) && mysqlErr.Number == 1146 {
 			check.Status = dashboard.SaaSAdminSystemHealthStateCritical
@@ -123,17 +124,41 @@ func saasMigrationHealthCheck(ctx context.Context, db *sql.DB) (dashboard.SaaSAd
 		}
 		return dashboard.SaaSAdminSystemHealthCheck{}, err
 	}
+	defer rows.Close()
+	type ledgerEntry struct{ version, checksum string }
+	entries := make([]ledgerEntry, 0, dashboard.SaaSAdminExpectedMigrationCount+1)
 	var currentMigration string
-	err := db.QueryRowContext(ctx, `SELECT version FROM mochat_go_schema_migrations ORDER BY version DESC LIMIT 1`).Scan(&currentMigration)
-	if errors.Is(err, sql.ErrNoRows) {
-		currentMigration = ""
-	} else if err != nil {
+	var supersedingMigrationValid bool
+	for rows.Next() {
+		var entry ledgerEntry
+		if err := rows.Scan(&entry.version, &entry.checksum); err != nil {
+			return dashboard.SaaSAdminSystemHealthCheck{}, err
+		}
+		entries = append(entries, entry)
+		if entry.version > currentMigration {
+			currentMigration = entry.version
+		}
+		if entry.version == migrationhistory.LiveCodeWorkspaceVersion && migrationhistory.IsValidLiveCodeWorkspaceChecksum(entry.checksum) {
+			supersedingMigrationValid = true
+		}
+	}
+	if err := rows.Err(); err != nil {
 		return dashboard.SaaSAdminSystemHealthCheck{}, err
 	}
+	rawMigrationCount := int64(len(entries))
+	var supersededMigrationCount int64
+	for _, entry := range entries {
+		if migrationhistory.IsAuditedSupersededLiveCode(entry.version, entry.checksum, supersedingMigrationValid) {
+			supersededMigrationCount++
+		}
+	}
+	migrationCount := rawMigrationCount - supersededMigrationCount
 	check.Current = migrationCount
 	check.Detail = fmt.Sprintf("当前 %s，共 %d 个版本", currentMigration, migrationCount)
 	check.Metadata["currentVersion"] = currentMigration
 	check.Metadata["migrationCount"] = migrationCount
+	check.Metadata["rawMigrationCount"] = rawMigrationCount
+	check.Metadata["supersededMigrationCount"] = supersededMigrationCount
 	if currentMigration != dashboard.SaaSAdminExpectedMigrationVersion || migrationCount != dashboard.SaaSAdminExpectedMigrationCount {
 		check.Status = dashboard.SaaSAdminSystemHealthStateCritical
 		check.Detail = fmt.Sprintf("迁移未对齐：当前 %s/%d，期望 %s/%d", currentMigration, migrationCount, dashboard.SaaSAdminExpectedMigrationVersion, dashboard.SaaSAdminExpectedMigrationCount)
