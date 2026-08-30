@@ -36,7 +36,6 @@ import (
 	"jiyi/mochat-go/internal/outboundhttp"
 	"jiyi/mochat-go/internal/providerstatus"
 	"jiyi/mochat-go/internal/runtimegroup"
-	"jiyi/mochat-go/internal/saasalertcredentials"
 	"jiyi/mochat-go/internal/saasauditanchor"
 	"jiyi/mochat-go/internal/saasauth"
 	"jiyi/mochat-go/internal/saasbackup"
@@ -45,77 +44,9 @@ import (
 	"jiyi/mochat-go/internal/serviceaccountkey"
 	"jiyi/mochat-go/internal/store"
 	"jiyi/mochat-go/internal/taskrunner"
-	"jiyi/mochat-go/internal/wechatopencredentials"
 	"jiyi/mochat-go/internal/wecomcapability"
-	"jiyi/mochat-go/internal/wecomcredentials"
 	"jiyi/mochat-go/internal/wecomsuitecallback"
 )
-
-type companyProfileWeComVerifier struct {
-	client *dashboard.RoomWelcomeWeComClient
-}
-
-type weWorkCallbackRedisCapabilities interface {
-	Ping(context.Context) error
-	dashboard.ContactWelcomeEnqueuer
-	dashboard.ContactWelcomeStatusCache
-	dashboard.AutoTagMarkTagsQueue
-}
-
-type weWorkCallbackRedisCapabilityResolver struct {
-	candidate weWorkCallbackRedisCapabilities
-}
-
-func (r weWorkCallbackRedisCapabilityResolver) ResolveWeWorkCallbackCapabilities(ctx context.Context) (dashboard.WeWorkCallbackWorkerCapabilities, error) {
-	if r.candidate == nil || r.candidate.Ping(ctx) != nil {
-		return dashboard.WeWorkCallbackWorkerCapabilities{}, fmt.Errorf("%w: dependency=redis capability=callback_downstream_queue", dashboard.ErrWeWorkCallbackDependencyUnavailable)
-	}
-	return dashboard.WeWorkCallbackWorkerCapabilities{
-		ContactWelcomeQueue: r.candidate,
-		ContactWelcomeCache: r.candidate,
-		MarkTagsQueue:       r.candidate,
-	}, nil
-}
-
-func optionalWeWorkCallbackCapabilities(ctx context.Context, candidate weWorkCallbackRedisCapabilities) (dashboard.WeWorkCallbackWorkerCapabilities, bool) {
-	if candidate == nil || candidate.Ping(ctx) != nil {
-		return dashboard.WeWorkCallbackWorkerCapabilities{}, false
-	}
-	return dashboard.WeWorkCallbackWorkerCapabilities{
-		ContactWelcomeQueue: candidate,
-		ContactWelcomeCache: candidate,
-		MarkTagsQueue:       candidate,
-	}, true
-}
-
-type dashboardArchiveComponentBridge struct {
-	client *archiveprovider.BridgeArchiveClient
-}
-
-func (bridge dashboardArchiveComponentBridge) FetchArchiveComponent(ctx context.Context, object dashboard.ArchiveComponentObject) (dashboard.ArchiveComponentContent, error) {
-	if bridge.client == nil {
-		return dashboard.ArchiveComponentContent{}, fmt.Errorf("archive component bridge is unavailable")
-	}
-	content, err := bridge.client.FetchComponent(ctx, archiveprovider.ComponentRequest{
-		Scope: archiveprovider.Scope{TenantID: int64(object.TenantID), CorpID: int64(object.CorpID)}, WXCorpID: object.WXCorpID,
-		MessageID: object.MessageID, PublicKeyVersion: object.PublicKeyVersion, EncryptedSecretKey: object.EncryptedSecretKey,
-	})
-	if err != nil {
-		return dashboard.ArchiveComponentContent{}, err
-	}
-	return dashboard.ArchiveComponentContent{Type: content.Type, MIMEType: content.MIMEType, FileName: content.FileName, Body: content.Data}, nil
-}
-
-func (v companyProfileWeComVerifier) Verify(ctx context.Context, request companyprofile.VerificationRequest) (companyprofile.VerificationResult, error) {
-	if v.client == nil || request.TenantID <= 0 || request.CorpID <= 0 || strings.TrimSpace(request.WXCorpID) == "" {
-		return companyprofile.VerificationResult{}, fmt.Errorf("company verification provider is not configured")
-	}
-	result, err := v.client.VerifyCompany(ctx, request.WXCorpID, request.Credentials.EmployeeSecret, request.Credentials.ContactSecret)
-	if err != nil {
-		return companyprofile.VerificationResult{}, err
-	}
-	return companyprofile.VerificationResult{WXCorpID: result.WXCorpID, CorpName: result.CorpName}, nil
-}
 
 func main() {
 	configureLogging()
@@ -140,51 +71,12 @@ func main() {
 	}
 	debugf("runtime mode: role=%s standalone=%t all_migrated_routes_default=%t php_fallback_enabled=%t", cfg.RuntimeRole, cfg.Standalone, cfg.EnableAllMigratedRoutes, strings.TrimSpace(cfg.PHPUpstream) != "")
 	debugf("identity MFA requirements: saas_admin_required=%t dashboard_required=%t", cfg.SaaSAdminMFARequired, cfg.DashboardMFARequired)
-	alertCredentialManager, err := saasalertcredentials.NewManager(saasalertcredentials.Config{
-		EncryptionKey:       cfg.SaaSAlertCredentialEncryptionKey,
-		EncryptionKeys:      cfg.SaaSAlertCredentialEncryptionKeys,
-		EncryptionKeyID:     cfg.SaaSAlertCredentialEncryptionKeyID,
-		RequireEncryption:   cfg.SaaSAlertCredentialRequireEncryption,
-		DedicatedConfigured: cfg.SaaSAlertCredentialDedicatedConfigured,
-	})
+	credentialManagers, err := buildRuntimeCredentialManagers(cfg)
 	if err != nil {
-		fatalf("build SaaS alert credential encryption manager: %v", err)
+		fatal(err)
 	}
-	alertCredentialStatus := alertCredentialManager.ConfigStatus()
-	debugf("SaaS alert credential protection: encryption_configured=%t require_encryption=%t dedicated_configured=%t active_key_id=%s key_count=%d",
-		alertCredentialStatus.EncryptionConfigured, alertCredentialStatus.RequireEncryption,
-		alertCredentialStatus.DedicatedConfigured, alertCredentialStatus.ActiveKeyID, alertCredentialStatus.KeyCount)
-	weComCredentialManager, err := wecomcredentials.NewManager(wecomcredentials.Config{
-		EncryptionKey:       cfg.WeComCredentialEncryptionKey,
-		EncryptionKeys:      cfg.WeComCredentialEncryptionKeys,
-		EncryptionKeyID:     cfg.WeComCredentialEncryptionKeyID,
-		RequireEncryption:   cfg.WeComCredentialRequireEncryption,
-		DedicatedConfigured: cfg.WeComCredentialDedicatedConfigured,
-	})
-	if err != nil {
-		fatalf("build WeCom credential encryption manager: %v", err)
-	}
-	weComCredentialStatus := weComCredentialManager.ConfigStatus()
-	if cfg.EnableDurableWorkMessageArchive && !weComCredentialStatus.EncryptionConfigured {
-		fatal("durable work message archive requires configured WeCom credential encryption")
-	}
-	debugf("WeCom credential protection: encryption_configured=%t require_encryption=%t dedicated_configured=%t active_key_id=%s key_count=%d",
-		weComCredentialStatus.EncryptionConfigured, weComCredentialStatus.RequireEncryption,
-		weComCredentialStatus.DedicatedConfigured, weComCredentialStatus.ActiveKeyID, weComCredentialStatus.KeyCount)
-	weChatOpenCredentialManager, err := wechatopencredentials.NewManager(wechatopencredentials.Config{
-		EncryptionKey:       cfg.WeChatOpenCredentialEncryptionKey,
-		EncryptionKeys:      cfg.WeChatOpenCredentialEncryptionKeys,
-		EncryptionKeyID:     cfg.WeChatOpenCredentialEncryptionKeyID,
-		RequireEncryption:   cfg.WeChatOpenCredentialRequireEncryption,
-		DedicatedConfigured: cfg.WeChatOpenCredentialDedicatedConfigured,
-	})
-	if err != nil {
-		fatalf("build WeChat Open credential encryption manager: %v", err)
-	}
-	weChatOpenCredentialStatus := weChatOpenCredentialManager.ConfigStatus()
-	debugf("WeChat Open credential protection: encryption_configured=%t require_encryption=%t dedicated_configured=%t active_key_id=%s key_count=%d",
-		weChatOpenCredentialStatus.EncryptionConfigured, weChatOpenCredentialStatus.RequireEncryption,
-		weChatOpenCredentialStatus.DedicatedConfigured, weChatOpenCredentialStatus.ActiveKeyID, weChatOpenCredentialStatus.KeyCount)
+	alertCredentialManager, weComCredentialManager, weChatOpenCredentialManager := credentialManagers.alerts, credentialManagers.weCom, credentialManagers.weChatOpen
+	alertCredentialStatus, weComCredentialStatus, weChatOpenCredentialStatus := credentialManagers.alertStatus, credentialManagers.weComStatus, credentialManagers.weChatOpenStatus
 	aiProviderCredentialManager, err := aiproviderconfig.NewManager(aiproviderconfig.Config{
 		EncryptionKey: cfg.AIProviderCredentialEncryptionKey, EncryptionKeys: cfg.AIProviderCredentialEncryptionKeys,
 		EncryptionKeyID: cfg.AIProviderCredentialEncryptionKeyID, RequireEncryption: cfg.AIProviderCredentialRequireEncryption,
@@ -3750,57 +3642,4 @@ func main() {
 	}
 	serviceGroupOwnsListeners = true
 	runtimeErr = httpServices.Run(shutdownCtx)
-}
-
-func initializeRuntimeMySQLStore(target **store.MySQLStore, open func() (*store.MySQLStore, error)) error {
-	if target == nil {
-		return errors.New("runtime mysql target is required")
-	}
-	if *target != nil {
-		return nil
-	}
-	if open == nil {
-		return errors.New("runtime mysql initializer is required")
-	}
-	candidate, err := open()
-	if err != nil {
-		return err
-	}
-	if candidate == nil {
-		return errors.New("runtime mysql initializer returned nil store")
-	}
-	*target = candidate
-	return nil
-}
-
-type durableArchiveMediaBatchRunner interface {
-	CleanupStaleAttempts(context.Context) (int, error)
-	RunOne(context.Context) (bool, error)
-}
-
-func runDurableArchiveMediaBatch(ctx context.Context, runner durableArchiveMediaBatchRunner, limit int, logger *log.Logger) error {
-	if logger == nil {
-		logger = log.Default()
-	}
-	if _, err := runner.CleanupStaleAttempts(ctx); err != nil {
-		logger.Print("go durable archive media attempt cleanup failed")
-	}
-	failed := false
-	for index := 0; index < limit; index++ {
-		worked, err := runner.RunOne(ctx)
-		if err != nil {
-			failed = true
-			if !worked {
-				break
-			}
-			continue
-		}
-		if !worked {
-			break
-		}
-	}
-	if failed {
-		return errors.New("archive media batch completed with failed items")
-	}
-	return nil
 }
