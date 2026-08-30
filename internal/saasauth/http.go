@@ -203,7 +203,15 @@ func (handler *HTTPHandler) mfaComplete(w http.ResponseWriter, r *http.Request) 
 	}
 	digest := sha256.Sum256([]byte(strings.TrimSpace(request.ChallengeToken)))
 	challenge, err := handler.persistence.FindMFAChallenge(r.Context(), digest)
-	if err != nil || challenge.Status != 0 || challenge.ExpiresAt.Before(handler.currentTime()) || challenge.Attempts >= challenge.MaxAttempts || (challenge.ChallengeType != SaaSMFAChallengeEnrollment && challenge.ChallengeType != SaaSMFAChallengeLogin) {
+	if err != nil {
+		if !errors.Is(err, ErrMFAChallengeInvalid) {
+			writeSaaSAuthEnvelope(w, http.StatusServiceUnavailable, "AUTH_UNAVAILABLE", "authentication unavailable", nil)
+			return
+		}
+		writeSaaSAuthEnvelope(w, http.StatusUnauthorized, "MFA_CHALLENGE_INVALID", "multi-factor authentication challenge invalid", nil)
+		return
+	}
+	if challenge.Status != 0 || challenge.ExpiresAt.Before(handler.currentTime()) || challenge.Attempts >= challenge.MaxAttempts || (challenge.ChallengeType != SaaSMFAChallengeEnrollment && challenge.ChallengeType != SaaSMFAChallengeLogin) {
 		writeSaaSAuthEnvelope(w, http.StatusUnauthorized, "MFA_CHALLENGE_INVALID", "multi-factor authentication challenge invalid", nil)
 		return
 	}
