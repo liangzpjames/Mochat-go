@@ -25,6 +25,7 @@ const archiveMediaTestID = "8ff7bf2d-5604-43bc-a600-3ec91d575085"
 
 type fakeArchiveMediaContentStore struct {
 	mu                     sync.Mutex
+	beforeLookup           func()
 	object                 ArchiveMediaContentObject
 	found                  bool
 	filter                 ArchiveMediaContentFilter
@@ -44,6 +45,9 @@ func (w *archiveDeadlineRecorder) SetWriteDeadline(deadline time.Time) error {
 }
 
 func (store *fakeArchiveMediaContentStore) ArchiveMediaContent(_ context.Context, filter ArchiveMediaContentFilter) (ArchiveMediaContentObject, bool, error) {
+	if store.beforeLookup != nil {
+		store.beforeLookup()
+	}
 	store.mu.Lock()
 	defer store.mu.Unlock()
 	store.calls++
@@ -69,6 +73,19 @@ func containsArchiveMediaConversationType(values []int, target int) bool {
 		}
 	}
 	return false
+}
+
+func awaitArchiveMediaSignals(t *testing.T, signals <-chan struct{}, count int, label string) {
+	t.Helper()
+	timer := time.NewTimer(5 * time.Second)
+	defer timer.Stop()
+	for received := 0; received < count; received++ {
+		select {
+		case <-signals:
+		case <-timer.C:
+			t.Fatalf("%s: received %d/%d signals", label, received, count)
+		}
+	}
 }
 
 func TestArchiveMediaContentServesFullHeadAndSingleRanges(t *testing.T) {
@@ -252,14 +269,21 @@ func TestArchiveMediaContentServesOnlyTheValidatedSnapshot(t *testing.T) {
 }
 
 func TestArchiveMediaSnapshotConcurrencyCoversCopyAndHash(t *testing.T) {
+	const requestCount = archiveMediaHashConcurrency * 2
 	root := t.TempDir()
 	path := writeArchiveMediaTestFile(t, root, []byte("payload"))
+	lookupsReady := make(chan struct{}, requestCount)
+	lookupsRelease := make(chan struct{})
 	store := &fakeArchiveMediaContentStore{found: true, object: ArchiveMediaContentObject{
 		ID: archiveMediaTestID, MediaType: "file", Name: "payload.bin", MIMEType: "application/octet-stream",
 		Size: 7, Status: "ready", StoragePath: path, SHA256: archiveMediaTestSHA256([]byte("payload")),
 	}}
+	store.beforeLookup = func() {
+		lookupsReady <- struct{}{}
+		<-lookupsRelease
+	}
 	handler := NewArchiveMediaContentHandler(store, root)
-	started, release := make(chan struct{}, 8), make(chan struct{})
+	started, snapshotsRelease := make(chan struct{}, requestCount), make(chan struct{})
 	var active, maximum atomic.Int32
 	handler.snapshotCopy = func(writer io.Writer, reader io.Reader) (int64, error) {
 		current := active.Add(1)
@@ -271,11 +295,19 @@ func TestArchiveMediaSnapshotConcurrencyCoversCopyAndHash(t *testing.T) {
 			}
 		}
 		started <- struct{}{}
-		<-release
+		<-snapshotsRelease
 		return io.Copy(writer, reader)
 	}
+	var lookupsReleaseOnce, snapshotsReleaseOnce sync.Once
+	releaseLookups := func() { lookupsReleaseOnce.Do(func() { close(lookupsRelease) }) }
+	releaseSnapshots := func() { snapshotsReleaseOnce.Do(func() { close(snapshotsRelease) }) }
 	var wait sync.WaitGroup
-	for index := 0; index < 8; index++ {
+	t.Cleanup(func() {
+		releaseLookups()
+		releaseSnapshots()
+		wait.Wait()
+	})
+	for index := 0; index < requestCount; index++ {
 		wait.Add(1)
 		go func() {
 			defer wait.Done()
@@ -286,19 +318,18 @@ func TestArchiveMediaSnapshotConcurrencyCoversCopyAndHash(t *testing.T) {
 			}
 		}()
 	}
-	for index := 0; index < archiveMediaHashConcurrency; index++ {
-		select {
-		case <-started:
-		case <-time.After(time.Second):
-			t.Fatal("copy/hash slot did not start")
-		}
+	awaitArchiveMediaSignals(t, lookupsReady, requestCount, "requests did not reach the archive media lookup barrier")
+	releaseLookups()
+	awaitArchiveMediaSignals(t, started, archiveMediaHashConcurrency, "copy/hash slots did not fill")
+	if got := len(handler.hashSlots); got != archiveMediaHashConcurrency {
+		t.Fatalf("occupied copy/hash slots=%d want=%d", got, archiveMediaHashConcurrency)
 	}
 	select {
 	case <-started:
 		t.Fatal("more than four snapshot copies entered the integrity boundary")
-	case <-time.After(50 * time.Millisecond):
+	default:
 	}
-	close(release)
+	releaseSnapshots()
 	wait.Wait()
 	if maximum.Load() != archiveMediaHashConcurrency {
 		t.Fatalf("maximum concurrent snapshot copies=%d want=%d", maximum.Load(), archiveMediaHashConcurrency)
