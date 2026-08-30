@@ -19,6 +19,7 @@ const (
 	aiInsight0165LegacyTable          = "mochat_go_ai_analysis"
 	aiInsight0165BackupSourceTable    = "mochat_go_backup_0165_ai_conversation_insights"
 	aiInsight0165BackupLegacyTable    = "mochat_go_backup_0165_ai_analysis"
+	aiInsight0165AdoptedStatus        = "adopted_existing"
 	aiInsight0165RecoveryBoundaryText = "0165 was already recorded; historical rows deleted by an earlier uncontrolled execution cannot be reconstructed without a verified pre-0165 backup"
 )
 
@@ -32,9 +33,11 @@ var (
 	ErrAIInsight0165SurvivorDrift     = errors.New("0165 controlled migration survivor rows changed")
 	ErrAIInsight0165TrafficNotStopped = errors.New("0165 controlled migration requires explicit traffic-stopped confirmation")
 	ErrAIInsight0165ConcurrentRun     = errors.New("0165 controlled migration is already running")
+	ErrAIInsight0165AdoptionConflict  = errors.New("0165 historical adoption conflicts with existing control evidence")
 )
 
 var aiInsight0165RequestPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$`)
+var aiInsight0165SHA256Pattern = regexp.MustCompile(`^[a-f0-9]{64}$`)
 
 type AIInsight0165Inventory struct {
 	SchemaName          string `json:"schemaName"`
@@ -65,6 +68,24 @@ type AIInsight0165ApplyRequest struct {
 	ApprovalToken       string
 	DestructiveApproval string
 	TrafficStopped      bool
+}
+
+type AIInsight0165AdoptExistingRequest struct {
+	RequestID            string
+	ExternalBackupSHA256 string
+	TrafficStopped       bool
+}
+
+type AIInsight0165AdoptionResult struct {
+	RequestID            string `json:"requestId"`
+	Adopted              bool   `json:"adopted"`
+	Verified             bool   `json:"verified"`
+	SchemaName           string `json:"schemaName"`
+	MigrationChecksum    string `json:"migrationChecksum"`
+	ExternalBackupSHA256 string `json:"externalBackupSha256"`
+	InsightRows          int64  `json:"insightRows"`
+	InsightDigest        string `json:"insightDigest"`
+	RecoveryBoundary     string `json:"recoveryBoundary"`
 }
 
 type AIInsight0165ApplyResult struct {
@@ -317,6 +338,115 @@ func (c *AIInsight0165Controller) Verify(ctx context.Context, requestID string) 
 	}
 	defer release()
 	return c.verifyAndRecordWith(ctx, conn, requestID, 0)
+}
+
+// AdoptExisting records an honest compatibility boundary for environments
+// that executed 0165 before it became controlled. It never claims that a
+// verified pre-0165 backup exists.
+func (c *AIInsight0165Controller) AdoptExisting(ctx context.Context, request AIInsight0165AdoptExistingRequest) (AIInsight0165AdoptionResult, error) {
+	requestID, err := validateAIInsight0165RequestID(request.RequestID)
+	if err != nil {
+		return AIInsight0165AdoptionResult{}, err
+	}
+	backupSHA := strings.ToLower(strings.TrimSpace(request.ExternalBackupSHA256))
+	if !aiInsight0165SHA256Pattern.MatchString(backupSHA) {
+		return AIInsight0165AdoptionResult{}, errors.New("0165 historical adoption requires a valid external backup SHA-256")
+	}
+	if !request.TrafficStopped {
+		return AIInsight0165AdoptionResult{}, ErrAIInsight0165TrafficNotStopped
+	}
+	conn, release, err := c.lockedConnection(ctx)
+	if err != nil {
+		return AIInsight0165AdoptionResult{}, err
+	}
+	defer release()
+
+	result := AIInsight0165AdoptionResult{
+		RequestID: requestID, MigrationChecksum: c.checksum,
+		ExternalBackupSHA256: backupSHA, RecoveryBoundary: aiInsight0165RecoveryBoundaryText,
+	}
+	if err := conn.QueryRowContext(ctx, `SELECT DATABASE()`).Scan(&result.SchemaName); err != nil || strings.TrimSpace(result.SchemaName) == "" {
+		return result, fmt.Errorf("%w: database name is unavailable", ErrAIInsight0165WrongSchema)
+	}
+	var appliedChecksum string
+	if err := conn.QueryRowContext(ctx, `SELECT checksum FROM `+VersionTable+` WHERE version = ?`, AIInsight0165Version).Scan(&appliedChecksum); err != nil {
+		return result, fmt.Errorf("%w: historical 0165 ledger is missing", ErrAIInsight0165WrongSchema)
+	}
+	if appliedChecksum != c.checksum {
+		return result, fmt.Errorf("%w: applied checksum %s differs from immutable checksum %s", ErrAIInsight0165WrongSchema, appliedChecksum, c.checksum)
+	}
+	if err := validateAIInsight0165PostMigrationSchema(ctx, conn); err != nil {
+		return result, err
+	}
+	result.InsightRows, result.InsightDigest, err = aiInsight0165TableDigest(ctx, conn, aiInsight0165SourceTable)
+	if err != nil {
+		return result, err
+	}
+
+	controlExists, err := aiInsight0165TableExists(ctx, conn, aiInsight0165ControlTable)
+	if err != nil {
+		return result, err
+	}
+	if !controlExists {
+		if err := createAIInsight0165ControlTable(ctx, conn); err != nil {
+			return result, err
+		}
+	}
+	if err := ensureAIInsight0165AdoptionColumns(ctx, conn); err != nil {
+		return result, err
+	}
+	var verifiedCount int
+	if err := conn.QueryRowContext(ctx, `SELECT COUNT(*) FROM `+aiInsight0165ControlTable+` WHERE status = 'verified'`).Scan(&verifiedCount); err != nil {
+		return result, err
+	}
+	if verifiedCount != 0 {
+		return result, ErrAIInsight0165AdoptionConflict
+	}
+	var adoptedCount int
+	if err := conn.QueryRowContext(ctx, `SELECT COUNT(*) FROM `+aiInsight0165ControlTable+` WHERE status = ?`, aiInsight0165AdoptedStatus).Scan(&adoptedCount); err != nil {
+		return result, err
+	}
+	if adoptedCount > 1 {
+		return result, ErrAIInsight0165AdoptionConflict
+	}
+	if adoptedCount == 1 {
+		var existing AIInsight0165AdoptionResult
+		err := conn.QueryRowContext(ctx, `
+			SELECT request_id, schema_name, migration_checksum, external_backup_sha256,
+				insight_rows, insight_digest, recovery_boundary
+			FROM `+aiInsight0165ControlTable+` WHERE status = ?
+		`, aiInsight0165AdoptedStatus).Scan(
+			&existing.RequestID, &existing.SchemaName, &existing.MigrationChecksum, &existing.ExternalBackupSHA256,
+			&existing.InsightRows, &existing.InsightDigest, &existing.RecoveryBoundary,
+		)
+		if err != nil {
+			return result, err
+		}
+		if existing.RequestID != result.RequestID || existing.SchemaName != result.SchemaName ||
+			existing.MigrationChecksum != result.MigrationChecksum || existing.ExternalBackupSHA256 != result.ExternalBackupSHA256 ||
+			existing.InsightRows != result.InsightRows || existing.InsightDigest != result.InsightDigest ||
+			existing.RecoveryBoundary != result.RecoveryBoundary {
+			return result, ErrAIInsight0165AdoptionConflict
+		}
+		result.Adopted = true
+		return result, nil
+	}
+	emptyDigest := emptyAIInsight0165Digest()
+	_, err = conn.ExecContext(ctx, `
+		INSERT INTO `+aiInsight0165ControlTable+` (
+			request_id, schema_name, migration_checksum,
+			insight_rows, insight_digest, duplicate_rows, legacy_rows, legacy_digest,
+			backup_insight_rows, backup_insight_digest, backup_legacy_rows, backup_legacy_digest,
+			status, recovery_boundary, external_backup_sha256, adopted_at,
+			created_at, updated_at, verified_at
+		) VALUES (?, ?, ?, ?, ?, 0, 0, ?, 0, ?, 0, ?, ?, ?, ?, NOW(), NOW(), NOW(), NULL)
+	`, requestID, result.SchemaName, c.checksum, result.InsightRows, result.InsightDigest,
+		emptyDigest, emptyDigest, emptyDigest, aiInsight0165AdoptedStatus, result.RecoveryBoundary, backupSHA)
+	if err != nil {
+		return result, fmt.Errorf("record 0165 historical adoption: %w", err)
+	}
+	result.Adopted = true
+	return result, nil
 }
 
 func (c *AIInsight0165Controller) inventoryWith(ctx context.Context, queryer aiInsight0165Queryer) (AIInsight0165Inventory, error) {
@@ -687,10 +817,39 @@ func createAIInsight0165ControlTable(ctx context.Context, queryer aiInsight0165Q
 		created_at datetime NOT NULL,
 		updated_at datetime NOT NULL,
 		verified_at datetime NULL,
+		recovery_boundary text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL,
+		external_backup_sha256 char(64) CHARACTER SET ascii COLLATE ascii_bin NULL,
+		adopted_at datetime NULL,
 		PRIMARY KEY (request_id)
 	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`)
 	if err != nil {
 		return fmt.Errorf("create 0165 control manifest: %w", err)
+	}
+	return nil
+}
+
+func ensureAIInsight0165AdoptionColumns(ctx context.Context, queryer aiInsight0165Queryer) error {
+	columns := []struct {
+		name string
+		ddl  string
+	}{
+		{"recovery_boundary", "text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL"},
+		{"external_backup_sha256", "char(64) CHARACTER SET ascii COLLATE ascii_bin NULL"},
+		{"adopted_at", "datetime NULL"},
+	}
+	for _, column := range columns {
+		var count int
+		if err := queryer.QueryRowContext(ctx, `SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = ? AND column_name = ?`, aiInsight0165ControlTable, column.name).Scan(&count); err != nil {
+			return err
+		}
+		if count > 1 {
+			return fmt.Errorf("0165 control column %s has invalid metadata count %d", column.name, count)
+		}
+		if count == 0 {
+			if _, err := queryer.ExecContext(ctx, `ALTER TABLE `+aiInsight0165ControlTable+` ADD COLUMN `+column.name+` `+column.ddl); err != nil {
+				return fmt.Errorf("add 0165 historical adoption column %s: %w", column.name, err)
+			}
+		}
 	}
 	return nil
 }

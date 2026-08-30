@@ -283,6 +283,9 @@ func auditMigrationFixtureSources(sources map[string][]byte) []string {
 			integrationfixtureaudit.Ref("mysql_external_integration_harness_test.go", "newExternalMigrationRunnerThrough"),
 		},
 		AllowedOperations: []integrationfixtureaudit.OperationAllowance{
+			operation("ai_insight_0165_integration_test.go", "TestAIInsight0165AdoptsHistoricalAppliedEnvironmentWithoutClaimingVerified", "DROP TABLE", "mochat_go_controlled_migration_0165"),
+			operation("ai_insight_0165_integration_test.go", "TestAIInsight0165AdoptsHistoricalAppliedEnvironmentWithoutClaimingVerified", "DROP TABLE", "mochat_go_backup_0165_ai_conversation_insights"),
+			operation("ai_insight_0165_integration_test.go", "TestAIInsight0165AdoptsHistoricalAppliedEnvironmentWithoutClaimingVerified", "DROP TABLE", "mochat_go_backup_0165_ai_analysis"),
 			operation("archive_runner_integration_test.go", "TestArchiveSourceMigrationRunnerApplyDownApplyPinsOneConnection", "CREATE TABLE", "mochat_go_archive_sync_runs"),
 			operation("archive_runner_integration_test.go", "TestArchiveSourceMigrationRunnerApplyDownApplyPinsOneConnection", "DROP TABLE", "mochat_go_archive_sync_runs"),
 			operation("dashboard_page_rbac_integration_test.go", "createDashboardRBACPartialTablesProbe", "CREATE TABLE", "mochat_go_dashboard_permissions"),

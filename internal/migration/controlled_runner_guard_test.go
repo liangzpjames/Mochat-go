@@ -45,6 +45,9 @@ func TestRunnerApplyRejectsAppliedControlledMigrationWithoutVerifiedEvidence(t *
 	mock.ExpectQuery(regexp.QuoteMeta("SELECT COUNT(*)")).
 		WithArgs(checksum, metadata.SuccessStatus).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT COUNT(*)")).
+		WithArgs(checksum, aiInsight0165AdoptedStatus, aiInsight0165RecoveryBoundaryText).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
 
 	_, err = runner.Apply(context.Background())
 	if err == nil || !strings.Contains(err.Error(), "baseline requires exactly one verified completion") {

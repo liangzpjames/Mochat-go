@@ -21,18 +21,19 @@ type Options struct {
 	RequestID             string
 	ApprovalToken         string
 	DestructiveApproval   string
+	ExternalBackupSHA256  string
 	ConfirmTrafficStopped bool
 }
 
 func ParseOptions(args []string) (Options, error) {
 	if len(args) == 0 {
-		return Options{}, errors.New("action must be one of inventory, backup, preflight, apply, verify")
+		return Options{}, errors.New("action must be one of inventory, backup, preflight, apply, verify, adopt-existing")
 	}
 	options := Options{Action: strings.TrimSpace(args[0]), ProjectRoot: "."}
 	switch options.Action {
-	case "inventory", "backup", "preflight", "apply", "verify":
+	case "inventory", "backup", "preflight", "apply", "verify", "adopt-existing":
 	default:
-		return Options{}, errors.New("action must be one of inventory, backup, preflight, apply, verify")
+		return Options{}, errors.New("action must be one of inventory, backup, preflight, apply, verify, adopt-existing")
 	}
 	flags := flag.NewFlagSet("preflight_0165_ai_daily_insight_unification "+options.Action, flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
@@ -41,6 +42,7 @@ func ParseOptions(args []string) (Options, error) {
 	flags.StringVar(&options.RequestID, "request-id", "", "stable controlled migration request id")
 	flags.StringVar(&options.ApprovalToken, "approval-token", "", "approval token emitted by preflight")
 	flags.StringVar(&options.DestructiveApproval, "approve-destructive", "", "exact duplicate and legacy counts emitted by preflight")
+	flags.StringVar(&options.ExternalBackupSHA256, "external-backup-sha256", "", "SHA-256 of an externally restored and verified current backup")
 	flags.BoolVar(&options.ConfirmTrafficStopped, "confirm-traffic-stopped", false, "confirm application traffic has been stopped before apply")
 	if err := flags.Parse(args[1:]); err != nil {
 		return Options{}, err
@@ -63,6 +65,14 @@ func ParseOptions(args []string) (Options, error) {
 		}
 		if strings.TrimSpace(options.DestructiveApproval) == "" {
 			return Options{}, errors.New("--approve-destructive is required")
+		}
+		if !options.ConfirmTrafficStopped {
+			return Options{}, errors.New("--confirm-traffic-stopped is required")
+		}
+	}
+	if options.Action == "adopt-existing" {
+		if strings.TrimSpace(options.ExternalBackupSHA256) == "" {
+			return Options{}, errors.New("--external-backup-sha256 is required")
 		}
 		if !options.ConfirmTrafficStopped {
 			return Options{}, errors.New("--confirm-traffic-stopped is required")
@@ -128,6 +138,15 @@ func Run(ctx context.Context, args []string, output io.Writer) error {
 		report, verifyErr := controller.Verify(ctx, options.RequestID)
 		if verifyErr != nil {
 			return verifyErr
+		}
+		return encoder.Encode(report)
+	case "adopt-existing":
+		report, adoptErr := controller.AdoptExisting(ctx, migration.AIInsight0165AdoptExistingRequest{
+			RequestID: options.RequestID, ExternalBackupSHA256: options.ExternalBackupSHA256,
+			TrafficStopped: options.ConfirmTrafficStopped,
+		})
+		if adoptErr != nil {
+			return adoptErr
 		}
 		return encoder.Encode(report)
 	default:

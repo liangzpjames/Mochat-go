@@ -16,6 +16,8 @@ func TestParseOptionsRequiresSecretFileAndActionSpecificEvidence(t *testing.T) {
 		{"approval token", []string{"apply", "--dsn-file", "dsn.txt", "--request-id", "r1", "--approve-destructive", "duplicates=1,legacy=1", "--confirm-traffic-stopped"}, "--approval-token is required"},
 		{"destructive counts", []string{"apply", "--dsn-file", "dsn.txt", "--request-id", "r1", "--approval-token", "token", "--confirm-traffic-stopped"}, "--approve-destructive is required"},
 		{"traffic stopped", []string{"apply", "--dsn-file", "dsn.txt", "--request-id", "r1", "--approval-token", "token", "--approve-destructive", "duplicates=1,legacy=1"}, "--confirm-traffic-stopped is required"},
+		{"adoption backup hash", []string{"adopt-existing", "--dsn-file", "dsn.txt", "--request-id", "r1", "--confirm-traffic-stopped"}, "--external-backup-sha256 is required"},
+		{"adoption traffic stopped", []string{"adopt-existing", "--dsn-file", "dsn.txt", "--request-id", "r1", "--external-backup-sha256", strings.Repeat("a", 64)}, "--confirm-traffic-stopped is required"},
 		{"unknown action", []string{"destroy", "--dsn-file", "dsn.txt"}, "action must be one of"},
 	}
 	for _, tt := range tests {
@@ -52,5 +54,16 @@ func TestParseOptionsAcceptsControlledLifecycleActions(t *testing.T) {
 	}
 	if !options.ConfirmTrafficStopped || options.ApprovalToken != "approval-v1:abc" {
 		t.Fatalf("apply options = %+v", options)
+	}
+
+	options, err = ParseOptions([]string{
+		"adopt-existing", "--dsn-file", "dsn.txt", "--project-root", "repo", "--request-id", "historical-0165",
+		"--external-backup-sha256", strings.Repeat("b", 64), "--confirm-traffic-stopped",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if options.ExternalBackupSHA256 != strings.Repeat("b", 64) || !options.ConfirmTrafficStopped {
+		t.Fatalf("adopt-existing options = %+v", options)
 	}
 }

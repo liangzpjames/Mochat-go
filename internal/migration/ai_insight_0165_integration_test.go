@@ -385,6 +385,90 @@ func TestAIInsight0165RejectsWrongSchemaAndAlreadyAppliedEnvironment(t *testing.
 	})
 }
 
+func TestAIInsight0165AdoptsHistoricalAppliedEnvironmentWithoutClaimingVerified(t *testing.T) {
+	db := openAIInsight0165IntegrationDB(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	resetAIInsight0165Schema(t, ctx, db)
+
+	root := filepath.Join("..", "..")
+	controller, err := NewAIInsight0165Controller(db, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := controller.Backup(ctx, "historical-source"); err != nil {
+		t.Fatal(err)
+	}
+	preflight, err := controller.Preflight(ctx, "historical-source")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := controller.Apply(ctx, AIInsight0165ApplyRequest{
+		RequestID: "historical-source", ApprovalToken: preflight.ApprovalToken,
+		DestructiveApproval: preflight.DestructiveApproval, TrafficStopped: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for _, table := range []string{
+		"mochat_go_controlled_migration_0165",
+		"mochat_go_backup_0165_ai_conversation_insights",
+		"mochat_go_backup_0165_ai_analysis",
+	} {
+		if _, err := db.ExecContext(ctx, `DROP TABLE `+table); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	latestEvidence, err := testharness.NewControlledEvidence("historical-adoption-latest")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := testharness.ApplyLatest(ctx, db, root, latestEvidence); err == nil || !strings.Contains(err.Error(), "0165") {
+		t.Fatalf("historical environment was not blocked before adoption: %v", err)
+	}
+	backupSHA := strings.Repeat("a", 64)
+	if _, err := controller.AdoptExisting(ctx, AIInsight0165AdoptExistingRequest{
+		RequestID: "historical-adoption", ExternalBackupSHA256: backupSHA,
+	}); !errors.Is(err, ErrAIInsight0165TrafficNotStopped) {
+		t.Fatalf("missing traffic confirmation error = %v", err)
+	}
+	if _, err := controller.AdoptExisting(ctx, AIInsight0165AdoptExistingRequest{
+		RequestID: "historical-adoption", ExternalBackupSHA256: "not-a-sha", TrafficStopped: true,
+	}); err == nil || !strings.Contains(err.Error(), "valid external backup SHA-256") {
+		t.Fatalf("invalid backup hash error = %v", err)
+	}
+	result, err := controller.AdoptExisting(ctx, AIInsight0165AdoptExistingRequest{
+		RequestID: "historical-adoption", ExternalBackupSHA256: backupSHA, TrafficStopped: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Adopted || result.Verified || result.ExternalBackupSHA256 != backupSHA || result.RecoveryBoundary == "" {
+		t.Fatalf("adoption result = %+v", result)
+	}
+	repeated, err := controller.AdoptExisting(ctx, AIInsight0165AdoptExistingRequest{
+		RequestID: "historical-adoption", ExternalBackupSHA256: backupSHA, TrafficStopped: true,
+	})
+	if err != nil || repeated != result {
+		t.Fatalf("idempotent adoption result=%+v error=%v", repeated, err)
+	}
+	if _, err := controller.AdoptExisting(ctx, AIInsight0165AdoptExistingRequest{
+		RequestID: "conflicting-adoption", ExternalBackupSHA256: strings.Repeat("b", 64), TrafficStopped: true,
+	}); !errors.Is(err, ErrAIInsight0165AdoptionConflict) {
+		t.Fatalf("conflicting adoption error = %v", err)
+	}
+	if err := testharness.ApplyLatest(ctx, db, root, latestEvidence); err != nil {
+		t.Fatal(err)
+	}
+	var latestRows int
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM mochat_go_schema_migrations WHERE version = '0176_wework_callback_side_effect_reconciliation'`).Scan(&latestRows); err != nil {
+		t.Fatal(err)
+	}
+	if latestRows != 1 {
+		t.Fatalf("latest migration rows after adoption = %d", latestRows)
+	}
+}
+
 func TestAIInsight0165ConcurrentApplyCommitsExactlyOnce(t *testing.T) {
 	db := openAIInsight0165IntegrationDB(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)

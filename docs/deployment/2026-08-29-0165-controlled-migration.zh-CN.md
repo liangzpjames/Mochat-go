@@ -9,7 +9,7 @@
 
 历史 down 只能重建空旧表，无法还原已删除的重复行和旧表内容。因此，本次不修改已经发布的 0165 SQL，也不新增 checksum alias，而是把 0165 注册为 controlled migration：普通 `mochat-migrate apply` 到达 0165 时停止，必须使用本手册中的独立工具完成盘点、备份、审批、执行和校验。
 
-本工具只为尚未执行 0165 的环境建立安全流程。若迁移账本已经记录 0165，工具只会返回 `already applied` 和人工恢复边界；没有经验证的迁移前备份时，不得声称历史数据可恢复。
+尚未执行 0165 的环境必须使用完整受控流程。若迁移账本已经记录 0165，inventory 返回 `already applied` 和人工恢复边界；没有经验证的迁移前备份时，不得声称历史数据可恢复。历史环境只有在停流、后置 schema 校验和当前外部备份恢复演练均完成后，才能使用 4.8 的采纳流程继续后续迁移。
 
 ## 2. 安全边界
 
@@ -132,6 +132,21 @@ mochat-ai-insight-0165 verify \
 
 `verify` 可在 SQL 已执行但最后账本写入或输出中断时重试。它不会重新执行 0165 数据删除，只按备份清单验证 post-state，并在验证通过后补记原始 checksum。
 
+### 4.8 历史已执行环境采纳
+
+该动作只用于 0165 已由旧版普通迁移器执行、因而不可能补造迁移前控制证据的环境。先停流，对当前数据库做外部备份并在隔离实例恢复，记录备份文件 SHA-256，再运行：
+
+```text
+mochat-ai-insight-0165 adopt-existing \
+  --dsn-file <受限DSN文件> \
+  --project-root <当前精确SHA源码根> \
+  --request-id <稳定变更请求ID> \
+  --external-backup-sha256 <已恢复验证备份的SHA-256> \
+  --confirm-traffic-stopped
+```
+
+工具只在普通账本 checksum 精确一致且 0165 后置 schema 完整时写入 `adopted_existing`。输出固定为 `verified=false`，并保留“历史被删行无法由仓库重建”的恢复边界。该记录不能替代迁移前备份，未执行 0165 的环境也不能用它跳过完整流程。
+
 ## 5. 失败与恢复
 
 - 在 apply 前失败：不执行 0165；保留控制清单和备份表供调查。
@@ -143,5 +158,5 @@ mochat-ai-insight-0165 verify \
 
 - 单元/契约 PASS：approval 绑定、错误参数和 controlled registry。
 - 隔离 MariaDB/MySQL 5.7 PASS：重复、旧表、缺备份、源/备份漂移、并发 apply、错误 schema、已执行边界、原 checksum。
-- Docker 本地 PASS：当前精确 SHA 构建的二进制可运行 inventory→backup→preflight→apply→verify。
+- Docker 本地 PASS：当前精确 SHA 构建的二进制可运行 inventory→backup→preflight→apply→verify；历史环境另验 adopt-existing→普通迁移。
 - 生产迁移、外部备份、真实停流和恢复演练：本任务不执行，保持 SKIP。
