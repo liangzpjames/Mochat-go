@@ -54,6 +54,16 @@ const knownCanonicalSCRMLeadParityChecksum = "47cfa7915b970455f6a626806a56fea71f
 // to the current migration, but its immutable ledger retains this checksum.
 const knownLegacyLiveCodeWorkspaceChecksum = "f17df230c78b79ed0e23d77b87057a939fa8ef5d1ac97fa1db43b5aa34f7344c"
 
+// The original live-code workspace migration was published as 0150 on an
+// integration branch, then renumbered to 0153 when the mainline sequence
+// converged. Preserve the exact historical ledger fact instead of deleting it,
+// but recognize it only when the audited old SQL checksum and valid 0153
+// replacement are both present.
+const knownSupersededLiveCodeVersion = "0150_live_code_workspace"
+const knownSupersedingLiveCodeVersion = "0153_live_code_workspace"
+const knownSupersededLiveCodeLFChecksum = "f89678394dea6164312152f9bbb5298111150d9dea8489252789ef7ed67117ed"
+const knownSupersededLiveCodeCRLFChecksum = "5cce5bea0f7b89b7e607772c5aa02ffaf125af27027c79e18772642a4c7ab15d"
+
 type Migration struct {
 	Version         string
 	Description     string
@@ -219,6 +229,7 @@ func (r *Runner) StatusReadOnly(ctx context.Context) ([]StatusItem, error) {
 func (r *Runner) statusItems(ctx context.Context, applied map[string]AppliedMigration) ([]StatusItem, error) {
 	result := make([]StatusItem, 0, len(r.migrations))
 	known := make(map[string]struct{}, len(r.migrations))
+	validApplied := make(map[string]bool, len(r.migrations))
 	for _, migration := range r.migrations {
 		known[migration.Version] = struct{}{}
 		_, checksum, err := migrationBodyAndChecksum(migration)
@@ -241,6 +252,7 @@ func (r *Runner) statusItems(ctx context.Context, applied map[string]AppliedMigr
 					return append(result, item), err
 				}
 			}
+			validApplied[migration.Version] = item.State == "applied"
 		}
 		result = append(result, item)
 	}
@@ -253,11 +265,16 @@ func (r *Runner) statusItems(ctx context.Context, applied map[string]AppliedMigr
 	sort.Strings(unknown)
 	for _, version := range unknown {
 		existing := applied[version]
+		state := "database_ahead"
+		if version == knownSupersededLiveCodeVersion && validApplied[knownSupersedingLiveCodeVersion] &&
+			(existing.Checksum == knownSupersededLiveCodeLFChecksum || existing.Checksum == knownSupersededLiveCodeCRLFChecksum) {
+			state = "superseded"
+		}
 		result = append(result, StatusItem{
 			Migration: Migration{Version: existing.Version, Description: existing.Description},
 			Checksum:  existing.Checksum,
 			Applied:   &existing,
-			State:     "database_ahead",
+			State:     state,
 		})
 	}
 	return result, nil

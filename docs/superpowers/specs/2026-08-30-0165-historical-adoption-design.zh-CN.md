@@ -29,6 +29,12 @@
 
 通用修复只改变 checksum 等价判定，不采纳缺失证据：0130/0131 仍必须各自具备恰好一条 success ledger 和一个 completed batch，0131 仍必须满足 `mc_corp.tenant_id` 后置合同。受控 ledger 的 `scriptChecksum` 只有在等于当前值或该迁移注册表的同源换行别名时才接受；任意其他 SQL 内容变化继续失败。
 
+### 已重编号迁移的历史事实
+
+0172–0176 应用成功后的 status 还发现一条 `0150_live_code_workspace` 历史账本。Git 分支 `5157dd86` 与 `b01f2d1d` 保存的旧 0150 SQL，其 LF checksum 精确为数据库值 `f8967839...`；当前 0153 设计和 down SQL 又明确把该旧版本视为共享 schema 的历史所有者。0153 已在同一数据库以当前合同成功落账，因此旧行不是未知未来版本，也不能删除以抹去历史。
+
+runner 仅把版本名精确为 `0150_live_code_workspace`、checksum 精确等于已审计旧 SQL 的 LF/CRLF 两个值、且替代版本 `0153_live_code_workspace` 已按当前注册表通过校验的记录标为 `superseded`。版本名不符、checksum 不符或替代版本未应用时仍为 `database_ahead`，status 继续失败。
+
 ## 验收
 
 - 已执行 0165、缺控制表的环境：普通 status/apply 先失败；采纳后通过并可继续 0172–0176。
@@ -36,3 +42,4 @@
 - 重复采纳：幂等返回同一事实或明确拒绝冲突，不产生第二条记录。
 - 输出与文档必须明确 `verified=false` 和不可恢复边界。
 - 已有完整 0130/0131 成功证据但工作树换行不同：普通 runner 接受已登记别名；缺 ledger、缺 batch、非登记 checksum 或 0131 后置结构不符仍失败。
+- 已审计 0150 活码账本且 0153 已有效应用：status 标记 `superseded` 并保留历史行；伪造 checksum 或没有 0153 时仍标记 `database_ahead`。

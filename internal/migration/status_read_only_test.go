@@ -72,6 +72,40 @@ func TestStatusReadOnlyDetectsDatabaseAheadAndKeepsChecksumMismatch(t *testing.T
 	}
 }
 
+func TestStatusReadOnlyMarksAuditedLiveCodeLegacyVersionSuperseded(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	current := statusTestMigration(t)
+	current.Version = "0153_live_code_workspace"
+	current.Description = "live code workspace"
+	currentChecksum := statusTestChecksum(t, current.Path)
+	runner, err := NewRunner(db, []Migration{current})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mock.ExpectQuery(`(?s)SELECT COUNT\(\*\).*information_schema\.tables`).
+		WithArgs(VersionTable).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+	mock.ExpectQuery(`(?s)SELECT version, description, checksum, applied_at, execution_ms.*mochat_go_schema_migrations`).
+		WillReturnRows(sqlmock.NewRows([]string{"version", "description", "checksum", "applied_at", "execution_ms"}).
+			AddRow(current.Version, current.Description, currentChecksum, time.Now(), 1).
+			AddRow("0150_live_code_workspace", "live code workspace", "f89678394dea6164312152f9bbb5298111150d9dea8489252789ef7ed67117ed", time.Now(), 1))
+
+	items, err := runner.StatusReadOnly(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 2 || items[1].State != "superseded" || items[1].Migration.Version != "0150_live_code_workspace" {
+		t.Fatalf("legacy live-code status = %+v", items)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func statusTestMigration(t *testing.T) Migration {
 	t.Helper()
 	path := t.TempDir() + "/0001_status_test.sql"

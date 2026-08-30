@@ -7,3 +7,4 @@
 5. 更新受控迁移手册，明确该流程不等同于迁移前备份或 verified。
 6. 在隔离 MariaDB 先跑红绿测试，再对已完成恢复校验的本地命名卷执行采纳、普通迁移和状态复验。
 7. 让通用受控 baseline/record 路径复用注册表 checksum alias，并用 0130/0131 完整 ledger + batch 场景验证只兼容换行、不放宽控制证据。
+8. 将有 Git blob 证明且已由 0153 替代的 0150 活码账本标为 `superseded`，保留历史行；其他未知版本仍保持 `database_ahead`。
