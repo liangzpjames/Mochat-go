@@ -60,7 +60,10 @@ export async function runCompletionGate(root = process.cwd()) {
   const catalog = await import('./check_dashboard_page_rbac_catalog.mjs');
   const manifest = JSON.parse(await readFile(path.join(root, 'web/apps/dashboard/src/benchmark/manifest.json'), 'utf8'));
   const pageCatalog = JSON.parse(await readFile(path.join(root, 'internal/dashboard/dashboard_page_catalog.json'), 'utf8'));
-  const routePolicy = catalog.extractGoDashboardRoutePolicy(await readFile(path.join(root, 'internal/dashboard/dashboard_route_policy.go'), 'utf8'));
+  const routePolicy = catalog.extractGoDashboardRoutePolicy(
+    await readFile(path.join(root, 'internal/dashboard/dashboard_route_policy.go'), 'utf8'),
+    await readFile(path.join(root, 'internal/dashboard/dashboard_route_registry.go'), 'utf8'),
+  );
   const legacySeededMappings = catalog.extractMigrationPermissionResourceMappings(
     await readFile(path.join(root, 'deploy/standalone/migrations/0127_dashboard_page_rbac.up.sql'), 'utf8'),
   );
@@ -145,6 +148,13 @@ export async function runCompletionGate(root = process.cwd()) {
       'utf8',
     ),
   });
+  const callbackRecoveryMappings = applyPermissionResourceReconciliation({
+    mappings: archiveSyncMappings,
+    overlaySource: await readFile(
+      path.join(root, 'deploy/standalone/migrations/0176_wework_callback_side_effect_reconciliation.up.sql'),
+      'utf8',
+    ),
+  });
   const frontend = await scanFrontendAPIUsages();
   const backend = (await scanBackendRegisteredAPIs()).filter((route) => {
     const routePath = route.contract.slice(route.contract.indexOf(' ') + 1);
@@ -161,7 +171,7 @@ export async function runCompletionGate(root = process.cwd()) {
     registeredSources: new Map(backend.map((route) => [route.contract, `${route.file}:${route.line}`])),
     exemptions: routePolicy.exactExempt,
     denyOnly: routePolicy.denyOnly,
-    seededMappings: archiveSyncMappings,
+    seededMappings: callbackRecoveryMappings,
   });
   const output = `${result.pageCount} pages, ${result.ordinaryPageCount} ordinary, ${result.superadminOnlyCount} superadmin_only, ${result.unmappedAPIUsageCount} unmapped dashboard API usages`;
   const [packageJSON, e2eSource, smokeSource] = await Promise.all([

@@ -2,7 +2,12 @@ import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { derivePhase2BuildAudit } from './phase2_build_audit.mjs';
+import {
+  derivePhase2BuildAudit,
+  phase2BuildInputFingerprint,
+  phase2BuildOutputMtimeRange,
+  validatePhase2BuildProvenance,
+} from './phase2_build_audit.mjs';
 import {
   currentPhase2Routes,
   expectedPhase2PlaywrightTitles,
@@ -12,6 +17,7 @@ import {
 const root = process.cwd();
 const phase = join(root, 'docs/phases/phase-2-frontend-migration/evidence');
 const screenshots = join(phase, 'screenshots');
+const buildMarkerFile = join(root, '.tmp-phase2-evidence/phase2-build.json');
 const runFile = join(root, 'web/e2e/test-results/.last-run.json');
 const reportFile = join(root, 'web/e2e/test-results/phase2-results.json');
 const readJson = (path) => JSON.parse(readFileSync(path, 'utf8'));
@@ -19,6 +25,9 @@ const slug = (value) => value === '/' ? 'root' : value.slice(1).replaceAll('/', 
 const sha256 = (path) => createHash('sha256').update(readFileSync(path)).digest('hex');
 
 mkdirSync(phase, { recursive: true });
+if (!existsSync(buildMarkerFile)) {
+  throw new Error('Phase 2 production build provenance is missing; run pnpm test:e2e:phase2-evidence first');
+}
 if (!existsSync(runFile)) throw new Error('Playwright result is missing; run the Phase 2 E2E suite first');
 const playwrightRun = readJson(runFile);
 if (playwrightRun.status !== 'passed' || playwrightRun.failedTests.length !== 0) {
@@ -54,6 +63,13 @@ if (JSON.stringify(testTitles) !== JSON.stringify(expectedTitles)) {
 if (statSync(runFile).mtimeMs < startedAtMs || statSync(reportFile).mtimeMs < startedAtMs) {
   throw new Error('Playwright result files predate the reported Phase 2 run');
 }
+const buildProvenance = readJson(buildMarkerFile);
+validatePhase2BuildProvenance({
+  marker: buildProvenance,
+  currentSourceFingerprint: phase2BuildInputFingerprint(root),
+  oldestOutputMtimeMs: phase2BuildOutputMtimeRange(root).oldest,
+  playwrightStartedAtMs: startedAtMs,
+});
 const routeEvidence = existsSync(join(phase, 'route-evidence.json'))
   ? readJson(join(phase, 'route-evidence.json'))
   : {};
@@ -99,7 +115,10 @@ for (const app of phase2Apps) {
   }
 }
 
-const buildAudit = derivePhase2BuildAudit(root);
+const buildAudit = {
+  provenance: buildProvenance,
+  apps: derivePhase2BuildAudit(root),
+};
 
 writeFileSync(join(phase, 'playwright-run.json'), `${JSON.stringify({
   ...playwrightRun,

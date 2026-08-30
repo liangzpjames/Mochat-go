@@ -124,3 +124,34 @@
 - [ ] **Step 4: 原子提交**
 
   仅暂存本计划涉及的源代码、测试、报告与证据文件，核对 staged diff 后提交 `fix(gates): align Phase 2 evidence with current routes`。
+
+### Task 4: 关闭 build-before-audit 证据漂移
+
+**Files:**
+- Modify: `scripts/run_phase2_evidence_e2e.mjs`
+- Modify: `scripts/phase2_build_audit.mjs`
+- Modify: `scripts/generate_phase2_evidence.mjs`
+- Modify: `scripts/audit_phase2_frontend_completion.mjs`
+- Modify: `scripts/audit_phase2_frontend_completion.test.mjs`
+
+**Contract:** 正式 `test:e2e:phase2-evidence` runner 必须先用当前源码执行 `corepack pnpm build`，构建失败时不得启动 Playwright；构建成功后记录确定性的前端源码输入指纹、开始/完成时间，并验证所有三端 `dist` 产物不早于本次构建。Playwright 必须晚于构建完成时间启动。生成器和审计同时复算源码指纹与 bundle 清单，不能复用遗留 `dist`。
+
+- [x] **Step 1: RED**
+
+  在审计测试中断言旧实现缺少 provenance API，并分别构造旧产物 mtime、源码指纹漂移、Playwright 提前启动三种失败。旧实现按预期失败。
+
+- [x] **Step 2: runner 自建生产产物**
+
+  runner 精确清理旧报告、当前截图和临时构建 marker，先构建、再写入不受 Playwright `test-results` 清理影响的临时 marker，最后执行完整现行套件。
+
+- [x] **Step 3: 生成与审计双重校验**
+
+  生成器在写入版本化证据前验证源码指纹、产物 mtime 和测试开始时间；`check:audit` 在任意 checkout 中复算当前源码指纹和全部实际 bundle 哈希。
+
+- [x] **Step 4: 完整复验**
+
+  Run: `corepack pnpm test:e2e:phase2-evidence`
+
+  Run: `corepack pnpm evidence:phase2`
+
+  Expected: runner 输出完整生产 build，随后 `25 passed`；生成器输出 `routes=23`。

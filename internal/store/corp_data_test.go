@@ -155,18 +155,24 @@ func TestCorpDataSummaryQueryPlanUsesAtMostFourScopedResourceQueries(t *testing.
 }
 
 func TestIntegrationCorpDataScopedQueriesExecute(t *testing.T) {
-	dsn := strings.TrimSpace(os.Getenv("MOCHAT_MYSQL_DSN"))
-	if dsn == "" {
-		if os.Getenv("MOCHAT_REQUIRE_MYSQL_INTEGRATION") == "1" {
-			t.Fatal("MOCHAT_MYSQL_DSN is required")
+	var db *sql.DB
+	if strings.TrimSpace(os.Getenv("MOCHAT_GO_MYSQL_INTEGRATION_DSN")) != "" {
+		db = newCurrentStoreIntegrationDB(t)
+	} else {
+		dsn := strings.TrimSpace(os.Getenv("MOCHAT_MYSQL_DSN"))
+		if dsn == "" {
+			if os.Getenv("MOCHAT_REQUIRE_MYSQL_INTEGRATION") == "1" {
+				t.Fatal("MOCHAT_MYSQL_DSN is required")
+			}
+			t.Skip("MOCHAT_MYSQL_DSN is required for MySQL integration tests")
 		}
-		t.Skip("MOCHAT_MYSQL_DSN is required for MySQL integration tests")
+		var err error
+		db, err = mysqlconn.Open(dsn)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = db.Close() })
 	}
-	db, err := mysqlconn.Open(dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
 	db.SetMaxOpenConns(1)
 	db.SetMaxIdleConns(1)
 	if _, err := db.Exec("SET time_zone = '+00:00'"); err != nil {

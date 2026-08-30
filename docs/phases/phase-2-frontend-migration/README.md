@@ -24,7 +24,7 @@
 - [桌面与移动端截图](evidence/screenshots)
 - [路由迁移进度](audit/phase2-progress.csv)
 
-先运行 `pnpm test:e2e:phase2-evidence` 完整执行现行套件并生成 JSON reporter，再运行 `pnpm evidence:phase2`；生成器会校验唯一 spec、实际用例数、逐项结果、所有截图和构建产物，并重建带 SHA-256 的证据索引。`pnpm check:audit` 校验 React-only manifest、现行安全路由、生产构建、证据完整性与 legacy 退出状态。
+先运行 `pnpm test:e2e:phase2-evidence`。正式 runner 会先以当前源码执行完整生产构建，记录确定性的前端源码输入指纹和构建开始/完成时间，确认三端 `dist` 均来自本次构建后，才启动完整现行 Playwright 套件并生成 JSON reporter。再运行 `pnpm evidence:phase2`；生成器会校验构建 provenance、Playwright 必须晚于构建完成、唯一 spec、实际用例数、逐项结果、所有截图和构建产物，并重建带 SHA-256 的证据索引。`pnpm check:audit` 在当前 checkout 重新计算源码指纹和 bundle 哈希，同时校验 React-only manifest、现行安全路由、证据完整性与 legacy 退出状态；遗留 `dist` 或旧源码生成的证据不能通过。
 
 ## 回滚边界
 

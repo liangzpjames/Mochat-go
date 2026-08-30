@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
-import { derivePhase2BuildAudit } from './phase2_build_audit.mjs';
+import * as phase2BuildAudit from './phase2_build_audit.mjs';
 import {
   currentPhase2RouteCount,
   currentPhase2Routes,
@@ -11,6 +11,57 @@ import {
 } from './phase2_current_routes.mjs';
 
 const readJson = (path) => JSON.parse(readFileSync(path, 'utf8'));
+
+test('Phase 2 build provenance rejects stale dist and out-of-order Playwright runs', () => {
+  assert.equal(typeof phase2BuildAudit.validatePhase2BuildProvenance, 'function');
+
+  const marker = {
+    schemaVersion: 1,
+    command: 'corepack pnpm build',
+    startedAt: '2026-08-30T08:00:00.000Z',
+    completedAt: '2026-08-30T08:01:00.000Z',
+    sourceFingerprint: 'a'.repeat(64),
+  };
+  const valid = {
+    marker,
+    currentSourceFingerprint: marker.sourceFingerprint,
+    oldestOutputMtimeMs: Date.parse(marker.startedAt),
+    playwrightStartedAtMs: Date.parse(marker.completedAt),
+  };
+
+  assert.doesNotThrow(() => phase2BuildAudit.validatePhase2BuildProvenance(valid));
+  assert.throws(
+    () => phase2BuildAudit.validatePhase2BuildProvenance({
+      ...valid,
+      oldestOutputMtimeMs: Date.parse(marker.startedAt) - 1,
+    }),
+    /predates the Phase 2 build/,
+  );
+  assert.throws(
+    () => phase2BuildAudit.validatePhase2BuildProvenance({
+      ...valid,
+      currentSourceFingerprint: 'b'.repeat(64),
+    }),
+    /source fingerprint/,
+  );
+  assert.throws(
+    () => phase2BuildAudit.validatePhase2BuildProvenance({
+      ...valid,
+      playwrightStartedAtMs: Date.parse(marker.completedAt) - 1,
+    }),
+    /started before the Phase 2 build completed/,
+  );
+});
+
+test('Phase 2 runner keeps build provenance outside the Playwright output directory', () => {
+  const runner = readFileSync('scripts/run_phase2_evidence_e2e.mjs', 'utf8');
+  assert.doesNotMatch(runner, /test-results\/phase2-build\.json/);
+  assert.match(runner, /\.tmp-phase2-evidence\/phase2-build\.json/);
+  assert.ok(
+    runner.indexOf("spawn(['pnpm', 'build'])") < runner.indexOf("'playwright'"),
+    'the Phase 2 runner must build before starting Playwright',
+  );
+});
 
 test('all three application manifests contain React-only routes', () => {
   for (const app of ['dashboard', 'sidebar', 'operation']) {
@@ -71,19 +122,21 @@ test('every current route has Playwright and rollback evidence rows', () => {
 
 test('build evidence hashes shipped assets without inventing lazy chunks', () => {
   const buildAudit = readJson('docs/phases/phase-2-frontend-migration/evidence/build-audit.json');
-  assert.deepEqual(buildAudit, derivePhase2BuildAudit());
+  assert.equal(typeof phase2BuildAudit.phase2BuildInputFingerprint, 'function');
+  assert.equal(buildAudit.provenance.sourceFingerprint, phase2BuildAudit.phase2BuildInputFingerprint());
+  assert.deepEqual(buildAudit.apps, phase2BuildAudit.derivePhase2BuildAudit());
   for (const app of phase2Apps) {
-    assert.ok(buildAudit[app].entryAssets.some((name) => name.endsWith('.js')), `${app} lacks a JavaScript entry`);
-    assert.ok(buildAudit[app].javascriptAssets.length > 0, `${app} lacks JavaScript assets`);
-    assert.ok(buildAudit[app].assets.length > 0, `${app} lacks hashed asset evidence`);
-    for (const asset of buildAudit[app].assets) {
+    assert.ok(buildAudit.apps[app].entryAssets.some((name) => name.endsWith('.js')), `${app} lacks a JavaScript entry`);
+    assert.ok(buildAudit.apps[app].javascriptAssets.length > 0, `${app} lacks JavaScript assets`);
+    assert.ok(buildAudit.apps[app].assets.length > 0, `${app} lacks hashed asset evidence`);
+    for (const asset of buildAudit.apps[app].assets) {
       assert.ok(asset.bytes > 0, `${app}:${asset.name} is empty`);
       assert.match(asset.sha256, /^[a-f0-9]{64}$/, `${app}:${asset.name} lacks SHA-256`);
     }
   }
-  assert.ok(buildAudit.dashboard.lazyChunks.length > 0, 'Dashboard lazy chunks were not recorded');
-  assert.deepEqual(buildAudit.sidebar.lazyChunks, []);
-  assert.deepEqual(buildAudit.operation.lazyChunks, []);
+  assert.ok(buildAudit.apps.dashboard.lazyChunks.length > 0, 'Dashboard lazy chunks were not recorded');
+  assert.deepEqual(buildAudit.apps.sidebar.lazyChunks, []);
+  assert.deepEqual(buildAudit.apps.operation.lazyChunks, []);
 });
 
 test('Docker builds every shipped React application', () => {

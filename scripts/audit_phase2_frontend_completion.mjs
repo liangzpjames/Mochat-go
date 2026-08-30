@@ -2,7 +2,11 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 
-import { derivePhase2BuildAudit } from './phase2_build_audit.mjs';
+import {
+  derivePhase2BuildAudit,
+  phase2BuildInputFingerprint,
+  validatePhase2BuildProvenance,
+} from './phase2_build_audit.mjs';
 import {
   currentPhase2Routes,
   expectedPhase2PlaywrightTitles,
@@ -48,7 +52,12 @@ assert.equal(playwrightRun.expectedTests, expectedTitles.length, 'recorded Playw
 assert.equal(playwrightRun.actualTests, expectedTitles.length, 'recorded Playwright run was filtered');
 assert.deepEqual(playwrightRun.testTitles, expectedTitles, 'recorded Playwright title inventory is stale');
 assert.match(playwrightRun.reportSha256, /^[a-f0-9]{64}$/, 'recorded Playwright JSON report lacks SHA-256');
-assert.deepEqual(buildAudit, derivePhase2BuildAudit(), 'recorded production build audit is stale');
+validatePhase2BuildProvenance({
+  marker: buildAudit.provenance,
+  currentSourceFingerprint: phase2BuildInputFingerprint(),
+  playwrightStartedAtMs: Date.parse(playwrightRun.startedAt),
+});
+assert.deepEqual(buildAudit.apps, derivePhase2BuildAudit(), 'recorded production build audit is stale');
 for (const [key, value] of Object.entries(evidence)) {
   if (currentKeys.has(key)) continue;
   assert.equal(value.currentReachable, false, `${key} historical evidence is marked current`);

@@ -14,7 +14,7 @@ test('completion gate accepts complete matrix facts', () => {
   assert.deepEqual(validateCompletionFacts(base), { pages: 53, ordinary: 49, superadminOnly: 4 });
 });
 
-test('completion gate includes the 0155 Agent, 0161 insight-filter and 0162 company-profile overlays', async () => {
+test('completion gate includes every permission overlay through 0176 callback recovery', async () => {
   const result = await runCompletionGate();
   assert.deepEqual(
     { pages: result.pages, ordinary: result.ordinary, superadminOnly: result.superadminOnly },

@@ -243,7 +243,7 @@ describe('Dashboard shell', () => {
     await screen.findByRole('button', { name: 'SCRM' });
     const search = screen.getByRole('searchbox', { name: '搜索功能' });
     fireEvent.change(search, { target: { value: '标签' } });
-    expect(screen.getByRole('link', { name: '标签' }).getAttribute('href')).toBe('/customer/tags');
+    expect((await screen.findByRole('link', { name: '标签' })).getAttribute('href')).toBe('/customer/tags');
 
     fireEvent.keyDown(search, { key: 'Enter' });
     expect(await screen.findByRole('heading', { name: '客户标签内容' })).toBeTruthy();

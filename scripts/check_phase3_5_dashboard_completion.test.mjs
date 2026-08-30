@@ -16,13 +16,15 @@ const completePage = (path) => ({
   evidence: { spec: 'spec.md', acceptance: 'acceptance.md' },
 });
 
-test('accepts exactly the nine completed Phase 3.5 routes', () => {
+test('accepts exactly the ten completed Phase 3.5 routes', () => {
   assert.doesNotThrow(() => validatePhase35Manifest({ pages: phase35TargetRoutes.map(completePage) }));
 });
 
 test('rejects a missing target route', () => {
   assert.throws(
-    () => validatePhase35Manifest({ pages: phase35TargetRoutes.slice(1).map(completePage) }),
+    () => validatePhase35Manifest({
+      pages: phase35TargetRoutes.filter((path) => path !== '/customer/friends').map(completePage),
+    }),
     /missing Phase 3\.5 route: \/customer\/friends/,
   );
 });
@@ -44,14 +46,14 @@ test('rejects a route that is not actually complete', () => {
   const pages = phase35TargetRoutes.map(completePage);
   pages[0].backend = 'partial';
   pages[0].acceptance = 'not-started';
-  assert.throws(() => validatePhase35Manifest({ pages }), /incomplete routes \(8\/9\)/);
+  assert.throws(() => validatePhase35Manifest({ pages }), /incomplete routes \(9\/10\)/);
 });
 
-test('production manifest assigns Phase 3.5 to its nine routes only', async () => {
+test('production manifest assigns Phase 3.5 to its ten routes only', async () => {
   const manifest = await readManifest();
   assert.deepEqual(
     manifest.pages.filter((page) => page.phase === '3.5').map((page) => page.path).sort(),
     [...phase35TargetRoutes].sort(),
   );
-  assert.equal(manifest.pages.find((page) => page.path === '/chat/file-audio')?.phase, '3-final');
+  assert.equal(manifest.pages.find((page) => page.path === '/chat/file-audio')?.phase, '3.5');
 });

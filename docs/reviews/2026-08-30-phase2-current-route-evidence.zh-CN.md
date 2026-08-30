@@ -12,6 +12,7 @@ Phase 2 的历史迁移进度与当前生产可达路由已经分离治理。历
 2. Sidebar/Operation 的视觉套件仍断言已经退出的 `react-migrated-page` 占位组件，没有执行当前真实路由、受保护会话和业务 API fixture，因此不能证明现行页面。
 3. 构建证据生成器通过 `migrated-dashboard-page` 或 `page-` 文件名猜测动态 chunk。当前 Dashboard 的真实拆包名称已变化，Sidebar/Operation 当前又是合法的单入口 bundle，导致真实构建被误报失败。
 4. 原证据行没有区分“历史记录”和“本次现行运行”，历史截图可以继续引用最近一次 Playwright 记录，存在把旧证据冒充当前证据的风险。
+5. 原正式证据 runner 只清理旧 Playwright 报告和截图，未先执行生产构建。上一轮在撤销错误的 Dashboard `knownRoutes` 实验后，源码已恢复安全合同，但遗留 `dist` 仍包含错误深链；生成器忠实记录了该旧 bundle，导致后续 `check:audit` 在当前源码重新构建后出现 21 字节漂移。根因是构建输入、构建时间与浏览器证据之间没有 provenance 约束，不是 Vite 非确定性。
 
 ## 方案与理由
 
@@ -23,6 +24,8 @@ Phase 2 的历史迁移进度与当前生产可达路由已经分离治理。历
 - 正式运行器在启动前精确删除旧 `.last-run`、JSON reporter 和 23 条现行路由的 46 张目标截图；生成器再核对精确测试标题集合、结果文件时间和截图 mtime，异常启动或筛选子集不能给旧证据重新盖章。
 - 构建证据改为读取 `dist/index.html` 和真实 `dist/assets`，逐项记录入口、JavaScript 产物、可选 lazy chunk、字节数与 SHA-256；生成器与审计复用同一纯派生函数，门禁现场重算并 `deepEqual`，不再用约定文件名或 JSON 自述推断拆包结果。
 - 审计现场重算 46 张当前截图的 SHA-256 并与索引严格相等，截图被替换、损坏或索引陈旧都会失败。
+- 正式 `test:e2e:phase2-evidence` runner 现在自行先执行当前源码的 `corepack pnpm build`；构建失败立即关闭，不启动 Playwright。成功后记录三端前端源码输入 SHA-256、构建开始/完成时间，并验证所有实际 `dist` 文件均由本次构建产生。
+- 构建 marker 位于被忽略的 `.tmp-phase2-evidence`，避免 Playwright 启动时清理自身 `test-results` 目录造成 marker 丢失。生成器要求 Playwright 开始时间晚于构建完成时间，并把 provenance 与实际 bundle 清单一并写入 `build-audit.json`；审计在 checkout 中重新计算当前源码指纹和全部 bundle 哈希。
 
 ## TDD 与故障证据
 
@@ -30,19 +33,30 @@ Phase 2 的历史迁移进度与当前生产可达路由已经分离治理。历
 - RED：动态期望数测试显示旧生成记录 `91 !== 84`，说明生成器仍硬编码历史计数。
 - RED：切换到现行集合后，Sidebar 首批页面因陈旧 `react-migrated-page` 断言失败；页面实际已经进入当前登录/业务状态。
 - RED：真实构建已存在，但生成器因找不到旧 `migrated-dashboard-page` 文件名报 `dashboard has no dynamic page chunk`。
+- RED：旧 build-audit 合同没有 provenance API；陈旧产物 mtime、源码指纹变化、Playwright 早于构建完成三种场景均被新增测试拒绝。
+- RED：marker 首次放在 `web/e2e/test-results` 后被 Playwright 生命周期清理；回归测试要求 marker 必须位于独立临时目录，随后完整套件重跑验证。
 - GREEN：共享现行集合为 Dashboard 1、Sidebar 12、Operation 10；完整视觉套件 `25 passed`。
 - GREEN：构建证据测试确认三端均有真实 JavaScript 入口和逐资产哈希；Dashboard 记录 10 个实际 lazy chunk，Sidebar/Operation 如实记录 0 个。
 
 ## 本地证据
 
-- Playwright：`corepack pnpm test:e2e:phase2-evidence`，25/25 PASS，本地 Go webServer 由仓库 Playwright 配置启动并在测试后退出；生成器校验 JSON reporter 中的唯一 spec、实际 25 个用例、逐项结果和报告 SHA-256，筛选子集不能生成全量证据。
+- Playwright：`corepack pnpm test:e2e:phase2-evidence`，先完整执行 12/13 workspace 的生产 build，再运行 25/25 PASS；本地 Go webServer 由仓库 Playwright 配置启动并在测试后退出。最终构建 provenance 为源码指纹 `0dfdeef595482519e72273cbbec16176a029f4252ad54f37ae644c3eb1b9f8dc`，构建时间 `2026-08-30T09:53:38.137Z` 至 `2026-08-30T09:53:58.719Z`，Playwright 于 `2026-08-30T09:53:59.862Z` 启动；生成器校验 JSON reporter 中的唯一 spec、实际 25 个用例、逐项结果和报告 SHA-256，筛选子集不能生成全量证据。
 - 证据生成：`corepack pnpm evidence:phase2`，输出 `routes=23`。
 - Phase 2 审计：`corepack pnpm check:audit`，输出 `routes=23 legacy_targets=0 screenshots=46`。
 - 历史进度治理：`corepack pnpm check:phase2-progress`，输出 `82/82 React (100.0%), 0 legacy`；这是历史迁移进度，不是当前可达路由数。
 - Phase 2.1：`corepack pnpm check:phase2.1`，输出 `82 routes, 40 features`。
 - Dashboard 当前路由桌面截图：75,824 bytes，SHA-256 `44c574f0561315956a1adb24f9fe9815c2058b45076d23c34beef68b8a744f41`。
-- Dashboard 当前路由移动截图：162,916 bytes，SHA-256 `9c7249e731c4257c2f2506a3f544ea4e114a0c734df440bfb3dab3a42166d263`。
+- Dashboard 当前路由移动截图：161,467 bytes，SHA-256 `ab0997ba34065b1f378075bf7c4b154f0300c4538d4c32a2179f442ac81469aa`。
 - 视觉抽检：Dashboard 企业资料桌面、Sidebar 客户资料移动端、Operation 任务宝桌面均有真实可见内容且没有 404/兜底成功页面。
+
+## 关联红门禁的合同迁移依据
+
+- Phase 3.5：`/chat/file-audio` 已由当前产品合同纳入 Phase 3.5，manifest 的 `phase` 精确改为 `3.5`；门禁继续使用 phase 白名单和 10/10 exact-set，没有扩大允许值或恢复旧逻辑。
+- Dashboard Page RBAC：迁移 0176 是 0173 基线后的正式权限 overlay。完成门禁现在按迁移顺序消费 0176 后的最终集合并继续 exact-set 比对，避免把合法新增权限误判为越界，也不接受未注册权限。
+- Phase 3.2 MySQL：旧门禁复制 0104 局部 schema，却用当前 0176 后代码执行，造成历史快照与现行模型语义冲突；改为启动无 volume 的一次性 MariaDB 10.6 空实例，通过 `MOCHAT_GO_MYSQL_INTEGRATION_DSN` 调用正式 0001–最新 migration registry，在随机隔离 schema 中 seed 场景并回滚清理。runner 强制 `-tags=integration`，解析 `go test -json`，只有 9 个明确场景全部实际 run 且 pass 才成功；静态测试同时禁止 Compose、`down -v`、mount 和任何 Docker volume。本门禁验证当前实现，不冒充独立的 MySQL 5.7 全量迁移验收。
+- Phase 3.2 浏览器：旧断言引用已退出的筛选器、标题和敏感词表单文案；测试改为当前生产页面真实可见合同和真实交互闭环，最终 Playwright 8/8 PASS，没有通过静态数组或兜底成功降级。
+- Yuanhu Phase 1：默认 fixture 只声明 `/index` 与 `/workContact/index`，但用例还验证 `/chat/v2-all` 分组；修复为该用例显式声明两条所需 menu route，未知/未授权路由的安全过滤保持不变，完整门禁最终 1/1 PASS。
+- Dashboard 导航搜索：全仓 workspace 并发下，输入事件后立即同步查询链接会与 React 的异步结果提交竞态；失败测试先复现 969/970，再改为等待目标链接真实出现。随后在同等并发负载下全仓测试和两次独立 Dashboard 970 套件均通过，未增加 sleep 或放宽断言。
 
 ## 明确边界
 

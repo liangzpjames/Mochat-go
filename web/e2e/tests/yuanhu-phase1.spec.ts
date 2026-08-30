@@ -4,7 +4,7 @@ import { mockDashboardBackend, seedSession } from './helpers';
 
 test('MoChat benchmark shell shows collapsed navigation and branded header', async ({ page }) => {
   await seedSession(page);
-  await mockDashboardBackend(page);
+  await mockDashboardBackend(page, { menuRoutes: ['/index', '/chat/v2-all'] });
   const consoleErrors: string[] = [];
   page.on('console', (message) => {
     if (message.type() === 'error') consoleErrors.push(message.text());

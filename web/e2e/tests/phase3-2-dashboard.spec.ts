@@ -136,19 +136,21 @@ async function runClosure(page: Page, route: Phase32Route) {
   switch (route) {
     case '/index': {
       await expect(page.getByRole('heading', { name: '数据概览', exact: true })).toBeVisible();
-      await page.getByText('高级范围筛选', { exact: true }).click();
-      await page.getByLabel('员工范围').selectOption('12');
+      await page.getByLabel('开始日期').fill('2026-07-01');
+      await page.getByLabel('结束日期').fill('2026-08-01');
       await page.getByRole('button', { name: '查询' }).click();
-      await expect(page).toHaveURL(/employeeIds=12/);
+      await expect(page).toHaveURL((url) => url.searchParams.get('startDate') === '2026-07-01'
+        && url.searchParams.get('endDate') === '2026-08-01');
       const download = page.waitForEvent('download');
       await page.getByRole('button', { name: '导出 CSV' }).click();
       expect((await download).suggestedFilename()).toBe('dashboard-overview.csv');
       await page.reload();
-      await expect(page.getByLabel('员工范围')).toHaveValue('12');
+      await expect(page.getByLabel('开始日期')).toHaveValue('2026-07-01');
+      await expect(page.getByLabel('结束日期')).toHaveValue('2026-08-01');
       break;
     }
     case '/chat/v2-all': {
-      await expect(page.getByRole('heading', { name: '全局消息', exact: true })).toBeVisible();
+      await expect(page.getByRole('region', { name: '查询概览' })).toBeVisible();
       await page.getByLabel('关键词').fill('合同');
       await page.getByRole('button', { name: '查询' }).click();
       await expect(page).toHaveURL(/keyword=%E5%90%88%E5%90%8C/);
@@ -159,11 +161,12 @@ async function runClosure(page: Page, route: Phase32Route) {
       break;
     }
     case '/ai-insight/v2/sensitive-word': {
-      await expect(page.getByRole('heading', { name: '敏感词管理' })).toBeVisible();
+      await expect(page.getByRole('heading', { name: '敏感词', exact: true })).toBeVisible();
       await page.getByRole('button', { name: '敏感词配置' }).click();
-      await page.getByLabel('敏感词名称').fill('账号密码');
-      await page.getByLabel('敏感词分组').selectOption('1');
       await page.getByRole('button', { name: '新增敏感词' }).click();
+      await page.getByLabel('新敏感词').fill('账号密码');
+      await page.getByLabel('新词所属词组').selectOption('1');
+      await page.getByRole('button', { name: '保存敏感词' }).click();
       await expect(page.getByText('账号密码')).toBeVisible();
       await page.reload();
       await page.getByRole('button', { name: '敏感词配置' }).click();
