@@ -12,7 +12,9 @@ import (
 func TestCurrentStoreIntegrationFixturesDoNotHandwriteBusinessSchemaOrLedger(t *testing.T) {
 	targets := map[string]map[string]bool{
 		"mysql_integration_harness_test.go": {
-			"newCurrentStoreIntegrationDB": true,
+			"newCurrentStoreIntegrationDB":   true,
+			"newStoreIntegrationDBThrough":   true,
+			"newStoreMigrationRunnerThrough": true,
 		},
 		"wework_callback_inbox_integration_test.go": {
 			"newWeWorkCallbackInboxIntegrationStore": true,
@@ -23,16 +25,18 @@ func TestCurrentStoreIntegrationFixturesDoNotHandwriteBusinessSchemaOrLedger(t *
 			"seedArchiveReadCorp": true, "createArchiveReadBusinessFixture": true,
 		},
 		"archive_sync_integration_test.go": {
-			"TestArchiveSyncStoreUsesTemporarySchemaForLifecycleAndTenantIsolation": true,
-			"TestArchiveSourceStatusUsesCurrentCorpArchiveMode":                     true,
-			"TestArchiveSyncStaleRunningRunIsTakenOverWithAudit":                    true,
-			"TestArchiveSyncConcurrentFirstEnqueueRereadsDuplicateRun":              true,
-			"TestArchiveSyncEnqueueRejectsNamespaceMismatchWithoutMutation":         true,
-			"TestArchiveSyncUpsertValidatesRunScopeAndRollsBackSourceFailure":       true,
-			"TestArchiveSyncLeaseFenceRejectsStaleWorkerMutations":                  true,
-			"TestArchiveSyncConcurrentDifferentRunsClaimOneMessageIdentity":         true,
-			"seedCurrentArchiveSyncCorpFixture":                                     true,
-			"seedCurrentArchiveMessageFixture":                                      true,
+			"TestArchiveSourceMigrationBackfillsLegacySimulationRowsOnTemporaryMariaDB": true,
+			"TestArchiveSyncStoreUsesTemporarySchemaForLifecycleAndTenantIsolation":     true,
+			"TestArchiveSourceStatusUsesCurrentCorpArchiveMode":                         true,
+			"TestArchiveSyncStaleRunningRunIsTakenOverWithAudit":                        true,
+			"TestArchiveSyncConcurrentFirstEnqueueRereadsDuplicateRun":                  true,
+			"TestArchiveSyncEnqueueRejectsNamespaceMismatchWithoutMutation":             true,
+			"TestArchiveSyncMigrationApplyDownApplyAndRejectsCrossTenantRun":            true,
+			"TestArchiveSyncUpsertValidatesRunScopeAndRollsBackSourceFailure":           true,
+			"TestArchiveSyncLeaseFenceRejectsStaleWorkerMutations":                      true,
+			"TestArchiveSyncConcurrentDifferentRunsClaimOneMessageIdentity":             true,
+			"seedCurrentArchiveSyncCorpFixture":                                         true,
+			"seedCurrentArchiveMessageFixture":                                          true,
 		},
 	}
 	for path, functions := range targets {

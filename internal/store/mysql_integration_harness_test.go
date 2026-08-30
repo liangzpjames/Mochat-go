@@ -11,12 +11,31 @@ import (
 	"testing"
 
 	"jiyi/mochat-go/internal/integrationtestdb"
+	"jiyi/mochat-go/internal/migration"
 	"jiyi/mochat-go/internal/migration/testharness"
 )
 
 var currentStoreIntegrationSequence atomic.Uint64
 
 func newCurrentStoreIntegrationDB(t *testing.T) *sql.DB {
+	t.Helper()
+	database, evidence := newStoreIntegrationDatabase(t)
+	if err := testharness.ApplyLatest(context.Background(), database.DB, filepath.Join("..", ".."), evidence); err != nil {
+		t.Fatalf("apply production migration registry: %v", err)
+	}
+	return database.DB
+}
+
+func newStoreIntegrationDBThrough(t *testing.T, targetVersion string) *sql.DB {
+	t.Helper()
+	database, evidence := newStoreIntegrationDatabase(t)
+	if err := testharness.ApplyThrough(context.Background(), database.DB, filepath.Join("..", ".."), targetVersion, evidence); err != nil {
+		t.Fatalf("apply production migration registry through %s: %v", targetVersion, err)
+	}
+	return database.DB
+}
+
+func newStoreIntegrationDatabase(t *testing.T) (*integrationtestdb.Database, testharness.ControlledEvidence) {
 	t.Helper()
 	dsn := strings.TrimSpace(os.Getenv("MOCHAT_GO_MYSQL_INTEGRATION_DSN"))
 	if dsn == "" {
@@ -28,10 +47,24 @@ func newCurrentStoreIntegrationDB(t *testing.T) *sql.DB {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := testharness.ApplyLatest(context.Background(), database.DB, filepath.Join("..", ".."), evidence); err != nil {
-		t.Fatalf("apply production migration registry: %v", err)
+	return database, evidence
+}
+
+func newStoreMigrationRunnerThrough(t *testing.T, db *sql.DB, targetVersion string) *migration.Runner {
+	t.Helper()
+	migrations := migration.DefaultMigrations(filepath.Join("..", ".."))
+	for index, candidate := range migrations {
+		if candidate.Version != targetVersion {
+			continue
+		}
+		runner, err := migration.NewRunner(db, migrations[:index+1])
+		if err != nil {
+			t.Fatal(err)
+		}
+		return runner
 	}
-	return database.DB
+	t.Fatalf("production migration registry does not contain %s", targetVersion)
+	return nil
 }
 
 func TestCurrentStoreIntegrationDBUsesLatestProductionRegistry(t *testing.T) {

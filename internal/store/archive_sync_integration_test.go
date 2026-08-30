@@ -41,10 +41,11 @@ func TestArchiveSourceMigrationContainsLegacySimulationBackfillContract(t *testi
 }
 
 func TestArchiveSourceMigrationBackfillsLegacySimulationRowsOnTemporaryMariaDB(t *testing.T) {
-	db := newDashboardAdminProvisioningDB(t)
-	createArchiveSyncCorpFixture(t, db)
-	executeArchiveMigrationFile(t, db, "0133_archive_simulation_registry.up.sql")
-	defer executeArchiveMigrationFile(t, db, "0133_archive_simulation_registry.down.sql")
+	db := newStoreIntegrationDBThrough(t, "0132_company_settings_credentials")
+	seedCurrentArchiveSyncCorpFixture(t, db)
+	if _, err := newStoreMigrationRunnerThrough(t, db, "0133_archive_simulation_registry").Apply(context.Background()); err != nil {
+		t.Fatalf("apply production registry through 0133: %v", err)
+	}
 	if _, err := db.Exec(`INSERT INTO mochat_go_archive_simulation_batches (corp_id,batch_key,status,message_count) VALUES (27,'legacy-backfill','complete',1)`); err != nil {
 		t.Fatal(err)
 	}
@@ -55,8 +56,9 @@ func TestArchiveSourceMigrationBackfillsLegacySimulationRowsOnTemporaryMariaDB(t
 	if _, err := db.Exec(`INSERT INTO mochat_go_archive_simulation_messages (batch_id,corp_id,msgid,table_index) VALUES (?,?,?,1)`, batchID, 27, "legacy-backfill-msg"); err != nil {
 		t.Fatal(err)
 	}
-	executeArchiveMigrationFile(t, db, "0138_archive_source_sync.up.sql")
-	defer executeArchiveMigrationFile(t, db, "0138_archive_source_sync.down.sql")
+	if _, err := newStoreMigrationRunnerThrough(t, db, "0138_archive_source_sync").Apply(context.Background()); err != nil {
+		t.Fatalf("apply production registry through 0138: %v", err)
+	}
 	var runs, sources int
 	if err := db.QueryRow(`SELECT COUNT(*) FROM mochat_go_archive_sync_runs WHERE tenant_id=11 AND corp_id=27 AND source_kind='simulated' AND source_id='simulation:legacy-backfill' AND namespace='MOCHAT-SIM:legacy-backfill' AND status='succeeded'`).Scan(&runs); err != nil {
 		t.Fatal(err)
@@ -779,12 +781,18 @@ func TestArchiveSyncMigrationRejectsWrongAuditScopeIndex(t *testing.T) {
 }
 
 func TestArchiveSyncMigrationApplyDownApplyAndRejectsCrossTenantRun(t *testing.T) {
-	db := newDashboardAdminProvisioningDB(t)
-	createArchiveSyncCorpFixture(t, db)
-	executeArchiveMigrationFile(t, db, "0138_archive_source_sync.up.sql")
-	executeArchiveMigrationFile(t, db, "0138_archive_source_sync.down.sql")
-	executeArchiveMigrationFile(t, db, "0138_archive_source_sync.up.sql")
-	defer executeArchiveMigrationFile(t, db, "0138_archive_source_sync.down.sql")
+	db := newStoreIntegrationDBThrough(t, "0137_reconcile_ai_settings_schema")
+	seedCurrentArchiveSyncCorpFixture(t, db)
+	runner := newStoreMigrationRunnerThrough(t, db, "0138_archive_source_sync")
+	if _, err := runner.Apply(context.Background()); err != nil {
+		t.Fatalf("apply production 0138 migration: %v", err)
+	}
+	if _, err := runner.RollbackLast(context.Background()); err != nil {
+		t.Fatalf("roll back production 0138 migration: %v", err)
+	}
+	if _, err := runner.Apply(context.Background()); err != nil {
+		t.Fatalf("reapply production 0138 migration: %v", err)
+	}
 
 	_, err := db.Exec(`INSERT INTO mochat_go_archive_sync_runs
 		(tenant_id, corp_id, source_kind, source_id, namespace, idempotency_key, status)
