@@ -2293,6 +2293,7 @@ func (cfg *Config) applyRuntimeRole() {
 		cfg.EnableWorkDepartmentListWorker = false
 		cfg.EnableMediaIDUpdateWorker = false
 		cfg.EnableEmployeeStatisticWorker = false
+		cfg.EnableConversationExportWorker = false
 	}
 	if !cfg.RuntimeRole.RunsScheduler() {
 		cfg.EnablePullAgentCron = false

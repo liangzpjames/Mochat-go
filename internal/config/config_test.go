@@ -473,6 +473,7 @@ func TestFromEnvRuntimeRoleFiltersBackgroundResponsibilities(t *testing.T) {
 			clearEnv(t)
 			t.Setenv("MOCHAT_GO_RUNTIME_ROLE", tt.role)
 			t.Setenv("MOCHAT_GO_ENABLE_MARK_TAGS_WORKER", "1")
+			t.Setenv("MOCHAT_GO_ENABLE_CONVERSATION_EXPORT_WORKER", "1")
 			t.Setenv("MOCHAT_GO_ENABLE_PULL_AGENT_CRON", "1")
 			t.Setenv("MOCHAT_MYSQL_DSN", "user:pass@tcp(127.0.0.1:3306)/mochat")
 
@@ -482,6 +483,9 @@ func TestFromEnvRuntimeRoleFiltersBackgroundResponsibilities(t *testing.T) {
 			}
 			if cfg.EnableMarkTagsWorker != tt.wantWorker {
 				t.Fatalf("EnableMarkTagsWorker = %v, want %v", cfg.EnableMarkTagsWorker, tt.wantWorker)
+			}
+			if cfg.EnableConversationExportWorker != tt.wantWorker {
+				t.Fatalf("EnableConversationExportWorker = %v, want %v", cfg.EnableConversationExportWorker, tt.wantWorker)
 			}
 			if cfg.EnablePullAgentCron != tt.wantScheduler {
 				t.Fatalf("EnablePullAgentCron = %v, want %v", cfg.EnablePullAgentCron, tt.wantScheduler)
