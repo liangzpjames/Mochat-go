@@ -52,6 +52,13 @@ func Audit(root string, policy Policy, now time.Time) ([]Violation, error) {
 			continue
 		}
 		size := int64(len(bytes.ReplaceAll(contents, []byte("\r\n"), []byte("\n"))))
+		if limit.Debt != nil && protectedDebtExpired(*limit.Debt, now) {
+			findings = append(findings, finding{Violation: Violation{
+				RuleID: RuleProtectedDebtExpired,
+				Path:   limit.Path,
+				Detail: fmt.Sprintf("protected-file debt expired on %s", limit.Debt.ExpiresOn),
+			}})
+		}
 		if size > limit.MaxBytes {
 			findings = append(findings, finding{Violation: Violation{
 				RuleID: RuleProtectedFileSize,
@@ -105,7 +112,7 @@ func Audit(root string, policy Policy, now time.Time) ([]Violation, error) {
 		if err != nil {
 			return fmt.Errorf("parse %s: %w", relativePath, err)
 		}
-		currentModule, currentLayer := classify(relativePath)
+		currentModule, currentLayer := classifyWithPolicy(relativePath, policy)
 		if currentLayer == layerUnknown {
 			if currentModule != "" {
 				findings = append(findings, finding{Violation: Violation{
@@ -121,7 +128,7 @@ func Audit(root string, policy Policy, now time.Time) ([]Violation, error) {
 			if err != nil {
 				return fmt.Errorf("parse import in %s: %w", relativePath, err)
 			}
-			findings = append(findings, dependencyFindings(relativePath, currentModule, currentLayer, importPath)...)
+			findings = append(findings, dependencyFindings(policy, relativePath, currentModule, currentLayer, importPath)...)
 		}
 		return nil
 	})
@@ -156,7 +163,7 @@ func pathContainsSegment(path, segment string) bool {
 	return false
 }
 
-func dependencyFindings(path, currentModule string, currentLayer layer, imported string) []finding {
+func dependencyFindings(policy Policy, path, currentModule string, currentLayer layer, imported string) []finding {
 	findings := make([]finding, 0, 2)
 	add := func(ruleID string) {
 		findings = append(findings, finding{Violation: Violation{
@@ -166,14 +173,16 @@ func dependencyFindings(path, currentModule string, currentLayer layer, imported
 		}, importPath: imported})
 	}
 
-	importedModule, importedLayer := classifyModuleImport(imported)
-	if importedModule != "" && importedModule != currentModule && (importedLayer == layerAdapters || importedLayer == layerTransport) {
+	importedModule, importedLayer := classifyModuleImportWithPolicy(imported, policy)
+	publicContract := publicModuleImportAllowed(policy, currentModule, imported)
+	testContract := testImportAllowed(policy, path, currentModule, imported, importedModule, importedLayer)
+	if importedModule != "" && importedModule != currentModule && (importedLayer == layerAdapters || importedLayer == layerTransport) && !publicContract && !testContract {
 		add(RuleCrossModulePrivate)
 	}
 	if isLegacyImport(imported) {
 		add(RuleLegacyDependency)
 	}
-	if !forbiddenByLayer(currentLayer, currentModule, imported, importedModule, importedLayer) {
+	if !forbiddenByLayer(policy, path, currentLayer, currentModule, imported, importedModule, importedLayer) {
 		return findings
 	}
 
@@ -194,14 +203,20 @@ func dependencyFindings(path, currentModule string, currentLayer layer, imported
 	return findings
 }
 
-func forbiddenByLayer(currentLayer layer, currentModule, imported, importedModule string, importedLayer layer) bool {
+func forbiddenByLayer(policy Policy, path string, currentLayer layer, currentModule, imported, importedModule string, importedLayer layer) bool {
 	if isLegacyImport(imported) {
 		return false
 	}
-	return !allowedByLayer(currentLayer, currentModule, imported, importedModule, importedLayer)
+	return !allowedByLayer(policy, path, currentLayer, currentModule, imported, importedModule, importedLayer)
 }
 
-func allowedByLayer(currentLayer layer, currentModule, imported, importedModule string, importedLayer layer) bool {
+func allowedByLayer(policy Policy, path string, currentLayer layer, currentModule, imported, importedModule string, importedLayer layer) bool {
+	if packageImportAllowed(policy, path, currentModule, imported) || publicModuleImportAllowed(policy, currentModule, imported) {
+		return true
+	}
+	if testImportAllowed(policy, path, currentModule, imported, importedModule, importedLayer) {
+		return true
+	}
 	if isStandardLibrary(imported) {
 		return standardLibraryAllowed(currentLayer, imported)
 	}
@@ -220,7 +235,7 @@ func allowedByLayer(currentLayer layer, currentModule, imported, importedModule 
 		case layerAdapters:
 			return importedLayer == layerDomain || importedLayer == layerPorts
 		case layerTransport:
-			return importedLayer == layerApplication || importedLayer == layerDomain
+			return importedLayer == layerApplication || importedLayer == layerDomain || importedLayer == layerPorts
 		case layerModule:
 			return importedLayer != layerUnknown
 		default:
@@ -275,6 +290,8 @@ func sharedContractAllowed(currentLayer layer, imported string) bool {
 		}
 	case layerTransport:
 		allowed = []string{
+			"jiyi/mochat-go/internal/app/modules",
+			"jiyi/mochat-go/internal/httpresponse",
 			"jiyi/mochat-go/internal/session",
 		}
 	case layerModule:
@@ -339,6 +356,10 @@ func reconcileModules(root string, policy Policy) ([]finding, error) {
 }
 
 func classify(path string) (string, layer) {
+	return classifyWithPolicy(path, Policy{})
+}
+
+func classifyWithPolicy(path string, policy Policy) (string, layer) {
 	parts := strings.Split(normalizePath(path), "/")
 	for index := 0; index+2 < len(parts); index++ {
 		if parts[index] != "internal" || parts[index+1] != "modules" {
@@ -363,6 +384,9 @@ func classify(path string) (string, layer) {
 		case "transport":
 			return module, layerTransport
 		default:
+			if declared := declaredModulePackageLayer(policy, module, strings.Join(parts[index+3:len(parts)-1], "/")); declared != layerUnknown {
+				return module, declared
+			}
 			return module, layerUnknown
 		}
 	}
@@ -370,6 +394,10 @@ func classify(path string) (string, layer) {
 }
 
 func classifyModuleImport(imported string) (string, layer) {
+	return classifyModuleImportWithPolicy(imported, Policy{})
+}
+
+func classifyModuleImportWithPolicy(imported string, policy Policy) (string, layer) {
 	const modulePrefix = "jiyi/mochat-go/internal/modules/"
 	if !strings.HasPrefix(imported, modulePrefix) {
 		return "", layerUnknown
@@ -393,8 +421,93 @@ func classifyModuleImport(imported string) (string, layer) {
 	case "transport":
 		return parts[0], layerTransport
 	default:
+		if declared := declaredModulePackageLayer(policy, parts[0], strings.Join(parts[1:], "/")); declared != layerUnknown {
+			return parts[0], declared
+		}
 		return parts[0], layerUnknown
 	}
+}
+
+func declaredModulePackageLayer(policy Policy, module, packagePath string) layer {
+	bestLength := -1
+	best := layerUnknown
+	for _, item := range policy.ModulePackages {
+		if item.Module != module || !isPackageFamily(packagePath, item.Path) || len(item.Path) <= bestLength {
+			continue
+		}
+		bestLength = len(item.Path)
+		best = layerByName(item.Layer)
+	}
+	return best
+}
+
+func layerByName(value string) layer {
+	switch value {
+	case "domain":
+		return layerDomain
+	case "ports":
+		return layerPorts
+	case "application":
+		return layerApplication
+	case "adapters":
+		return layerAdapters
+	case "transport":
+		return layerTransport
+	case "module":
+		return layerModule
+	default:
+		return layerUnknown
+	}
+}
+
+func publicModuleImportAllowed(policy Policy, module, imported string) bool {
+	for _, item := range policy.PublicModuleImports {
+		if item.Module == module && item.Import == imported {
+			return true
+		}
+	}
+	return false
+}
+
+func packageImportAllowed(policy Policy, path, module, imported string) bool {
+	packagePath := modulePackagePath(path, module)
+	for _, item := range policy.PackageImports {
+		if item.Module == module && item.Package == packagePath && item.Import == imported {
+			return true
+		}
+	}
+	return false
+}
+
+func modulePackagePath(path, module string) string {
+	prefix := "internal/modules/" + module + "/"
+	trimmed := strings.TrimPrefix(normalizePath(path), prefix)
+	directory := normalizePath(filepath.ToSlash(filepath.Dir(trimmed)))
+	if directory == "." || directory == "" {
+		return "."
+	}
+	return directory
+}
+
+func testImportAllowed(policy Policy, path, currentModule, imported, importedModule string, importedLayer layer) bool {
+	if !strings.HasSuffix(path, "_test.go") {
+		return false
+	}
+	for _, allowed := range policy.TestImports {
+		if imported == allowed {
+			return true
+		}
+	}
+	return importedModule == currentModule && importedLayer != layerUnknown
+}
+
+func protectedDebtExpired(debt ProtectedDebt, now time.Time) bool {
+	expiresOn, err := time.Parse("2006-01-02", debt.ExpiresOn)
+	if err != nil {
+		return false
+	}
+	today, err := time.Parse("2006-01-02", now.UTC().Format("2006-01-02"))
+	return err == nil && today.After(expiresOn)
 }
 
 func isLegacyImport(imported string) bool {

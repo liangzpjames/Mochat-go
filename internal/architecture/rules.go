@@ -22,6 +22,7 @@ const (
 	RuleForbiddenLegacyFile   = "ARCH-FORBIDDEN-LEGACY-FILE"
 	RuleProtectedFileSize     = "ARCH-PROTECTED-FILE-SIZE"
 	RuleProtectedFileMissing  = "ARCH-PROTECTED-FILE-MISSING"
+	RuleProtectedDebtExpired  = "ARCH-PROTECTED-DEBT-EXPIRED"
 	RuleModuleRegistration    = "ARCH-MODULE-REGISTRATION"
 	RuleExceptionExpired      = "ARCH-EXCEPTION-EXPIRED"
 )
@@ -35,17 +36,57 @@ type Violation struct {
 
 // SizeLimit prevents protected files from exceeding their recorded size limit.
 type SizeLimit struct {
-	Path     string `json:"path"`
-	MaxBytes int64  `json:"maxBytes"`
+	Path        string         `json:"path"`
+	TargetBytes int64          `json:"targetBytes,omitempty"`
+	MaxBytes    int64          `json:"maxBytes"`
+	Debt        *ProtectedDebt `json:"debt,omitempty"`
+}
+
+// ProtectedDebt is a bounded ratchet for legacy growth already present in a
+// protected file. TargetBytes remains the cleanup target; MaxBytes is only a
+// temporary no-growth ceiling and requires complete, expiring ownership.
+type ProtectedDebt struct {
+	Owner     string `json:"owner"`
+	Reason    string `json:"reason"`
+	Action    string `json:"action"`
+	Baseline  string `json:"baseline"`
+	CreatedOn string `json:"createdOn"`
+	ExpiresOn string `json:"expiresOn"`
+}
+
+// ModulePackage assigns a deliberate non-standard package subtree to a
+// standard dependency layer. It is used for capability hubs such as provider
+// adapters while unknown subtrees remain fail-closed.
+type ModulePackage struct {
+	Module string `json:"module"`
+	Path   string `json:"path"`
+	Layer  string `json:"layer"`
+}
+
+// PublicModuleImport is an exact cross-module public contract.
+type PublicModuleImport struct {
+	Module string `json:"module"`
+	Import string `json:"import"`
+}
+
+// PackageImport is an exact dependency required by one declared package.
+type PackageImport struct {
+	Module  string `json:"module"`
+	Package string `json:"package"`
+	Import  string `json:"import"`
 }
 
 // Policy describes repository architecture constraints.
 type Policy struct {
-	ProductionModules []string    `json:"productionModules"`
-	ExampleModules    []string    `json:"exampleModules"`
-	ProtectedFiles    []SizeLimit `json:"protectedFiles"`
-	ForbiddenNewFiles []string    `json:"forbiddenNewFiles"`
-	Exceptions        []Exception `json:"exceptions"`
+	ProductionModules   []string             `json:"productionModules"`
+	ExampleModules      []string             `json:"exampleModules"`
+	ModulePackages      []ModulePackage      `json:"modulePackages,omitempty"`
+	PublicModuleImports []PublicModuleImport `json:"publicModuleImports,omitempty"`
+	PackageImports      []PackageImport      `json:"packageImports,omitempty"`
+	TestImports         []string             `json:"testImports,omitempty"`
+	ProtectedFiles      []SizeLimit          `json:"protectedFiles"`
+	ForbiddenNewFiles   []string             `json:"forbiddenNewFiles"`
+	Exceptions          []Exception          `json:"exceptions"`
 }
 
 // Exception records a temporary, exact import-policy exception.
@@ -110,8 +151,60 @@ func (p *Policy) normalizeAndValidate() error {
 	for index := range p.ProtectedFiles {
 		limit := &p.ProtectedFiles[index]
 		limit.Path = normalizePath(limit.Path)
-		if limit.Path == "" || filepath.IsAbs(limit.Path) || hasWildcard(limit.Path) || limit.MaxBytes < 0 {
+		if limit.TargetBytes == 0 {
+			limit.TargetBytes = limit.MaxBytes
+		}
+		if limit.Path == "" || filepath.IsAbs(limit.Path) || hasWildcard(limit.Path) || limit.TargetBytes < 0 || limit.MaxBytes < limit.TargetBytes {
 			return fmt.Errorf("protectedFiles[%d] is invalid", index)
+		}
+		if limit.MaxBytes > limit.TargetBytes {
+			if limit.Debt == nil || !limit.Debt.Valid() {
+				return fmt.Errorf("protectedFiles[%d] debt is invalid", index)
+			}
+		} else if limit.Debt != nil {
+			return fmt.Errorf("protectedFiles[%d] has debt metadata without debt", index)
+		}
+	}
+	registered := make(map[string]struct{}, len(registeredModules))
+	for module := range registeredModules {
+		registered[module] = struct{}{}
+	}
+	seenPackages := make(map[string]struct{})
+	for index := range p.ModulePackages {
+		item := &p.ModulePackages[index]
+		item.Module = strings.TrimSpace(item.Module)
+		item.Path = normalizePath(item.Path)
+		item.Layer = strings.TrimSpace(item.Layer)
+		key := item.Module + ":" + item.Path
+		if _, ok := registered[item.Module]; !ok || item.Path == "" || filepath.IsAbs(item.Path) || hasWildcard(item.Path) || !validLayerName(item.Layer) {
+			return fmt.Errorf("modulePackages[%d] is invalid", index)
+		}
+		if _, exists := seenPackages[key]; exists {
+			return fmt.Errorf("modulePackages[%d] duplicates %q", index, key)
+		}
+		seenPackages[key] = struct{}{}
+	}
+	for index := range p.PublicModuleImports {
+		item := &p.PublicModuleImports[index]
+		item.Module = strings.TrimSpace(item.Module)
+		item.Import = strings.TrimSpace(item.Import)
+		if _, ok := registered[item.Module]; !ok || !validExactImport(item.Import) || strings.Contains(item.Import, "/adapters/") || strings.Contains(item.Import, "/transport/") {
+			return fmt.Errorf("publicModuleImports[%d] is invalid", index)
+		}
+	}
+	for index := range p.PackageImports {
+		item := &p.PackageImports[index]
+		item.Module = strings.TrimSpace(item.Module)
+		item.Package = normalizePath(item.Package)
+		item.Import = strings.TrimSpace(item.Import)
+		if _, ok := registered[item.Module]; !ok || item.Package == "" || filepath.IsAbs(item.Package) || hasWildcard(item.Package) || !validExactImport(item.Import) {
+			return fmt.Errorf("packageImports[%d] is invalid", index)
+		}
+	}
+	for index := range p.TestImports {
+		p.TestImports[index] = strings.TrimSpace(p.TestImports[index])
+		if !validExactImport(p.TestImports[index]) {
+			return fmt.Errorf("testImports[%d] is invalid", index)
 		}
 	}
 	for index, pattern := range p.ForbiddenNewFiles {
@@ -132,6 +225,34 @@ func (p *Policy) normalizeAndValidate() error {
 		}
 	}
 	return nil
+}
+
+// Valid reports whether protected debt has complete, bounded metadata.
+func (d ProtectedDebt) Valid() bool {
+	for _, value := range []string{d.Owner, d.Reason, d.Action, d.Baseline, d.CreatedOn, d.ExpiresOn} {
+		if strings.TrimSpace(value) == "" {
+			return false
+		}
+	}
+	createdOn, err := time.Parse("2006-01-02", d.CreatedOn)
+	if err != nil {
+		return false
+	}
+	expiresOn, err := time.Parse("2006-01-02", d.ExpiresOn)
+	return err == nil && !expiresOn.Before(createdOn) && expiresOn.Sub(createdOn) <= 90*24*time.Hour
+}
+
+func validLayerName(value string) bool {
+	switch value {
+	case "domain", "ports", "application", "adapters", "transport", "module":
+		return true
+	default:
+		return false
+	}
+}
+
+func validExactImport(value string) bool {
+	return value != "" && !hasWildcard(value) && !strings.ContainsAny(value, `\\`)
 }
 
 func normalizeModuleList(label string, modules []string, registered map[string]string) error {
