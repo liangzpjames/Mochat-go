@@ -26,6 +26,7 @@ func TestModuleRegistersWorkspaceRoutesWithoutAIProviderResolver(t *testing.T) {
 	module, err := New(Dependencies{
 		PrincipalResolver: modulePrincipalResolver{},
 		DB:                db,
+		AssistantContext:  struct{}{},
 	})
 	if err != nil {
 		t.Fatal(err)

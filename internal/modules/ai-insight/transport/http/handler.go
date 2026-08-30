@@ -2,7 +2,6 @@ package http
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -90,11 +89,6 @@ type InsightHandler struct {
 
 func NewInsightHandler(p PrincipalResolver, a Authorizer) *InsightHandler {
 	return &InsightHandler{principal: p, authorize: a}
-}
-
-func NewInsightHandlerWithStore(p PrincipalResolver, a Authorizer, db *sql.DB) *InsightHandler {
-	_ = db
-	return NewInsightHandler(p, a)
 }
 
 func (h *InsightHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {

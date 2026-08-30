@@ -7,17 +7,17 @@ import (
 	"log"
 	"time"
 
-	aisettingsmysql "jiyi/mochat-go/internal/modules/ai-settings/adapters/mysql"
 	"jiyi/mochat-go/internal/modules/providers"
 )
 
 // DailyConfig configures the once-per-day AI insight analysis job.
 type DailyConfig struct {
-	DB         *sql.DB
-	Resolver   providers.AIProviderResolver
-	Hour       int
-	RunOnStart bool
-	Logger     *log.Logger
+	DB               *sql.DB
+	Resolver         providers.AIProviderResolver
+	Hour             int
+	RunOnStart       bool
+	Logger           *log.Logger
+	AssistantContext any
 }
 
 // DailyAnalysisRunner generates and persists analysis results for every
@@ -40,8 +40,6 @@ func NewDailyAnalysisRunnerWithResolver(db *sql.DB, repo Repository, resolver pr
 	var assistant any
 	if len(assistants) > 0 {
 		assistant = assistants[0]
-	} else {
-		assistant, _ = aisettingsmysql.NewAgentRepository(db)
 	}
 	return &DailyAnalysisRunner{db: db, resolver: resolver, conversation: NewConversationAnalysisRunner(repo, resolver, RunnerConfig{}, logger, assistant), logger: logger}
 }
@@ -123,7 +121,7 @@ func RunDailyLoop(ctx context.Context, config DailyConfig) {
 	var runner *DailyAnalysisRunner
 	if config.Resolver != nil {
 		repo := NewSQLRepository(config.DB)
-		runner = NewDailyAnalysisRunnerWithResolver(config.DB, repo, config.Resolver, config.Logger)
+		runner = NewDailyAnalysisRunnerWithResolver(config.DB, repo, config.Resolver, config.Logger, config.AssistantContext)
 	}
 	run := func() {
 		started := time.Now()

@@ -8,7 +8,6 @@ import (
 
 	appmodules "jiyi/mochat-go/internal/app/modules"
 	transporthttp "jiyi/mochat-go/internal/modules/ai-insight/transport/http"
-	aisettingsmysql "jiyi/mochat-go/internal/modules/ai-settings/adapters/mysql"
 	"jiyi/mochat-go/internal/modules/providers"
 )
 
@@ -17,6 +16,7 @@ type Dependencies struct {
 	Authorizer         transporthttp.Authorizer
 	DB                 *sql.DB
 	AIProviderResolver providers.AIProviderResolver
+	AssistantContext   any
 }
 
 type Module struct {
@@ -28,15 +28,14 @@ func New(dependencies Dependencies) (*Module, error) {
 	if dependencies.PrincipalResolver == nil {
 		return nil, errors.New("AI insight principal resolver is required")
 	}
-	handler := transporthttp.NewInsightHandlerWithStore(dependencies.PrincipalResolver, dependencies.Authorizer, dependencies.DB)
+	handler := transporthttp.NewInsightHandler(dependencies.PrincipalResolver, dependencies.Authorizer)
 	var workspace *WorkspaceHandler
 	if dependencies.DB != nil {
 		var workspaceAuthorizer WorkspaceAuthorizer
 		if dependencies.Authorizer != nil {
 			workspaceAuthorizer = workspaceAuthorizerAdapter{authorizer: dependencies.Authorizer}
 		}
-		assistantRepo, _ := aisettingsmysql.NewAgentRepository(dependencies.DB)
-		workspace = NewWorkspaceHandlerWithResolver(workspacePrincipalAdapter{resolver: dependencies.PrincipalResolver}, workspaceAuthorizer, NewSQLRepository(dependencies.DB), dependencies.AIProviderResolver, assistantRepo)
+		workspace = NewWorkspaceHandlerWithResolver(workspacePrincipalAdapter{resolver: dependencies.PrincipalResolver}, workspaceAuthorizer, NewSQLRepository(dependencies.DB), dependencies.AIProviderResolver, dependencies.AssistantContext)
 	}
 	return &Module{handler: handler, workspace: workspace}, nil
 }
