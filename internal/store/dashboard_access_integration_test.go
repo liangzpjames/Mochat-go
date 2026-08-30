@@ -77,10 +77,11 @@ func TestDashboardAccessIntegration(t *testing.T) {
 	if err := store.DeleteDashboardRole(ctx, dashboard.DeleteDashboardRoleCommand{TenantID: 1, ActorUserID: 100, ActorName: "task9 actor", RoleID: fixture.RoleID, ExpectedVersion: 1, RequestID: "task9-member-delete"}); err != dashboard.ErrDashboardAccessRoleHasMembers {
 		t.Fatalf("member role delete err=%v", err)
 	}
-	var longRequest string
-	for i := 0; i < 120; i++ {
-		longRequest += "x"
-	}
+	// Migration 0176 intentionally widens audit request IDs to 128 characters so
+	// callback reconciliation can preserve every valid Idempotency-Key byte.
+	// Keep the rollback contract at the current database boundary, not the old
+	// 96-character limit.
+	longRequest := strings.Repeat("x", 129)
 	if _, err := store.UpdateDashboardRole(ctx, dashboard.UpdateDashboardRoleCommand{TenantID: 1, ActorUserID: 100, ActorName: "task9 actor", RoleID: fixture.OtherRoleID, Name: "must rollback", ExpectedVersion: 1, RequestID: longRequest}); err == nil {
 		t.Fatal("oversized audit request unexpectedly committed")
 	}
