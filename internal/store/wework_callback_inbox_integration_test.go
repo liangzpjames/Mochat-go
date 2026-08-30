@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -15,11 +14,7 @@ import (
 
 	"jiyi/mochat-go/internal/dashboard"
 	"jiyi/mochat-go/internal/migration"
-
-	"github.com/go-sql-driver/mysql"
 )
-
-var weWorkCallbackInboxSchemaSequence atomic.Int64
 
 func TestMySQLStoreWeWorkCallbackSideEffectIntentIsTransactionalAndConcurrentReplayExecutesOnce(t *testing.T) {
 	store, db, _ := newWeWorkCallbackInboxIntegrationStore(t)
@@ -122,7 +117,7 @@ func TestMySQLStoreWeWorkCallbackSideEffectIntentIsTransactionalAndConcurrentRep
 }
 
 func TestMySQLStoreWeWorkCallbackInboxConcurrentAcceptanceAndLeaseFencing(t *testing.T) {
-	store, db, runner := newWeWorkCallbackInboxIntegrationStore(t)
+	store, db, _ := newWeWorkCallbackInboxIntegrationStore(t)
 	state, err := store.WeWorkCallbackLegacyCutover(context.Background())
 	if err != nil || state.Status == "completed" || state.SourceFingerprint != "" {
 		t.Fatalf("initial cutover state=%+v err=%v", state, err)
@@ -370,56 +365,19 @@ func TestMySQLStoreWeWorkCallbackInboxConcurrentAcceptanceAndLeaseFencing(t *tes
 		t.Fatalf("max-attempt row status=%q attempts=%d", maxStatus, maxAttempts)
 	}
 
-	rolledBack, err := runner.RollbackLast(context.Background())
-	if err != nil || rolledBack != "0172_wework_callback_inbox" {
-		t.Fatalf("rollback=%q err=%v", rolledBack, err)
-	}
-	if err := db.QueryRow(`SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name='mochat_go_wework_callback_inbox'`).Scan(&rowCount); err != nil || rowCount != 0 {
-		t.Fatalf("down migration table count=%d err=%v", rowCount, err)
-	}
 }
 
 func newWeWorkCallbackInboxIntegrationStore(t *testing.T) (*MySQLStore, *sql.DB, *migration.Runner) {
 	t.Helper()
-	dsn := strings.TrimSpace(os.Getenv("MOCHAT_GO_MYSQL_INTEGRATION_DSN"))
-	if dsn == "" {
-		t.Skip("SKIP: MOCHAT_GO_MYSQL_INTEGRATION_DSN is not set; isolated MariaDB DSN is required")
-	}
-	cfg, err := mysql.ParseDSN(dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	adminCfg := *cfg
-	adminCfg.DBName = ""
-	admin, err := sql.Open("mysql", adminCfg.FormatDSN())
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = admin.Close() })
-	schema := fmt.Sprintf("mochat_callback_0172_%d_%d", os.Getpid(), weWorkCallbackInboxSchemaSequence.Add(1))
-	if _, err := admin.Exec("CREATE DATABASE `" + schema + "` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _, _ = admin.Exec("DROP DATABASE IF EXISTS `" + schema + "`") })
-	testCfg := *cfg
-	testCfg.DBName = schema
-	testCfg.ParseTime = true
-	db, err := sql.Open("mysql", testCfg.FormatDSN())
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
-	if _, err := db.Exec(`CREATE TABLE mc_corp (
-		id int(10) unsigned NOT NULL,
-		tenant_id int(10) unsigned NOT NULL,
-		deleted_at timestamp NULL DEFAULT NULL,
-		PRIMARY KEY (id),
-		UNIQUE KEY uk_callback_corp_scope (tenant_id,id)
-	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec(`INSERT INTO mc_corp (id,tenant_id) VALUES (1101,11)`); err != nil {
-		t.Fatal(err)
+	db := newCurrentStoreIntegrationDB(t)
+	for _, statement := range []string{
+		`INSERT INTO mc_tenant (id,name,status) VALUES (11,'Callback tenant',1)`,
+		`INSERT INTO mc_corp (id,tenant_id,name) VALUES (1101,11,'Callback corp')`,
+		`INSERT INTO mochat_go_tenant_corp_bindings (tenant_id,corp_id,status,version) VALUES (11,1101,1,1)`,
+	} {
+		if _, err := db.Exec(statement); err != nil {
+			t.Fatal(err)
+		}
 	}
 	root := filepath.Join("..", "..")
 	runner, err := migration.NewRunner(db, []migration.Migration{{

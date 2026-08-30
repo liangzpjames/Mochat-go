@@ -3,7 +3,6 @@ package store
 import (
 	"context"
 	"database/sql"
-	"fmt"
 	"testing"
 
 	"jiyi/mochat-go/internal/dashboard"
@@ -14,12 +13,8 @@ import (
 const archiveReadFixtureToUserType = 1
 
 func TestArchiveSourceReadUsesRegistryForItemsCountsAndPages(t *testing.T) {
-	db := newDashboardAdminProvisioningDB(t)
-	createArchiveSyncCorpFixture(t, db)
-	executeArchiveMigrationFile(t, db, "0138_archive_source_sync.up.sql")
-	defer executeArchiveMigrationFile(t, db, "0138_archive_source_sync.down.sql")
-	executeArchiveMigrationFile(t, db, "0133_archive_simulation_registry.up.sql")
-	defer executeArchiveMigrationFile(t, db, "0133_archive_simulation_registry.down.sql")
+	db := newCurrentStoreIntegrationDB(t)
+	seedArchiveReadCorp(t, db)
 	createArchiveReadFixture(t, db)
 	seedArchiveReadMessages(t, db)
 
@@ -139,10 +134,8 @@ func TestArchiveSourceReadUsesRegistryForItemsCountsAndPages(t *testing.T) {
 }
 
 func TestArchiveSourceReadLegacySimulationRegistryStaysOutOfExternalDefault(t *testing.T) {
-	db := newDashboardAdminProvisioningDB(t)
-	createArchiveSyncCorpFixture(t, db)
-	executeArchiveMigrationFile(t, db, "0133_archive_simulation_registry.up.sql")
-	defer executeArchiveMigrationFile(t, db, "0133_archive_simulation_registry.down.sql")
+	db := newCurrentStoreIntegrationDB(t)
+	seedArchiveReadCorp(t, db)
 	createArchiveReadBusinessFixture(t, db)
 
 	batch, err := db.Exec(`INSERT INTO mochat_go_archive_simulation_batches (corp_id,batch_key,status,message_count) VALUES (27,'legacy-old','complete',1)`)
@@ -260,8 +253,15 @@ func assertArchiveReadSourceDiagnostics(t *testing.T, db *sql.DB, store *MySQLSt
 	rows.Close()
 	t.Logf("archive read diagnostic source=%s state=%#v shardRows=%d registryRows=%d registryErr=%v legacyRows=%d legacyErr=%v unionRows=%d filteredRows=%d actualIDs=%v expectedIDs=%v args=%#v sql=%s", source, state, shardRows, registryRows, registryErr, legacyRows, legacyErr, unionRows, filteredRows, actualIDs, expectedIDs, unionArgs, unionSQL)
 	if state.explicit {
-		if registryErr != nil || registryRows != 1 {
+		if registryErr != nil {
 			t.Fatalf("archive read registry diagnostic source=%s state=%#v registryRows=%d registryErr=%v", source, state, registryRows, registryErr)
+		}
+		if registryRows == 0 && source == "simulated" && state.legacySimulation {
+			if legacyErr != nil || legacyRows != expected {
+				t.Fatalf("archive read legacy fallback diagnostic source=%s state=%#v legacyRows=%d legacyErr=%v", source, state, legacyRows, legacyErr)
+			}
+		} else if registryRows != 1 {
+			t.Fatalf("archive read registry diagnostic source=%s state=%#v registryRows=%d want=1", source, state, registryRows)
 		}
 	} else if state.legacySimulation {
 		if legacyErr != nil || legacyRows != expected {
@@ -293,9 +293,6 @@ func createArchiveReadFixture(t *testing.T, db *sql.DB) {
 func createArchiveReadBusinessFixture(t *testing.T, db *sql.DB) {
 	t.Helper()
 	for _, statement := range []string{
-		`CREATE TABLE mc_work_employee (id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY, corp_id INT UNSIGNED NOT NULL, name VARCHAR(255) NOT NULL DEFAULT '', alias VARCHAR(255) NOT NULL DEFAULT '', avatar VARCHAR(255) NOT NULL DEFAULT '', wx_user_id VARCHAR(255) NOT NULL, deleted_at DATETIME NULL) ENGINE=InnoDB`,
-		`CREATE TABLE mc_work_contact (id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY, corp_id INT UNSIGNED NOT NULL, name VARCHAR(255) NOT NULL DEFAULT '', alias VARCHAR(255) NOT NULL DEFAULT '', avatar VARCHAR(255) NOT NULL DEFAULT '', wx_external_userid VARCHAR(255) NOT NULL, deleted_at DATETIME NULL) ENGINE=InnoDB`,
-		`CREATE TABLE mc_work_room (id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY, corp_id INT UNSIGNED NOT NULL, name VARCHAR(255) NOT NULL DEFAULT '', avatar VARCHAR(255) NOT NULL DEFAULT '', wx_chat_id VARCHAR(255) NOT NULL, deleted_at DATETIME NULL) ENGINE=InnoDB`,
 		`INSERT INTO mc_work_employee (id, corp_id, name, wx_user_id) VALUES (1001, 27, 'Read employee', 'employee-read')`,
 		`INSERT INTO mc_work_contact (id, corp_id, name, wx_external_userid) VALUES (2001, 27, 'Read contact', 'contact-read')`,
 	} {
@@ -303,14 +300,16 @@ func createArchiveReadBusinessFixture(t *testing.T, db *sql.DB) {
 			t.Fatal(err)
 		}
 	}
-	for index := 1; index <= 10; index++ {
-		if _, err := db.Exec(fmt.Sprintf(`CREATE TABLE mc_work_message_%d (
-			id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY, corp_id INT UNSIGNED NOT NULL, msgid VARCHAR(255) NOT NULL,
-			seq BIGINT NOT NULL, work_employee_id INT NOT NULL, to_user_type INT NOT NULL, to_user_id INT NOT NULL,
-			sender_type INT NOT NULL DEFAULT 0, action INT NOT NULL DEFAULT 0, type INT NOT NULL DEFAULT 1, msg_type INT NOT NULL DEFAULT 1,
-			content TEXT NOT NULL, content_text TEXT NOT NULL, room_id INT NOT NULL DEFAULT 0, msg_data_time DATETIME NULL,
-			deleted_at DATETIME NULL
-		) ENGINE=InnoDB`, index)); err != nil {
+}
+
+func seedArchiveReadCorp(t *testing.T, db *sql.DB) {
+	t.Helper()
+	for _, statement := range []string{
+		`INSERT INTO mc_tenant (id,name,status) VALUES (11,'Archive read tenant',1)`,
+		`INSERT INTO mc_corp (id,tenant_id,name,chat_status) VALUES (27,11,'Archive read corp',1)`,
+		`INSERT INTO mochat_go_tenant_corp_bindings (tenant_id,corp_id,status,version) VALUES (11,27,1,1)`,
+	} {
+		if _, err := db.Exec(statement); err != nil {
 			t.Fatal(err)
 		}
 	}

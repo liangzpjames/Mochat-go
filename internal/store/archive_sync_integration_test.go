@@ -827,13 +827,8 @@ func TestArchiveSyncMigrationApplyDownApplyAndRejectsCrossTenantRun(t *testing.T
 }
 
 func TestArchiveSyncUpsertValidatesRunScopeAndRollsBackSourceFailure(t *testing.T) {
-	db := newDashboardAdminProvisioningDB(t)
-	createArchiveSyncCorpFixture(t, db)
-	executeArchiveMigrationFile(t, db, "0138_archive_source_sync.up.sql")
-	defer executeArchiveMigrationFile(t, db, "0138_archive_source_sync.down.sql")
-	executeArchiveMigrationFile(t, db, "0143_group_conversation_workspace.up.sql")
-	defer executeArchiveMigrationFile(t, db, "0143_group_conversation_workspace.down.sql")
-	createArchiveMessageUpsertFixture(t, db)
+	db := newCurrentStoreIntegrationDB(t)
+	seedCurrentArchiveMessageFixture(t, db)
 
 	ctx := context.Background()
 	store := NewMySQLStore(db)
@@ -882,13 +877,8 @@ func TestArchiveSyncUpsertValidatesRunScopeAndRollsBackSourceFailure(t *testing.
 }
 
 func TestArchiveSyncLeaseFenceRejectsStaleWorkerMutations(t *testing.T) {
-	db := newDashboardAdminProvisioningDB(t)
-	createArchiveSyncCorpFixture(t, db)
-	executeArchiveMigrationFile(t, db, "0138_archive_source_sync.up.sql")
-	defer executeArchiveMigrationFile(t, db, "0138_archive_source_sync.down.sql")
-	executeArchiveMigrationFile(t, db, "0143_group_conversation_workspace.up.sql")
-	defer executeArchiveMigrationFile(t, db, "0143_group_conversation_workspace.down.sql")
-	createArchiveMessageUpsertFixture(t, db)
+	db := newCurrentStoreIntegrationDB(t)
+	seedCurrentArchiveMessageFixture(t, db)
 	store := NewMySQLStore(db)
 	ctx := context.Background()
 	template := archiveprovider.SyncRun{Scope: archiveprovider.Scope{TenantID: 11, CorpID: 27}, Source: providers.SourceSimulated, SourceID: "simulation:fence", Namespace: "MOCHAT-SIM:fence", IdempotencyKey: "fence-1"}
@@ -938,13 +928,8 @@ func TestArchiveSyncLeaseFenceRejectsStaleWorkerMutations(t *testing.T) {
 }
 
 func TestArchiveSyncConcurrentDifferentRunsClaimOneMessageIdentity(t *testing.T) {
-	db := newDashboardAdminProvisioningDB(t)
-	createArchiveSyncCorpFixture(t, db)
-	executeArchiveMigrationFile(t, db, "0138_archive_source_sync.up.sql")
-	defer executeArchiveMigrationFile(t, db, "0138_archive_source_sync.down.sql")
-	executeArchiveMigrationFile(t, db, "0143_group_conversation_workspace.up.sql")
-	defer executeArchiveMigrationFile(t, db, "0143_group_conversation_workspace.down.sql")
-	createArchiveMessageUpsertFixture(t, db)
+	db := newCurrentStoreIntegrationDB(t)
+	seedCurrentArchiveMessageFixture(t, db)
 	store := NewMySQLStore(db)
 	ctx := context.Background()
 	base := archiveprovider.SyncRun{Scope: archiveprovider.Scope{TenantID: 11, CorpID: 27}, Source: providers.SourceSimulated, SourceID: "simulation:claim", Namespace: "MOCHAT-SIM:claim"}
@@ -1025,6 +1010,21 @@ func createArchiveMessageUpsertFixture(t *testing.T, db *sql.DB) {
 		`CREATE TABLE mc_work_contact (id INT UNSIGNED NOT NULL AUTO_INCREMENT, corp_id INT UNSIGNED NOT NULL, wx_external_userid VARCHAR(255) NOT NULL, name VARCHAR(255) NOT NULL DEFAULT '', avatar VARCHAR(255) NOT NULL DEFAULT '', deleted_at DATETIME NULL, PRIMARY KEY (id), KEY idx_archive_fixture_contact (corp_id, wx_external_userid)) ENGINE=InnoDB`,
 		`INSERT INTO mc_work_employee (id, corp_id, wx_user_id, name) VALUES (1001, 27, 'employee-atomic', 'Atomic employee')`,
 		`INSERT INTO mc_work_contact (id, corp_id, wx_external_userid, name) VALUES (2001, 27, 'contact-atomic', 'Atomic contact')`,
+	} {
+		if _, err := db.Exec(statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func seedCurrentArchiveMessageFixture(t *testing.T, db *sql.DB) {
+	t.Helper()
+	for _, statement := range []string{
+		`INSERT INTO mc_tenant (id,name,status) VALUES (11,'Archive sync tenant',1)`,
+		`INSERT INTO mc_corp (id,tenant_id,name,chat_status) VALUES (27,11,'Archive sync corp',1)`,
+		`INSERT INTO mochat_go_tenant_corp_bindings (tenant_id,corp_id,status,version) VALUES (11,27,1,1)`,
+		`INSERT INTO mc_work_employee (id,corp_id,wx_user_id,name) VALUES (1001,27,'employee-atomic','Atomic employee')`,
+		`INSERT INTO mc_work_contact (id,corp_id,wx_external_userid,name) VALUES (2001,27,'contact-atomic','Atomic contact')`,
 	} {
 		if _, err := db.Exec(statement); err != nil {
 			t.Fatal(err)
