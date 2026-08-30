@@ -14,6 +14,7 @@ export const phase32ScenarioTests = Object.freeze([
     { package: 'jiyi/mochat-go/internal/modules/scrm/adapters/mysql', source: 'internal/modules/scrm/adapters/mysql/lead_repository_integration_test.go', name: 'TestLeadRepositoryListIncludesMaximumMySQLTimestampOnFirstPage' },
     { package: 'jiyi/mochat-go/internal/modules/scrm/adapters/mysql', source: 'internal/modules/scrm/adapters/mysql/lead_repository_integration_test.go', name: 'TestLeadRepositoryConcurrentCreateProducesOneRow' },
     { package: 'jiyi/mochat-go/internal/modules/scrm/adapters/mysql', source: 'internal/modules/scrm/adapters/mysql/lead_repository_integration_test.go', name: 'TestIntegrationRepositoryPreservesOtherRowsAndCleansOwnTenant' },
+    { package: 'jiyi/mochat-go/internal/modules/scrm/adapters/mysql', source: 'internal/modules/scrm/adapters/mysql/customer_tag_integration_test.go', name: 'TestCustomerTagMariaDBCatalogIsolationVersionsAndIdempotency' },
     { package: 'jiyi/mochat-go/internal/modules/scrm/adapters/mysql', source: 'internal/modules/scrm/adapters/mysql/opportunity_repository_integration_test.go', name: 'TestOpportunityRepositoryListUsesPersistedStageID' },
     { package: 'jiyi/mochat-go/internal/store', source: 'internal/store/corp_data_test.go', name: 'TestIntegrationCorpDataScopedQueriesExecute' },
 ]);
@@ -139,7 +140,7 @@ export const main = () => {
     process.stderr.write(testResult.stderr ?? '');
     if (testResult.status !== 0) throw new Error(`Phase 3.2 go test failed with exit code ${testResult.status}`);
     assertPhase32TestsExecuted(testResult.stdout ?? '');
-    console.log('Phase 3.2 isolated MariaDB integration passed (9/9 scenarios, current production migration registry).');
+    console.log('Phase 3.2 isolated MariaDB integration passed (10/10 scenarios, current production migration registry).');
   } finally {
     if (containerStarted) {
       cleanupContainer(root, containerName);
